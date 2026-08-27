@@ -1,0 +1,508 @@
+diff --git a/docs/subsystems/README.i18n.yaml b/docs/subsystems/README.i18n.yaml
+index 732f424935..dc33134120 100644
+--- a/docs/subsystems/README.i18n.yaml
++++ b/docs/subsystems/README.i18n.yaml
+@@ -2,5 +2,5 @@
+ # side as of the last confirmed-consistent state. Both languages carry equal authority;
+ # after editing either side, bring the other along and re-record with:
+ #   pnpm run verify-translation-pairing --write docs/subsystems/README.md
+-README.md: d926abac718ba14b0d50f27d7c00b421c8460352
+-README.zh.md: 911d39a4ecb6c278b7bae2d28b493821435c3833
++README.md: 1ae385964417c412d67097f0fbb6a94c2ac9373b
++README.zh.md: b4340392fc952dd4f858c911df3b4533e4afa039
+diff --git a/docs/subsystems/README.md b/docs/subsystems/README.md
+index d926abac71..1ae3859644 100644
+--- a/docs/subsystems/README.md
++++ b/docs/subsystems/README.md
+@@ -21,6 +21,7 @@ One page per subsystem of the DeepSeek Harness: what it is, the data structures
+ | [session-query.md](session-query.md) | logical records, bounded exact-event reads, relationship traces, semantic filters/documents, and full-text result pages |
+ | [feedback.md](feedback.md) | lifecycle-bound per-message feedback records, optimistic versions, sidecar persistence, and the Host Remote contract |
+ | [session-title.md](session-title.md) | durable title snapshots, cited source-message seqs, and the asynchronous provider contract |
++| [session-tree.md](session-tree.md) | append-only multi-branch conversation trees: immutable nodes, cursor navigation, LLM context reconstruction, and versioned JSON snapshots |
+ | [session-reference.md](session-reference.md) | structured cross-session references: `SessionReferenceInput`/`Candidate`, prepared message contexts, the stable error taxonomy |
+ | [system-prompt.md](system-prompt.md) | per-assembly context, tool-provider results, prompt sections, and cooperative assembly |
+ | [tools.md](tools.md) | `ToolDefinition` full fields, the schema DSL, `ToolExecution`/`ToolResult`, tool-presentation UI types, and the guarded execution pipeline |
+diff --git a/docs/subsystems/README.zh.md b/docs/subsystems/README.zh.md
+index 911d39a4ec..b4340392fc 100644
+--- a/docs/subsystems/README.zh.md
++++ b/docs/subsystems/README.zh.md
+@@ -21,6 +21,7 @@
+ | [session-query.md](session-query.zh.md) | 逻辑记录、有界精确事件读取、关系追踪、语义筛选器/文档与全文检索结果页 |
+ | [feedback.md](feedback.zh.md) | 绑定生命周期的逐消息反馈记录、乐观版本、伴随记录持久化与 Host Remote 契约 |
+ | [session-title.md](session-title.zh.md) | 持久标题快照、被引用的来源消息 seq 与异步提供方约定 |
++| [session-tree.md](session-tree.zh.md) | 只追加的多分支会话树：不可变节点、光标导航、LLM 上下文重建与版本化 JSON 快照 |
+ | [session-reference.md](session-reference.zh.md) | 结构化跨会话引用：`SessionReferenceInput`/`Candidate`、prepared 消息上下文、稳定错误分类 |
+ | [system-prompt.md](system-prompt.zh.md) | 逐次组装的上下文、工具提供方结果、提示词段落与协作式组装 |
+ | [tools.md](tools.zh.md) | `ToolDefinition` 完整字段、schema DSL、`ToolExecution`/`ToolResult`、工具展示 UI 类型，以及受保护的执行流水线 |
+diff --git a/docs/tool-catalog.i18n.yaml b/docs/tool-catalog.i18n.yaml
+index 10447d6107..c7213b33ee 100644
+--- a/docs/tool-catalog.i18n.yaml
++++ b/docs/tool-catalog.i18n.yaml
+@@ -2,5 +2,5 @@
+ # side as of the last confirmed-consistent state. Both languages carry equal authority;
+ # after editing either side, bring the other along and re-record with:
+ #   pnpm run verify-translation-pairing --write docs/tool-catalog.md
+-tool-catalog.md: 1fa650f1e4e025274d069f27a6522abff46af2e2
+-tool-catalog.zh.md: c3209e7007e9cf05770ccee0698f9e98a32e8363
++tool-catalog.md: c0a6a3eddffb7843178098481cd19f5fb04b7ee5
++tool-catalog.zh.md: 60958acaa0f278bf038e8d482a6ddfe238d7e74e
+diff --git a/docs/tool-catalog.md b/docs/tool-catalog.md
+index 1fa650f1e4..c0a6a3eddf 100644
+--- a/docs/tool-catalog.md
++++ b/docs/tool-catalog.md
+@@ -33,6 +33,7 @@ This table connects model-visible tool names to the plugin package and service s
+ | `@deepseek-ai/dsh-tool-ralph` | `ralph` | `ctx.tools`, `ctx.workflowEngine`, `ctx.subagents`, `ctx.systemPrompt`, `a calling Agent (exec.agent parents every fresh round)` | `tool/call`, `tool/result`, `workflow and child session events during execution` | - | A fixed foreground workflow starts one fresh structured child per round; the model selects only the immutable objective and an optional round cap. |
+ | `@deepseek-ai/dsh-tool-skill` | `skill` | `ctx.tools`, `ctx.agents`, `ctx.skills` | `tool/call`, `tool/result`, `user/message replacement catalogs via agent.inject()` | - | - |
+ | `@deepseek-ai/dsh-tool-session-query` | `session_event_read`, `session_event_search`, `session_event_trace`, `session_search`, `session_trace` | `ctx.tools`, `ctx.systemPrompt`, `ctx.sessionQuery`, `a calling Agent for workspace authority` | `tool/call`, `tool/result` | - | The five read-only tools hide provider cursors and authorize every result from the immutable calling agent session. The package is opt-in; compositions that need enforced deadlines or bounded inline output also mount the generic timeout or spill policies. |
++| `@deepseek-ai/dsh-tool-session-tree` | `session_tree` | `ctx.tools`, `ctx.systemPrompt`, `a calling Agent for session identity` | `tool/call`, `tool/result` | - | One append-only conversation tree per agent session; nodes are never modified or deleted, and context reconstructs only the root-to-cursor path. The store is process-wide and shared with the sessionTree Remote service, so model appends appear in the browser panel immediately. |
+ | `@deepseek-ai/dsh-tool-subagent` | `subagent` | `ctx.tools`, `ctx.subagents`, `ctx.systemPrompt` | `tool/call`, `tool/result`, `child session events through the chosen provider` | `subagent`, `subagent_fork` | The registered tool name is the load-time `toolName` config (default `subagent`); the schema above is that default. The shipped compositions load this package once per subagent backend, so the model additionally sees `subagent_fork` bound to the fork backend. Each instance's description, `run_in_background` parameter, and system-prompt policy follow its own `backgroundMode` and `enableRunInBackground`, so the two shipped schemas are not identical: `subagent` is `continuable` and defaults omitted calls to background with automatic settlement delivery, while `subagent_fork` stays `one-shot` and defaults them to foreground — see `packages/bundle/base/cordis.patch.yml` and `examples/acp-agent/cordis.yml`. |
+ | `@deepseek-ai/dsh-tool-subagent-control` | `interrupt_agent`, `list_agents`, `send_message` | `ctx.tools`, `ctx.subagents`, `ctx.agents and ctx.sessionProjections (list_agents only)` | `tool/call`, `tool/result`, `child session events through ctx.subagents` | - | The globally named control tools over continuable background subagents: provider-bound `tool-subagent` instances register distinct delegation tools, while this package registers `send_message` and `interrupt_agent` once, plus `list_agents` from its separately loaded `/list-agents` plugin (whose catalog rows use the sessionProjections and live Agent registries). |
+ | `@deepseek-ai/dsh-tool-subagent-report` | `report` | `ctx.subagents`, `ctx.systemPrompt`, `a live continuable in-process child Agent` | `tool/call`, `tool/result`, `a user-role message in the direct parent session` | - | Registered per continuable in-process child rather than globally, so this schema is visible only inside such a child and survives its global `toolFilter`. The same contribution installs the child-scoped `tool:report` prompt section, which this catalog does not render. The parent-facing `send_message` tool is installed independently. |
+@@ -1497,6 +1498,46 @@ Source: [`packages/session-query/tool-session-query/src/index.ts`](../packages/s
+ 
+ The five read-only tools hide provider cursors and authorize every result from the immutable calling agent session. The package is opt-in; compositions that need enforced deadlines or bounded inline output also mount the generic timeout or spill policies.
+ 
++<a id="deepseek-aidsh-tool-session-tree"></a>
++
++## `@deepseek-ai/dsh-tool-session-tree`
++
++### `session_tree`
++
++Manage isolated append-only conversation trees (one per agent session) and reconstruct standard LLM messages. Use context to read the active cursor path, append to grow the current branch, branch from any historical node to fork (old nodes are never modified or deleted), and snapshot.save/snapshot.load to export or restore the tree as JSON.
++
++```json
++{
++  "type": "object",
++  "properties": {
++    "operation": {
++      "type": "string"
++    },
++    "sessionId": {
++      "type": "string"
++    },
++    "nodeId": {
++      "type": "string"
++    },
++    "branch": {
++      "type": "string"
++    },
++    "summary": {
++      "type": "string"
++    },
++    "message": {},
++    "snapshot": {}
++  },
++  "required": [
++    "operation"
++  ]
++}
++```
++
++Source: [`packages/extensions/tool-session-tree/src/index.ts`](../packages/extensions/tool-session-tree/src/index.ts)
++
++One append-only conversation tree per agent session; nodes are never modified or deleted, and context reconstructs only the root-to-cursor path. The store is process-wide and shared with the sessionTree Remote service, so model appends appear in the browser panel immediately.
++
+ <a id="deepseek-aidsh-tool-subagent"></a>
+ 
+ ## `@deepseek-ai/dsh-tool-subagent`
+diff --git a/docs/tool-catalog.zh.md b/docs/tool-catalog.zh.md
+index c3209e7007..60958acaa0 100644
+--- a/docs/tool-catalog.zh.md
++++ b/docs/tool-catalog.zh.md
+@@ -37,6 +37,7 @@
+ | `@deepseek-ai/dsh-tool-ralph` | `ralph` | `ctx.tools`、`ctx.workflowEngine`、`ctx.subagents`、`ctx.systemPrompt`、`a calling Agent (exec.agent parents every fresh round)` | `tool/call`、`tool/result`、`workflow and child session events during execution` | - | 固定的前台工作流会在每个 Round 启动一个全新的结构化子级；模型只能选择不可变目标和可选的 Round 上限。 |
+ | `@deepseek-ai/dsh-tool-skill` | `skill` | `ctx.tools`、`ctx.agents`、`ctx.skills` | `tool/call`、`tool/result`、`user/message replacement catalogs via agent.inject()` | - | - |
+ | `@deepseek-ai/dsh-tool-session-query` | `session_event_read`、`session_event_search`、`session_event_trace`、`session_search`、`session_trace` | `ctx.tools`、`ctx.systemPrompt`、`ctx.sessionQuery`、`a calling Agent for workspace authority` | `tool/call`、`tool/result` | - | 这 5 个只读工具会隐藏提供方游标，并根据不可变的调用 agent 会话为每个结果授权。该包需要选择启用；需要强制截止时间或限制行内输出的组合还会挂载通用超时或 spill 策略。 |
++| `@deepseek-ai/dsh-tool-session-tree` | `session_tree` | `ctx.tools`、`ctx.systemPrompt`、`a calling Agent for session identity` | `tool/call`、`tool/result` | - | 每个 agent 会话一棵只追加会话树；节点永不被修改或删除，context 只重建根→光标路径。存储是进程级共享，并与 sessionTree Remote 服务共用，因此模型追加的内容会立即出现在浏览器面板中。 |
+ | `@deepseek-ai/dsh-tool-subagent` | `subagent` | `ctx.tools`、`ctx.subagents`、`ctx.systemPrompt` | `tool/call`、`tool/result`、`child session events through the chosen provider` | `subagent`、`subagent_fork` | 注册的工具名称取决于加载时 `toolName` 配置（默认为 `subagent`）；上述 schema 对应默认值。随产品发布的组合会为每个 subagent 后端加载一次该包，因此模型还会看到绑定到 fork 后端的 `subagent_fork`。每个实例的描述、`run_in_background` 参数与 system prompt 策略取决于它自己的 `backgroundMode` 和 `enableRunInBackground`，因此两个随附 schema 并不相同：`subagent` 为 `continuable`，省略参数时默认后台运行，并由 runtime 自动投递结束结果；`subagent_fork` 保持 `one-shot`，省略参数时默认前台运行。详见 `packages/bundle/base/cordis.patch.yml` 和 `examples/acp-agent/cordis.yml`。 |
+ | `@deepseek-ai/dsh-tool-subagent-control` | `interrupt_agent`、`list_agents`、`send_message` | `ctx.tools`、`ctx.subagents`、`ctx.agents and ctx.sessionProjections (list_agents only)` | `tool/call`、`tool/result`、`child session events through ctx.subagents` | - | 这些是控制可继续后台 subagent 的全局命名工具：绑定提供方的 `tool-subagent` 实例注册不同的委派工具；本包注册一次 `send_message` 和 `interrupt_agent`，另由 `list_agents` 通过单独加载的 `/list-agents` 插件提供，其目录行使用 sessionProjections 和实时 Agent 注册表。 |
+ | `@deepseek-ai/dsh-tool-subagent-report` | `report` | `ctx.subagents`、`ctx.systemPrompt`、`a live continuable in-process child Agent` | `tool/call`、`tool/result`、`a user-role message in the direct parent session` | - | 按可继续的进程内子级注册，而非全局注册，因此该 schema 仅在这种子级内部可见，并且不受其全局 `toolFilter` 影响。同一份贡献还会安装子级作用域的 `tool:report` 系统提示词 section，本目录不渲染该 section。面向父级的 `send_message` 工具单独安装。 |
+@@ -1503,6 +1504,46 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，
+ 
+ 这 5 个只读工具会隐藏提供方游标，并根据不可变的调用 agent 会话为每个结果授权。该包需要选择启用；需要强制截止时间或限制行内输出的组合还会挂载通用超时或 spill 策略。
+ 
++<a id="deepseek-aidsh-tool-session-tree"></a>
++
++## `@deepseek-ai/dsh-tool-session-tree`
++
++### `session_tree`
++
++管理隔离的只追加会话树（每个 agent 会话一棵）并重建标准 LLM 消息。用 context 读取活动光标路径，用 append 增长当前分支，可从任意历史节点 branch 分叉（旧节点永不被修改或删除），用 snapshot.save/snapshot.load 以 JSON 导出或恢复整棵树。
++
++```json
++{
++  "type": "object",
++  "properties": {
++    "operation": {
++      "type": "string"
++    },
++    "sessionId": {
++      "type": "string"
++    },
++    "nodeId": {
++      "type": "string"
++    },
++    "branch": {
++      "type": "string"
++    },
++    "summary": {
++      "type": "string"
++    },
++    "message": {},
++    "snapshot": {}
++  },
++  "required": [
++    "operation"
++  ]
++}
++```
++
++来源：[`packages/extensions/tool-session-tree/src/index.ts`](../packages/extensions/tool-session-tree/src/index.ts)
++
++每个 agent 会话一棵只追加会话树；节点永不被修改或删除，context 只重建根→光标路径。存储是进程级共享，并与 sessionTree Remote 服务共用，因此模型追加的内容会立即出现在浏览器面板中。
++
+ <a id="deepseek-aidsh-tool-subagent"></a>
+ 
+ ## `@deepseek-ai/dsh-tool-subagent`
+diff --git a/packages/api/remotes/package.json b/packages/api/remotes/package.json
+index 102344ba91..8243a89a69 100644
+--- a/packages/api/remotes/package.json
++++ b/packages/api/remotes/package.json
+@@ -75,7 +75,8 @@
+     "@deepseek-ai/dsh-session-reference": "workspace:^",
+     "@deepseek-ai/dsh-settings": "workspace:^",
+     "@deepseek-ai/dsh-typert-registry": "workspace:^",
+-    "@deepseek-ai/cordis": "workspace:^"
++    "@deepseek-ai/cordis": "workspace:^",
++    "@deepseek-ai/dsh-pi-agent-session-tree": "workspace:^"
+   },
+   "devDependencies": {
+     "@deepseek-ai/dsh-agent": "workspace:^",
+@@ -95,6 +96,7 @@
+     "@deepseek-ai/dsh-session-reference": "workspace:^",
+     "@deepseek-ai/dsh-settings": "workspace:^",
+     "@deepseek-ai/dsh-typert-registry": "workspace:^",
+-    "@deepseek-ai/cordis": "workspace:^"
++    "@deepseek-ai/cordis": "workspace:^",
++    "@deepseek-ai/dsh-pi-agent-session-tree": "workspace:^"
+   }
+ }
+diff --git a/packages/api/remotes/src/client/index.ts b/packages/api/remotes/src/client/index.ts
+index 6a5164f160..ced806c636 100644
+--- a/packages/api/remotes/src/client/index.ts
++++ b/packages/api/remotes/src/client/index.ts
+@@ -8,6 +8,7 @@ import fileReferencesRemote from '@deepseek-ai/dsh-file-reference/remote'
+ import pluginInventoryRemote from '@deepseek-ai/dsh-host-plugin-inventory/remote'
+ import messageFeedbackRemote from '@deepseek-ai/dsh-message-feedback/remote'
+ import sessionReferencesRemote from '@deepseek-ai/dsh-session-reference/remote'
++import sessionTreeRemote from '@deepseek-ai/dsh-pi-agent-session-tree/remote'
+ import type { TypertClientRemote } from '@deepseek-ai/dsh-typert-protocol'
+ 
+ export type { TypertClientRemote as ClientRemote } from '@deepseek-ai/dsh-typert-protocol'
+@@ -17,6 +18,7 @@ export type {} from '@deepseek-ai/dsh-file-reference/remote'
+ export type {} from '@deepseek-ai/dsh-goal/remote'
+ export type {} from '@deepseek-ai/dsh-host-plugin-inventory/remote'
+ export type {} from '@deepseek-ai/dsh-message-feedback/remote'
++export type {} from '@deepseek-ai/dsh-pi-agent-session-tree/remote'
+ export type {} from '@deepseek-ai/dsh-session-reference/remote'
+ // The forwarded-event allowlist's selection seat: without it in the consumer's
+ // compilation face `TypertRemoteEvent` is `never` and every `$on` call fails.
+@@ -116,6 +118,7 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
+     for (const contribution of [
+       commandsRemote, goalsRemote, dynamicRemote, fileReferencesRemote,
+       pluginInventoryRemote, messageFeedbackRemote, sessionReferencesRemote,
++      sessionTreeRemote,
+     ]) {
+       disposers.push(await ctx.remote.$mount(contribution))
+     }
+diff --git a/packages/api/remotes/tsconfig.client.json b/packages/api/remotes/tsconfig.client.json
+index 49c7276d42..5868858714 100644
+--- a/packages/api/remotes/tsconfig.client.json
++++ b/packages/api/remotes/tsconfig.client.json
+@@ -33,6 +33,9 @@
+     {
+       "path": "../../extensions/cordis-host-runner"
+     },
++    {
++      "path": "../../extensions/pi-agent-session-tree"
++    },
+     {
+       "path": "../../goal/goal"
+     },
+diff --git a/packages/bundle/base/cordis.patch.yml b/packages/bundle/base/cordis.patch.yml
+index e9567d9206..51b0a3233f 100644
+--- a/packages/bundle/base/cordis.patch.yml
++++ b/packages/bundle/base/cordis.patch.yml
+@@ -262,6 +262,15 @@
+     - id: command-goal
+       name: '@deepseek-ai/dsh-command-goal'
+ 
++    # Append-only PI-Agent-style session trees: the domain service (Remote
++    # namespace `sessionTree` for the browser panel) and the tool/command
++    # companion over the shared store.
++    - id: pi-agent-session-tree
++      name: '@deepseek-ai/dsh-pi-agent-session-tree'
++
++    - id: tool-session-tree
++      name: '@deepseek-ai/dsh-tool-session-tree'
++
+     - id: plan-mode
+       name: '@deepseek-ai/dsh-plan-mode'
+       config:
+diff --git a/packages/bundle/base/package.json b/packages/bundle/base/package.json
+index 2096a64b75..aeab269a89 100644
+--- a/packages/bundle/base/package.json
++++ b/packages/bundle/base/package.json
+@@ -115,7 +115,9 @@
+     "@deepseek-ai/dsh-web": "workspace:^",
+     "@deepseek-ai/dsh-web-search-deepseek": "workspace:^",
+     "@deepseek-ai/dsh-workflow-worker-thread": "workspace:^",
+-    "@deepseek-ai/dsh-agent-instructions": "workspace:^"
++    "@deepseek-ai/dsh-agent-instructions": "workspace:^",
++    "@deepseek-ai/dsh-pi-agent-session-tree": "workspace:^",
++    "@deepseek-ai/dsh-tool-session-tree": "workspace:^"
+   },
+   "peerDependencies": {
+     "@deepseek-ai/dsh-invariants": "workspace:^",
+diff --git a/packages/bundle/web-app/cordis.patch.yml b/packages/bundle/web-app/cordis.patch.yml
+index 61151bdc65..c9fa5a8854 100644
+--- a/packages/bundle/web-app/cordis.patch.yml
++++ b/packages/bundle/web-app/cordis.patch.yml
+@@ -108,6 +108,10 @@
+     - id: cordis-host-runner
+       name: '@deepseek-ai/dsh-cordis-host-runner'
+ 
++    # Session-tree host rows moved to the base layer (pi-agent-session-tree
++    # domain service + tool-session-tree companion); only the browser panel
++    # lives here.
++
+     # Ordinary provider for the parsed Web flags. Its plugin-level injection
+     # waits for cmdlineArgs; no launcher metadata or special row kind is needed.
+     - id: web-startup
+@@ -294,6 +298,11 @@
+     - id: ui-trajectory
+       name: '@deepseek-ai/dsh-client-ui-trajectory'
+ 
++    # Append-only PI-Agent-style session trees: host half (tool + /tree command +
++    # sessionTree Remote) and the embedded dock panel that visualizes and jumps.
++    - id: ui-session-tree
++      name: '@deepseek-ai/dsh-client-ui-session-tree'
++
+ # ── the agent plane moves behind agent presets ─────────────────────────────
+ #
+ # Every row below composes what ONE agent contributes to the host registries:
+diff --git a/packages/bundle/web-app/package.json b/packages/bundle/web-app/package.json
+index 530192b0e4..c7ee2625b5 100644
+--- a/packages/bundle/web-app/package.json
++++ b/packages/bundle/web-app/package.json
+@@ -112,7 +112,8 @@
+     "@deepseek-ai/dsh-workspace": "workspace:^",
+     "@deepseek-ai/schemastery": "workspace:^",
+     "commander": "^15.0.0",
+-    "open": "^11.0.0"
++    "open": "^11.0.0",
++    "@deepseek-ai/dsh-client-ui-session-tree": "workspace:^"
+   },
+   "peerDependencies": {
+     "@deepseek-ai/cordis-plugin-loader": "workspace:^",
+diff --git a/packages/extensions/tool-cordis/src/api-catalog.ts b/packages/extensions/tool-cordis/src/api-catalog.ts
+index 32e9ccbda6..445ec5461e 100644
+--- a/packages/extensions/tool-cordis/src/api-catalog.ts
++++ b/packages/extensions/tool-cordis/src/api-catalog.ts
+@@ -1572,6 +1572,26 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
+       },
+     ],
+   },
++  {
++    key: 'sessionTree',
++    summary: 'Remote-only service backing the browser tree panel.',
++    description: 'Remote-only service backing the browser tree panel.',
++    methods: [
++      {
++        signature: '@Remote(\'list\') list(agent: Agent): SessionTreeView',
++        description: 'Read the current tree view (nodes, branches, cursor) for one agent. The tree is created on first read, so an empty panel is valid.',
++        parameters: [{ name: 'agent', description: 'owning live agent.' }],
++        returns: 'the complete view for the panel.',
++      },
++      {
++        signature: '@Remote(\'jump\') jump(agent: Agent, nodeId: string | null): JumpView',
++        description: 'Move the cursor to an existing node and replay its root-to-node path. Old branches remain intact.',
++        parameters: [{ name: 'agent', description: 'owning live agent.' }, { name: 'nodeId', description: 'target node, or null to reset before the first node.' }],
++        returns: 'the new cursor and reconstructed messages.',
++        throws: ['Error when the node does not exist (settles as the standard error envelope).'],
++      },
++    ],
++  },
+   {
+     key: 'settings',
+     summary: 'Abstract settings service.',
+@@ -3013,6 +3033,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
+     name: 'BashEnvVariableInfo',
+     declaration: 'export interface BashEnvVariableInfo extends BashEnvVariable {\n    contributor: string;\n    key: DshEnvironmentKey;\n}',
+   },
++  {
++    name: 'BranchView',
++    declaration: 'export interface BranchView {\n    readonly name: string;\n    readonly headId: string;\n    readonly nodeIds: readonly string[];\n}',
++  },
+   {
+     name: 'Branded',
+     declaration: 'export type Branded<B extends string> = string & {\n    readonly [BRAND]: B;\n};',
+@@ -3570,8 +3594,8 @@ export const TYPE_API: readonly TypeApiEntry[] = [
+     declaration: 'export type JsonSchemaType = \'object\' | \'array\' | \'string\' | \'number\' | \'integer\' | \'boolean\' | \'null\';',
+   },
+   {
+-    name: 'JsonValue',
+-    declaration: 'export type JsonValue = null | boolean | number | string | JsonValue[] | {\n    [key: string]: JsonValue;\n};',
++    name: 'JumpView',
++    declaration: 'export interface JumpView {\n    readonly cursor: string | null;\n    readonly messages: readonly LlmMessage[];\n}',
+   },
+   {
+     name: 'KnobState',
+@@ -3617,6 +3641,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
+     name: 'LlmFailure',
+     declaration: 'export interface LlmFailure {\n    readonly message: string;\n    readonly code: string;\n    readonly status?: number;\n    readonly providerRetryAfterMs?: number;\n    readonly requestId?: ProviderRequestId;\n}',
+   },
++  {
++    name: 'LlmMessage',
++    declaration: 'export interface LlmMessage {\n    readonly role: LlmRole;\n    readonly content: string;\n    readonly name?: string;\n    readonly toolCallId?: string;\n}',
++  },
+   {
+     name: 'LlmModelContext',
+     declaration: 'export interface LlmModelContext {\n    contextWindow: number;\n}',
+@@ -3645,6 +3673,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
+     name: 'LlmResolvedModelInfo',
+     declaration: 'export interface LlmResolvedModelInfo extends LlmModelInfo {\n    context?: LlmModelContext;\n    defaultMaxTokens?: number;\n    reasoning?: LlmModelReasoningInfo;\n}',
+   },
++  {
++    name: 'LlmRole',
++    declaration: 'export type LlmRole = \'system\' | \'user\' | \'assistant\' | \'tool\';',
++  },
+   {
+     name: 'LlmRuntime',
+     declaration: 'export class LlmRuntime extends Service {\n    constructor(ctx: Context);\n    registerAdapter(providers: string[], adapter: LlmAdapter): AdapterRegistrationHandle;\n    listProviders(): LlmProviderInfo[];\n    registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): DirectoryRegistrationHandle;\n    listConfigurableProviders(): LlmConfigurableProvider[];\n    registerModelDiscovery(settingsNs: string, discover: (request: LlmModelDiscoveryRequest) => Promise<readonly LlmDiscoveredModel[]>): () => void;\n    async discoverModels(settingsNs: string, request: LlmModelDiscoveryRequest): Promise<LlmDiscoveredModel[]>;\n    providerRetryPolicy(provider: string): ResolvedRetryPolicy;\n    async listModels(provider: string): Promise<LlmModelInfo[]>;\n    async resolveModelInfo(provider: string, model: string, signal?: AbortSignal): Promise<LlmResolvedModelInfo>;\n    async resolveCallConfig(config: LlmCallConfig, signal?: AbortSignal): Promise<LlmCallConfig>;\n    async prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<PreparedLlmCall>;\n    stream(options: GenerateOptions): AsyncIterable<StreamChunk>;\n}',
+@@ -4313,6 +4345,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
+     name: 'SessionTitleUserMessage',
+     declaration: 'export interface SessionTitleUserMessage {\n    readonly seq: number;\n    readonly text: string;\n}',
+   },
++  {
++    name: 'SessionTreeView',
++    declaration: 'export interface SessionTreeView {\n    readonly sessionId: SessionId;\n    readonly cursor: string | null;\n    readonly activeBranch: string;\n    readonly nodes: readonly TreeNode[];\n    readonly branches: readonly BranchView[];\n}',
++  },
+   {
+     name: 'SettingsApplies',
+     declaration: 'export type SettingsApplies = \'live\' | \'restart\';',
+@@ -4853,6 +4889,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
+     name: 'ToolSchema',
+     declaration: 'export interface ToolSchema {\n    name: string;\n    description: string;\n    parameters: Record<string, unknown>;\n}',
+   },
++  {
++    name: 'TreeNode',
++    declaration: 'export interface TreeNode {\n    readonly nodeId: string;\n    readonly parentId: string | null;\n    readonly branch: string;\n    readonly summary: string;\n    readonly createdAt: string;\n    readonly message?: LlmMessage;\n    readonly metadata?: Record<string, JsonValue>;\n}',
++  },
+   {
+     name: 'TurnEndCancelCause',
+     declaration: 'export type TurnEndCancelCause = AgentCancelCause | {\n    readonly kind: \'legacy\';\n};',
+diff --git a/scripts/gen-cordis-catalog.ts b/scripts/gen-cordis-catalog.ts
+index 522e98df96..f628553a5b 100644
+--- a/scripts/gen-cordis-catalog.ts
++++ b/scripts/gen-cordis-catalog.ts
+@@ -89,6 +89,7 @@ export const SERVICE_PAGE: Record<string, string> = {
+   sessionPersistence: 'persistence.md',
+   sessionQuery: 'session-query.md',
+   sessionReferenceResolver: 'session-reference.md',
++  sessionTree: 'session-tree.md',
+   sessionProjectionCache: 'session-projection.md',
+   sessionProjections: 'session-projection.md',
+   sessions: 'session.md',
+@@ -553,6 +554,8 @@ export const FOUNDATION_TYPE_NAMES: ReadonlySet<string> = new Set([
+ /** Project types deliberately documented outside the subsystems catalog. */
+ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
+   z: 'schemastery schema constructor is owned by vendor/schemastery (vendored upstream)',
++  SessionTreeView: 'session-tree payload vocabulary is owned by packages/extensions/pi-agent-session-tree/src/types.ts',
++  JumpView: 'session-tree payload vocabulary is owned by packages/extensions/pi-agent-session-tree/src/types.ts',
+   BeginCommandRequest: 'event-local request contract is owned by packages/client/ui-input-trigger/src/types.ts',
+   InsertReferenceRequest: 'event-local request contract is owned by packages/client/ui-input-trigger/src/types.ts',
+   ConsumeTokenRequest: 'event-local request contract is owned by packages/client/ui-input-trigger/src/types.ts',
+diff --git a/scripts/gen-tool-catalog.ts b/scripts/gen-tool-catalog.ts
+index 874f564483..5aa988d0e5 100644
+--- a/scripts/gen-tool-catalog.ts
++++ b/scripts/gen-tool-catalog.ts
+@@ -57,6 +57,8 @@ import Lsp from '@deepseek-ai/dsh-lsp'
+ import * as ToolLsp from '@deepseek-ai/dsh-tool-lsp'
+ import * as ToolSkill from '@deepseek-ai/dsh-tool-skill'
+ import * as ToolSessionQuery from '@deepseek-ai/dsh-tool-session-query'
++import * as ToolSessionTree from '@deepseek-ai/dsh-tool-session-tree'
++import CommandRuntime from '@deepseek-ai/dsh-commands'
+ import * as ToolTasks from '@deepseek-ai/dsh-tool-jobs'
+ import type TeamService from '@deepseek-ai/dsh-experimental-agent-team'
+ import * as ToolTeam from '@deepseek-ai/dsh-experimental-tool-agent-team'
+@@ -452,6 +454,19 @@ const TOOL_PACKAGES: ToolPackage[] = [
+     note:
+       'The five read-only tools hide provider cursors and authorize every result from the immutable calling agent session. The package is opt-in; compositions that need enforced deadlines or bounded inline output also mount the generic timeout or spill policies.',
+   },
++  {
++    pkg: '@deepseek-ai/dsh-tool-session-tree',
++    dir: 'tool-session-tree',
++    source: 'packages/extensions/tool-session-tree/src/index.ts',
++    requires: ['ctx.tools', 'ctx.systemPrompt', 'a calling Agent for session identity'],
++    writes: ['tool/call', 'tool/result'],
++    async mount(ctx) {
++      await ctx.plugin(CommandRuntime)
++      await ctx.plugin(ToolSessionTree)
++    },
++    note:
++      'One append-only conversation tree per agent session; nodes are never modified or deleted, and context reconstructs only the root-to-cursor path. The store is process-wide and shared with the sessionTree Remote service, so model appends appear in the browser panel immediately.',
++  },
+   {
+     pkg: '@deepseek-ai/dsh-tool-subagent',
+     dir: 'tool-subagent',
+diff --git a/tsconfig.base.json b/tsconfig.base.json
+index 8d8d5e1433..90a2bea4bd 100644
+--- a/tsconfig.base.json
++++ b/tsconfig.base.json
+@@ -195,6 +195,12 @@
+       "@deepseek-ai/dsh-cordis-client-runner": ["./packages/extensions/cordis-client-runner/src"],
+       "@deepseek-ai/dsh-cordis-client-runner/client": ["./packages/extensions/cordis-client-runner/src/client"],
+       "@deepseek-ai/dsh-cordis-client-runner/invariant": ["./packages/extensions/cordis-client-runner/src/invariant.ts"],
++      "@deepseek-ai/dsh-pi-agent-session-tree": ["./packages/extensions/pi-agent-session-tree/src/index.ts"],
++      "@deepseek-ai/dsh-pi-agent-session-tree/types": ["./packages/extensions/pi-agent-session-tree/src/types.ts"],
++      "@deepseek-ai/dsh-pi-agent-session-tree/client": ["./packages/extensions/pi-agent-session-tree/src/client.ts"],
++      "@deepseek-ai/dsh-pi-agent-session-tree/invariant": ["./packages/extensions/pi-agent-session-tree/src/invariant.ts"],
++      "@deepseek-ai/dsh-tool-session-tree": ["./packages/extensions/tool-session-tree/src/index.ts"],
++      "@deepseek-ai/dsh-tool-session-tree/invariant": ["./packages/extensions/tool-session-tree/src/invariant.ts"],
+       "@deepseek-ai/dsh-client-ui-cordis": ["./packages/extensions/ui-cordis/src"],
+       "@deepseek-ai/dsh-client-ui-cordis/client": ["./packages/extensions/ui-cordis/src/client"],
+       "@deepseek-ai/dsh-client-ui-cordis/invariant": ["./packages/extensions/ui-cordis/src/invariant.ts"],
+@@ -212,6 +218,7 @@
+       "@deepseek-ai/dsh-client-ui-commands": ["./packages/client/ui-commands/src"],
+       "@deepseek-ai/dsh-client-ui-model-selection": ["./packages/client/ui-model-selection/src"],
+       "@deepseek-ai/dsh-client-ui-goal": ["./packages/client/ui-goal/src"],
++      "@deepseek-ai/dsh-client-ui-session-tree": ["./packages/client/ui-session-tree/src"],
+       "@deepseek-ai/dsh-client-ui-message-feedback": ["./packages/client/ui-message-feedback/src"],
+       "@deepseek-ai/dsh-client-ui-agent-preset": ["./packages/client/ui-agent-preset/src"],
+       "@deepseek-ai/dsh-client-ui-permission-presets": ["./packages/client/ui-permission-presets/src"],
+diff --git a/tsconfig.client.json b/tsconfig.client.json
+index b5874b6fde..ea8e4b532f 100644
+--- a/tsconfig.client.json
++++ b/tsconfig.client.json
+@@ -61,6 +61,7 @@
+     { "path": "./packages/client/runtime" },
+     { "path": "./packages/extensions/cordis-client-runner" },
+     { "path": "./packages/extensions/ui-cordis" },
++    { "path": "./packages/client/ui-session-tree" },
+     { "path": "./packages/test-support/client-runtime" },
+     { "path": "./packages/client/ui-layout" },
+     { "path": "./packages/client/ui-sidebar" },
+diff --git a/tsconfig.host.json b/tsconfig.host.json
+index f37b98ea57..68d640e9b4 100644
+--- a/tsconfig.host.json
++++ b/tsconfig.host.json
+@@ -289,6 +289,8 @@
+     { "path": "./packages/preset/persona" },
+     { "path": "./packages/guard/repeat-tool-reminder" },
+     { "path": "./packages/extensions/cordis-host-runner" },
++    { "path": "./packages/extensions/pi-agent-session-tree" },
++    { "path": "./packages/extensions/tool-session-tree" },
+     { "path": "./packages/extensions/tool-cordis" },
+     { "path": "./packages/hooks/hook-protocol" },
+     { "path": "./packages/hooks/hooks-claude-code" },

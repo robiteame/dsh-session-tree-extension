@@ -1,0 +1,169 @@
+/* SessionTreePanel: a dock card above the composer (third strip in the
+   composer stack after Todo/Goal, matching their card family — 13/24 title,
+   dsw alias tokens, full composer-card width). */
+
+.panel {
+  box-sizing: border-box;
+  width: calc(
+    100% -
+    var(--dsh-composer-side-clearance) -
+    var(--dsh-composer-side-clearance) -
+    var(--dsh-composer-dock-inset) -
+    var(--dsh-composer-dock-inset) -
+    var(--dsh-composer-dock-inset) -
+    var(--dsh-composer-dock-inset)
+  );
+  margin: 0 auto;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 12px;
+  background: var(--dsw-specific-tip);
+  font: inherit;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 36px;
+  padding: 4px 5px 4px 12px;
+  gap: 10px;
+}
+
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  padding: 0;
+}
+
+.title {
+  flex: none;
+  font-size: 13px;
+  line-height: 24px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+}
+
+.stats {
+  flex: none;
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.chevron {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.refresh {
+  flex: none;
+  border: 0;
+  background: transparent;
+  color: var(--dsw-alias-state-business-primary);
+  font: inherit;
+  font-size: 12px;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.body {
+  max-height: 320px;
+  overflow: auto;
+  padding: 0 8px 8px;
+  border-top: 1px solid var(--dsw-alias-border-l1);
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+}
+
+.childRow {
+  margin-left: 14px;
+  border-left: 1px solid var(--dsw-alias-border-l1);
+  padding-left: 6px;
+}
+
+.node {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+
+.node:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.nodeActive {
+  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 12%, transparent);
+  outline: 1px solid color-mix(in srgb, var(--dsw-alias-state-business-primary) 40%, transparent);
+}
+
+.role {
+  flex: none;
+  min-width: 52px;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--dsw-alias-state-business-primary);
+}
+
+.summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-primary-dimmed);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.branch {
+  flex: none;
+  max-width: 96px;
+  overflow: hidden;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-tertiary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cursor {
+  flex: none;
+  font-size: 10px;
+  line-height: 14px;
+  color: var(--dsw-alias-state-business-primary);
+}
+
+.empty {
+  margin: 8px 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.error {
+  margin: 8px 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-state-error-primary);
+}
