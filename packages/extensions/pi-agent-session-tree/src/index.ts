@@ -19,16 +19,32 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { TypertRemoteService, Remote } from '@deepseek-ai/dsh-typert-protocol'
-import { sessionTreeStore } from './session-tree.ts'
-import type { JumpView, SessionTreeView } from './types.ts'
+import { sessionTreeStore, type SessionTree } from './session-tree.ts'
+import { sessionEventsToTreeNodes } from './session-event-adapter.ts'
+import type { JumpView, SessionTreeSessionInfo, SessionTreeView } from './types.ts'
 
 export { SessionTree, SessionTreeStore, sessionTreeStore } from './session-tree.ts'
 export type * from './types.ts'
+export { sessionEventsToTreeNodes } from './session-event-adapter.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
     sessionTree: SessionTreeService
   }
+}
+
+/** Materialize native Harness history once, preserving tool-side tree ownership afterwards. */
+function treeForAgent(agent: Agent): SessionTree {
+  const sessionId = agent.session.id
+  const existing = sessionTreeStore.get(sessionId)
+  if (existing !== undefined) return existing
+  const tree = sessionTreeStore.create(sessionId)
+  const nodes = sessionEventsToTreeNodes(agent.session.events)
+  if (nodes.length > 0) {
+    const restored = tree.replay(nodes.map((node, seq) => ({ seq, node })))
+    if (!restored.ok) throw new Error(`${restored.error.code}: ${restored.error.message}`)
+  }
+  return tree
 }
 
 /** Remote-only service backing the browser tree panel. */
@@ -49,8 +65,7 @@ export class SessionTreeService extends TypertRemoteService {
    */
   @Remote('list')
   list(agent: Agent): SessionTreeView {
-    const sessionId = agent.session.id
-    return (sessionTreeStore.get(sessionId) ?? sessionTreeStore.create(sessionId)).view()
+    return treeForAgent(agent).view()
   }
 
   /**
@@ -63,12 +78,16 @@ export class SessionTreeService extends TypertRemoteService {
    */
   @Remote('jump')
   jump(agent: Agent, nodeId: string | null): JumpView {
-    const sessionId = agent.session.id
-    const tree = sessionTreeStore.get(sessionId)
-    if (tree === undefined) throw new Error(`session '${sessionId}' was not found`)
+    const tree = treeForAgent(agent)
     const result = tree.jump(nodeId)
     if (!result.ok) throw new Error(`${result.error.code}: ${result.error.message}`)
     return result.value
+  }
+
+  /** Read compact status metadata for the current session tree. */
+  @Remote('session')
+  session(agent: Agent): SessionTreeSessionInfo {
+    return treeForAgent(agent).info()
   }
 }
 

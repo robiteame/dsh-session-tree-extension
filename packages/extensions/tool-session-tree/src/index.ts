@@ -39,7 +39,7 @@ export function apply(ctx: Context): void {
     description:
       'Manage isolated append-only conversation trees (one per agent session) and reconstruct standard LLM messages. '
       + 'Use context to read the active cursor path, append to grow the current branch, branch from any historical node to '
-      + 'fork (old nodes are never modified or deleted), and snapshot.save/snapshot.load to export or restore the tree as JSON.',
+      + 'fork (old nodes are never modified or deleted), clone into an independent session, and snapshot.save/snapshot.load to export or restore the tree as JSON.',
     parameters: {
       operation: { type: 'string', required: true },
       sessionId: { type: 'string' },
@@ -48,6 +48,13 @@ export function apply(ctx: Context): void {
       summary: { type: 'string' },
       message: { type: 'json' },
       snapshot: { type: 'json' },
+      metadata: { type: 'json' },
+      targetSessionId: { type: 'string' },
+      content: { type: 'json' },
+      model: { type: 'string' },
+      usage: { type: 'json' },
+      cost: { type: 'number' },
+      error: { type: 'string' },
     },
     output: {
       schema: { type: 'json' },
@@ -71,6 +78,9 @@ export function apply(ctx: Context): void {
     input: { hint: 'list | branches | context | tree | jump <nodeId> | branch <nodeId> <name> | snapshot save|load <json>' },
     handler: invocation => runTreeCommand(invocation),
   })
+  ctx.commands.register({ name: 'fork', description: 'Fork the current session tree at a historical node', input: { hint: '<nodeId> [branch]' }, handler: invocation => runForkCommand(invocation) })
+  ctx.commands.register({ name: 'clone', description: 'Clone the current session tree into a new session', input: { hint: '<sessionId>' }, handler: invocation => runCloneCommand(invocation) })
+  ctx.commands.register({ name: 'session', description: 'Show current session tree status', handler: invocation => runSessionCommand(invocation) })
 }
 
 /** Tool argument shape (lossless JSON, validated by the tool schema). */
@@ -82,6 +92,13 @@ interface SessionTreeToolArgs {
   summary?: string
   message?: JsonValue
   snapshot?: JsonValue
+  metadata?: JsonValue
+  targetSessionId?: string
+  content?: JsonValue
+  model?: string
+  usage?: JsonValue
+  cost?: number
+  error?: string
 }
 
 function runToolOperation(args: SessionTreeToolArgs, exec: ToolRunContext): unknown {
@@ -89,6 +106,9 @@ function runToolOperation(args: SessionTreeToolArgs, exec: ToolRunContext): unkn
     return { ok: false, error: { code: 'INVALID_ARGUMENT', message: 'session_tree requires an agent-backed session' } }
   }
   const sessionId = (args.sessionId ?? exec.agent.session.id) as SessionId
+  if (args.operation === 'clone' && args.targetSessionId === undefined) {
+    return { ok: false, error: { code: 'INVALID_ARGUMENT', message: 'targetSessionId is required' } }
+  }
   switch (args.operation) {
     case 'create': {
       const tree = sessionTreeStore.get(sessionId) ?? sessionTreeStore.create(sessionId)
@@ -96,11 +116,19 @@ function runToolOperation(args: SessionTreeToolArgs, exec: ToolRunContext): unkn
     }
     case 'sessions':
       return { ok: true, value: sessionTreeStore.list() }
+    case 'clone': {
+      if (args.targetSessionId === undefined) return { ok: false, error: { code: 'INVALID_ARGUMENT', message: 'targetSessionId is required' } }
+      return sessionTreeStore.clone(sessionId, args.targetSessionId as SessionId)
+    }
     case 'snapshot.load': {
       if (args.snapshot === undefined) {
         return { ok: false, error: { code: 'INVALID_ARGUMENT', message: 'snapshot is required' } }
       }
-      return sessionTreeStore.load(args.snapshot as unknown as Parameters<typeof sessionTreeStore.load>[0])
+      const snapshot = args.snapshot as unknown as Parameters<typeof sessionTreeStore.load>[0]
+      if (snapshot.sessionId !== sessionId) {
+        return { ok: false, error: { code: 'INVALID_SNAPSHOT', message: `snapshot session '${snapshot.sessionId}' does not match the calling session '${sessionId}'` } }
+      }
+      return sessionTreeStore.load(snapshot)
     }
     default:
       break
@@ -113,15 +141,26 @@ function runToolOperation(args: SessionTreeToolArgs, exec: ToolRunContext): unkn
       if (args.message === undefined) {
         return { ok: false, error: { code: 'INVALID_ARGUMENT', message: 'message is required' } }
       }
-      const request = args.message as { role?: string; content?: string; branch?: string; summary?: string }
+      const request = args.message as { role?: string; content?: string; name?: string; toolCallId?: string }
       if (typeof request.role !== 'string' || typeof request.content !== 'string') {
         return { ok: false, error: { code: 'INVALID_ARGUMENT', message: 'message.role and message.content are required' } }
       }
       return tree.append(
-        { role: request.role as 'system' | 'user' | 'assistant' | 'tool', content: request.content },
+        {
+          role: request.role as 'system' | 'user' | 'assistant' | 'tool',
+          content: request.content,
+          ...(request.name === undefined ? {} : { name: request.name }),
+          ...(request.toolCallId === undefined ? {} : { toolCallId: request.toolCallId }),
+        },
         {
           ...(args.branch === undefined ? {} : { branch: args.branch }),
           ...(args.summary === undefined ? {} : { summary: args.summary }),
+          ...(args.metadata === undefined ? {} : { metadata: args.metadata as Record<string, JsonValue> }),
+          ...(args.content === undefined ? {} : { content: args.content as never }),
+          ...(args.model === undefined ? {} : { model: args.model }),
+          ...(args.usage === undefined ? {} : { usage: args.usage as Record<string, JsonValue> }),
+          ...(args.cost === undefined ? {} : { cost: args.cost }),
+          ...(args.error === undefined ? {} : { error: args.error }),
         },
       )
     }
@@ -131,8 +170,14 @@ function runToolOperation(args: SessionTreeToolArgs, exec: ToolRunContext): unkn
       return { ok: true, value: tree.branches() }
     case 'tree':
       return { ok: true, value: tree.view() }
+    case 'session':
+      return { ok: true, value: tree.info() }
     case 'jump':
       return tree.jump(args.nodeId ?? null)
+    case 'fork': {
+      if (args.nodeId === undefined) return { ok: false, error: { code: 'INVALID_ARGUMENT', message: 'nodeId is required' } }
+      return tree.fork(args.nodeId, args.branch)
+    }
     case 'context':
       return { ok: true, value: { cursor: tree.cursor, messages: tree.messages(args.nodeId ?? tree.cursor) } }
     case 'branch': {
@@ -154,17 +199,56 @@ function runToolOperation(args: SessionTreeToolArgs, exec: ToolRunContext): unkn
   }
 }
 
+function runForkCommand(invocation: CommandInvocation): CommandResult {
+  const [nodeId, branch = 'fork'] = invocation.rawInput.trim().split(/\s+/u)
+  return jsonCommand(sessionTreeStore.require(invocation.agent.session.id), tree => tree.fork(nodeId ?? '', branch))
+}
+
+function runCloneCommand(invocation: CommandInvocation): CommandResult {
+  const target = invocation.rawInput.trim()
+  return target === '' ? errorCommand('targetSessionId is required') : jsonCommand(sessionTreeStore.clone(invocation.agent.session.id, target as SessionId))
+}
+
+function runSessionCommand(invocation: CommandInvocation): CommandResult {
+  return jsonCommand(sessionTreeStore.require(invocation.agent.session.id), tree => tree.info())
+}
+
+function jsonCommand(value: unknown, map?: (tree: import('@deepseek-ai/dsh-pi-agent-session-tree').SessionTree) => unknown): CommandResult {
+  const result = map === undefined ? value : (value as { ok: boolean; value?: import('@deepseek-ai/dsh-pi-agent-session-tree').SessionTree }).ok
+    ? map((value as { value: import('@deepseek-ai/dsh-pi-agent-session-tree').SessionTree }).value)
+    : value
+  const failed = typeof result === 'object' && result !== null && (result as { ok?: unknown }).ok === false
+  return { kind: failed ? 'error' : 'success', text: JSON.stringify(result) }
+}
+
+function errorCommand(message: string): CommandResult {
+  return { kind: 'error', text: JSON.stringify({ ok: false, error: { code: 'INVALID_ARGUMENT', message } }) }
+}
+
 function runTreeCommand(invocation: CommandInvocation): CommandResult {
   const parts = invocation.rawInput.trim().split(/\s+/u).filter(Boolean)
   const sessionId = invocation.agent.session.id
   const tree = sessionTreeStore.get(sessionId) ?? sessionTreeStore.create(sessionId)
   const [head, ...rest] = parts
   const action = head === 'snapshot' ? `snapshot.${rest[0] ?? ''}` : (head ?? 'list')
-  const json = (value: unknown): CommandResult => ({ kind: 'success', text: JSON.stringify(value) })
+  // Surface domain failures (`{ok:false}`) as command errors, matching the
+  // usage/parse-error paths, so callers can't mistake a failed operation for
+  // a successful one.
+  const json = (value: unknown): CommandResult => {
+    const failed = typeof value === 'object' && value !== null && (value as { ok?: unknown }).ok === false
+    return { kind: failed ? 'error' : 'success', text: JSON.stringify(value) }
+  }
   switch (action) {
     case 'list': return json({ ok: true, value: tree.list() })
     case 'branches': return json({ ok: true, value: tree.branches() })
     case 'tree': return json({ ok: true, value: tree.view() })
+    case 'session': return json({ ok: true, value: tree.info() })
+    case 'fork': return json(tree.fork(rest[0] ?? '', rest[1] ?? 'fork'))
+    case 'clone': {
+      const target = rest[0]
+      if (target === undefined) return json({ ok: false, error: { code: 'INVALID_ARGUMENT', message: 'targetSessionId is required' } })
+      return json(sessionTreeStore.clone(sessionId, target as SessionId))
+    }
     case 'context': return json({ ok: true, value: { cursor: tree.cursor, messages: tree.messages() } })
     case 'jump': {
       const result = tree.jump(rest[0] ?? null)
@@ -176,12 +260,18 @@ function runTreeCommand(invocation: CommandInvocation): CommandResult {
     }
     case 'snapshot.save': return json({ ok: true, value: tree.snapshot() })
     case 'snapshot.load': {
-      const raw = rest[0]
-      if (raw === undefined) {
+      // `rest` is `['load', ...jsonFragments]`; reassemble the JSON (single
+      // spaces keep it valid) rather than reading only `rest[0]`, which is the
+      // literal word "load".
+      const raw = rest.slice(1).join(' ').trim()
+      if (raw === '') {
         return { kind: 'error', text: JSON.stringify({ ok: false, error: { code: 'INVALID_ARGUMENT', message: 'snapshot JSON is required' } }) }
       }
       try {
         const snapshot = JSON.parse(raw) as Parameters<typeof sessionTreeStore.load>[0]
+        if (snapshot.sessionId !== sessionId) {
+          return json({ ok: false, error: { code: 'INVALID_SNAPSHOT', message: `snapshot session '${snapshot.sessionId}' does not match the calling session '${sessionId}'` } })
+        }
         const result = sessionTreeStore.load(snapshot)
         return json(result)
       } catch (error) {

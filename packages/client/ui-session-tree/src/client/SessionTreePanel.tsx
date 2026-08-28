@@ -5,7 +5,7 @@
  * (the host replays the root-to-node path) and refreshes the view.
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { LlmRole, TreeNode, SessionTreeView } from '@deepseek-ai/dsh-pi-agent-session-tree/client'
 import type { SessionTreeViewProps } from './slots.ts'
@@ -64,14 +64,23 @@ function TreeRows({
   onJump: (nodeId: string) => void
   t: (key: SessionTreeKey) => string
 }) {
-  const childrenOf = useCallback((parent: string | null): TreeNode[] => {
-    const children = nodes.filter(node => node.parentId === parent)
-    children.sort((left, right) => left.createdAt.localeCompare(right.createdAt))
-    return children
+  // Index children by parent once (O(n)) instead of re-filtering `nodes` per
+  // parent, so rendering a large tree stays linear in node count.
+  const childrenByParent = useMemo(() => {
+    const map = new Map<string | null, TreeNode[]>()
+    for (const node of nodes) {
+      const siblings = map.get(node.parentId)
+      if (siblings === undefined) map.set(node.parentId, [node])
+      else siblings.push(node)
+    }
+    for (const siblings of map.values()) {
+      siblings.sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+    }
+    return map
   }, [nodes])
 
   const render = (parent: string | null, depth: number) => {
-    const children = childrenOf(parent)
+    const children = childrenByParent.get(parent) ?? []
     return children.map(node => (
       <div key={node.nodeId} className={depth > 0 ? css.childRow : undefined}>
         <NodeRow node={node} cursor={cursor} onJump={onJump} t={t} />

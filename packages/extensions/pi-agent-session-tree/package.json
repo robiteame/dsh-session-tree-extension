@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-pi-agent-session-tree",
-  "description": "Append-only multi-branch session trees: session_tree tool, /tree command family, JSON snapshots, and the sessionTree Remote service",
+  "description": "Append-only multi-branch session trees: the SessionTree/SessionTreeStore domain model, JSON snapshots, and the sessionTree Remote service",
   "version": "0.1.1-rc.2",
   "publishConfig": {
     "access": "public"

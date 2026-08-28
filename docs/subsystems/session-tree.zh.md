@@ -6,7 +6,7 @@
 
 ## 节点模型
 
-一棵树把每一轮对话存为一个不可变节点。`TreeNode` 是持久化单元：
+一棵树把每一轮对话存为一个不可变节点。`TreeNode` 是持久化单元；entry 可通过 `type` 区分 `message`、`tool_call`、`model_change`、`compaction`、`branch_summary` 和 `custom`，并可携带结构化 `content` parts、model、usage、cost、error 元数据：
 
 ```ts type-equiv
 /**
@@ -59,7 +59,7 @@ interface JumpView {
 
 ## 持久化
 
-树在进程生命周期内驻留内存；`snapshot.save` 产出、`snapshot.load` 恢复下面的版本化快照。未知版本被拒绝为 `INVALID_SNAPSHOT`。
+树在进程生命周期内驻留内存；`snapshot.save` 产出、`snapshot.load` 恢复下面的版本化快照。Remote 首次读取时会把 Harness 原生 `Session.events` 中的消息、工具和模型路由事件投影为树节点，再由树光标继续追加；适配器保留原生事件 seq，便于后续接入原生持久化。未知版本被拒绝为 `INVALID_SNAPSHOT`。
 
 ```ts type-equiv
 /**
@@ -113,6 +113,10 @@ type TreeResult<T> =
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — the language sides differ only in locale-specific paired document paths. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.zh.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
 <a id="ctxsessiontree--sessiontreeservice"></a>
+
+### Pi 对齐命令
+
+除 `/tree` 外，模型面还提供 `/fork <nodeId> [branch]`（树内分叉）、`/clone <sessionId>`（当前活跃路径复制为独立会话）和 `/session`（当前树状态、节点数、路径长度及已记录 usage/cost 汇总）。`branchHeads` 是 session 级命名分支指针，浏览跳转不会改写它。
 
 ### `ctx.sessionTree` — `SessionTreeService`
 

@@ -10,6 +10,7 @@
 |---|---|---|
 | 工具 | `session_tree` | 每个 agent 会话一棵树；操作见下 |
 | 命令 | `/tree` | `list`、`branches`、`tree`、`context`、`jump <nodeId>`、`branch <nodeId> <name>`、`snapshot save`、`snapshot load <json>` |
+| 命令 | `/fork`、`/clone`、`/session` | 在树内 fork、复制到独立 session、查看当前树状态 |
 | Remote 服务 | `sessionTree` | `list(agent)`、`jump(agent, nodeId)`——驱动浏览器面板 |
 | 浏览器插槽 | `conversation.input.dock` | 编辑器上方的可折叠树面板；点击节点即跳转 |
 

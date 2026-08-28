@@ -10,6 +10,7 @@
 |---|---|---|
 | 工具 | `session_tree` | 每个 agent 会话一棵树；操作见下 |
 | 命令 | `/tree` | `list`、`branches`、`tree`、`context`、`jump <nodeId>`、`branch <nodeId> <name>`、`snapshot save`、`snapshot load <json>` |
+| 命令 | `/fork`、`/clone`、`/session` | 在树内 fork、复制到独立 session、查看当前树状态 |
 
 ## 工具操作
 
