@@ -163,7 +163,7 @@ export class SessionTree {
   /**
    * Fork the active cursor from a historical node. This is the Pi `/fork`
    * primitive: old nodes remain intact and the next tree append becomes a child.
-   * The native Harness model surface is unchanged until a loop-owned navigation hook is available.
+   * The owning service selects the matching Harness model surface path.
    */
   fork(target: string, branch = 'fork'): TreeResult<{ cursor: string; branch: string; forkCount: number }> {
     const result = this.branch(target, branch)

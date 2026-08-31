@@ -114,10 +114,6 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
 
 <a id="ctxsessiontree--sessiontreeservice"></a>
 
-### Pi 对齐命令
-
-除 `/tree` 外，模型面还提供 `/fork <nodeId> [branch]`（树内分叉）、`/clone <sessionId>`（当前活跃路径复制为独立会话）和 `/session`（当前树状态、节点数、路径长度及已记录 usage/cost 汇总）。`branchHeads` 是 session 级命名分支指针，浏览跳转不会改写它。
-
 ### `ctx.sessionTree` — `SessionTreeService`
 
 Remote-only service backing the browser tree panel.
@@ -132,15 +128,32 @@ Remote-only service backing the browser tree panel.
 @Remote('list') list(agent: Agent): SessionTreeView
 
 /**
- * Move the tree cursor to an existing node; context returns the projected
- * root-to-node path while old branches remain intact. This does not rewrite
- * Harness' native model surface.
+ * Move the SessionTree cursor to an existing node and return its root-to-node
+ * path through the context operation. This also selects the same path on
+ * Harness' model-visible Session surface, so the next turn genuinely branches
+ * from this leaf instead of merely changing the browser projection.
  * @param agent - owning live agent.
  * @param nodeId - target node, or null to reset before the first node.
  * @returns the new cursor and reconstructed messages.
  * @throws Error when the node does not exist (settles as the standard error envelope).
  */
 @Remote('jump') jump(agent: Agent, nodeId: string | null): JumpView
+
+/**
+ * Position a named branch at a historical node for the next append.
+ * @param agent - owning live agent.
+ * @param nodeId - historical node to branch from.
+ * @param branch - non-empty branch label.
+ * @returns the parked cursor, branch label, and direct-child fork count.
+ */
+@Remote('fork') fork(agent: Agent, nodeId: string, branch: string): { cursor: string; branch: string; forkCount: number }
+
+/**
+ * Read compact status metadata for the current session tree.
+ * @param agent - owning live agent.
+ * @returns current tree counts, cursor, branches, and usage metadata.
+ */
+@Remote('session') session(agent: Agent): SessionTreeSessionInfo
 ```
 
 Types: [Agent](core.zh.md)

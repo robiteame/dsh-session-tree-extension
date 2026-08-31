@@ -14,6 +14,7 @@ the command line, and the browser panel observe the same trees.
 |---|---|---|
 | Tool | `session_tree` | one tree per agent session; operations below |
 | Command | `/tree` | `list`, `branches`, `tree`, `context`, `jump <nodeId>`, `branch <nodeId> <name>`, `snapshot save`, `snapshot load <json>` |
+| Commands | `/fork`, `/clone`, `/session` | fork in-tree, clone the active path to a separate session, inspect tree status |
 
 ## Tool operations
 
@@ -82,7 +83,8 @@ Schemas are prefix-stable while their definitions and visibility are unchanged. 
 
 ## Known Limitations and Deferred Work
 
-- **Trees are in-memory** — history survives only via
-  `snapshot.save`/`snapshot.load`; no session-log event stream backs the tree.
-- **The store is process-wide** — a restarted process starts empty unless a
-  snapshot is restored.
+- **Native events are durable** — the tree is rebuilt from the Harness Session
+  event log on live sync; explicit snapshots provide full-tree export and
+  restore, while the native model surface follows the active leaf.
+- **The store is process-wide** — a restarted process reconstructs trees from
+  persisted Session events when the owning agents are live.

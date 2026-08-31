@@ -5,9 +5,10 @@ Session log. Native user, assistant, tool, and model-context events synchronize
 automatically; never duplicate ordinary turns with `operation: "append"`.
 
 After tree navigation, call `session_tree` with `operation: "context"` to
-read the root-to-cursor `messages` projection. This tree context is separate
-from Harness' native model surface; navigation does not rewrite that surface. Use `append` only for an explicit custom tree entry not already
-recorded by Harness.
+read the root-to-cursor `messages` projection. Harness also selects that same
+path as its real model-visible surface, so the next turn grows from the
+historical leaf. Use `append` only for an explicit custom tree entry not
+already recorded by Harness.
 
 To explore an alternative, call `fork` or `branch` with a historical `nodeId`
 and branch name (or `branch.summary` to record a summary). Never modify or

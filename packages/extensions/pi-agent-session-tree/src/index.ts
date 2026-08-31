@@ -19,6 +19,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { isSurfaceEvent } from '@deepseek-ai/dsh-session'
 import { TypertRemoteService, Remote } from '@deepseek-ai/dsh-typert-protocol'
 import { SessionTree, sessionTreeStore } from './session-tree.ts'
 import { sessionEventsToTreeNodes } from './session-event-adapter.ts'
@@ -40,7 +41,6 @@ export function syncSessionTree(agent: Agent): SessionTree {
   const existing = sessionTreeStore.get(sessionId)
   let tree = existing === undefined ? new SessionTree(sessionId) : new SessionTree(sessionId, existing.snapshot())
   const lastSeq = existing?.lastSessionEventSeq() ?? -1
-  const surfaceSeqs = new Set(agent.session.surface.nodes)
   const freshEvents = agent.session.events.filter(event => event.seq > lastSeq)
   let nativeParentId = tree.cursor
   for (const event of freshEvents) {
@@ -71,17 +71,34 @@ export function syncSessionTree(agent: Agent): SessionTree {
     // events; they must be projected even though they are absent from surface.
     const isExplicitTreeNode = event.type === 'session-tree/node'
     const isTreeMetadataEvent = event.type === 'tool/call' || event.type === 'request/context'
-    if (!isExplicitTreeNode && !isTreeMetadataEvent && !surfaceSeqs.has(event.seq)) continue
+    // Keep every append-origin and replacement surface event, including nodes
+    // shadowed by compaction. Pi's tree is the immutable history graph, not the
+    // current flattened model surface.
+    if (!isExplicitTreeNode && !isTreeMetadataEvent && !isSurfaceEvent(event)) continue
     const nodes = sessionEventsToTreeNodes([event], nativeParentId)
     if (nodes.length === 0) continue
-    const restored = tree.replay([{ seq: tree.list().length, node: nodes[0]! }])
+    const projected = isExplicitTreeNode ? nodes[0]! : { ...nodes[0]!, branch: tree.activeBranch }
+    const restored = tree.replay([{ seq: tree.list().length, node: projected }])
     if (!restored.ok) throw new Error(`${restored.error.code}: ${restored.error.message}`)
-    nativeParentId = nodes[0]!.nodeId
+    nativeParentId = projected.nodeId
   }
   const newestSeq = freshEvents[freshEvents.length - 1]?.seq
   if (newestSeq !== undefined) tree.markSessionEventSeq(newestSeq)
   sessionTreeStore.replace(sessionId, tree)
+  applyTreeCursorToSession(agent, tree)
   return tree
+}
+
+/** Apply the selected tree path to Harness' actual model-visible Session surface. */
+function applyTreeCursorToSession(agent: Agent, tree: SessionTree): void {
+  const seqs: number[] = []
+  for (const node of tree.currentPath()) {
+    const seq = node.metadata?.sessionEventSeq
+    if (typeof seq !== 'number') continue
+    const event = agent.session.events[seq]
+    if (event !== undefined && isSurfaceEvent(event)) seqs.push(seq)
+  }
+  agent.session.selectMessageSurface(seqs)
 }
 
 /** Remote-only service backing the browser tree panel. */
@@ -92,6 +109,12 @@ export class SessionTreeService extends TypertRemoteService {
    */
   constructor(ctx: Context) {
     super(ctx, 'sessionTree')
+    // Rehydrate the durable cursor before every proposed step, including a
+    // resumed Session whose browser has not opened the tree panel yet.
+    ctx.on('agent/pre-step', ({ agent }, next) => {
+      syncSessionTree(agent)
+      return next()
+    })
   }
 
   /**
@@ -118,9 +141,9 @@ export class SessionTreeService extends TypertRemoteService {
 
   /**
    * Move the SessionTree cursor to an existing node and return its root-to-node
-   * path through the context operation. This updates tree navigation state; it
-   * does not mutate Harness' native model surface because Agent.inject() only
-   * queues additional context for a future step.
+   * path through the context operation. This also selects the same path on
+   * Harness' model-visible Session surface, so the next turn genuinely branches
+   * from this leaf instead of merely changing the browser projection.
    * @param agent - owning live agent.
    * @param nodeId - target node, or null to reset before the first node.
    * @returns the new cursor and reconstructed messages.
@@ -135,6 +158,7 @@ export class SessionTreeService extends TypertRemoteService {
     try {
       const event = agent.session.append('session-tree/cursor', { nodeId })
       tree.markSessionEventSeq(event.seq)
+      applyTreeCursorToSession(agent, tree)
     } catch (error) {
       tree.rollback(checkpoint)
       throw error
@@ -142,7 +166,13 @@ export class SessionTreeService extends TypertRemoteService {
     return result.value
   }
 
-  /** Position a named branch at a historical node for the next append. */
+  /**
+   * Position a named branch at a historical node for the next append.
+   * @param agent - owning live agent.
+   * @param nodeId - historical node to branch from.
+   * @param branch - non-empty branch label.
+   * @returns the parked cursor, branch label, and direct-child fork count.
+   */
   @Remote('fork')
   fork(agent: Agent, nodeId: string, branch: string): { cursor: string; branch: string; forkCount: number } {
     const branchName = branch === '' ? 'fork' : branch
@@ -153,6 +183,7 @@ export class SessionTreeService extends TypertRemoteService {
     try {
       const event = agent.session.append('session-tree/branch', { nodeId, branch: result.value.branch })
       tree.markSessionEventSeq(event.seq)
+      applyTreeCursorToSession(agent, tree)
     } catch (error) {
       tree.rollback(checkpoint)
       throw error
@@ -160,7 +191,11 @@ export class SessionTreeService extends TypertRemoteService {
     return result.value
   }
 
-  /** Read compact status metadata for the current session tree. */
+  /**
+   * Read compact status metadata for the current session tree.
+   * @param agent - owning live agent.
+   * @returns current tree counts, cursor, branches, and usage metadata.
+   */
   @Remote('session')
   session(agent: Agent): SessionTreeSessionInfo {
     return this.synced(agent).info()

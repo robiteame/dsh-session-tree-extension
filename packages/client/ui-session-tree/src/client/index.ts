@@ -6,13 +6,16 @@
  * the composer draft starts with `/tree`, and jumps the tree cursor when the
  * user clicks a node.
  */
-import type { ClientContext, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 // Type-only: pulls the generated Remote API and ctx.remote merge through the Client assembly boundary.
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
+import sessionTreeRemote from '@deepseek-ai/dsh-pi-agent-session-tree/remote'
 // Type-only: pulls the ui-conversation SlotMap merge (the input.dock entry).
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
-// Type-only: pulls the locale plugin's Context merge (ctx.locale).
+// Type-only: pulls the locale plugin and renderer Context merges.
 import type {} from '@deepseek-ai/dsh-client-locale/client'
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type { SessionTreeView } from '@deepseek-ai/dsh-pi-agent-session-tree/client'
 import type { SessionTreePanelActions } from './slots.ts'
 import { SessionTreeDock } from './SessionTreePanel.tsx'
@@ -32,14 +35,15 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 /** Dictionary namespace owned by this plugin. */
 const NS = 'session-tree'
 
-/** Required services for the dock, the session kit, the Remote mutations, and copy. */
-export const inject = ['slots', 'sessions', 'remote', 'remote.sessionTree', 'locale']
+/** Required services for the dock, the Session kit, the Remote carrier, and copy. */
+export const inject = ['slots', 'sessions', 'remote', 'locale']
 
 /**
  * Client plugin body: the SessionTreePanel dock entry with its Remote verbs.
  * @param ctx - client root context.
  */
-export function apply(ctx: ClientContext): void {
+export async function apply(ctx: ClientContext): Promise<() => Promise<void>> {
+  const unmountRemote = await ctx.remote.$mount(sessionTreeRemote)
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-session-tree: dictionaries')
 
   ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({
@@ -55,7 +59,7 @@ export function apply(ctx: ClientContext): void {
         return answered.value
       },
       /** Move the tree cursor to one node (old branches stay intact). */
-      jump: async (nodeId: string) => {
+      jump: async (nodeId: string | null) => {
         const answered = await ctx.remote.sessionTree.jump(sessionId, nodeId)
         if (!answered.ok) throw new Error(`${answered.error.code}: ${answered.error.message}`)
         return answered.value
@@ -67,6 +71,8 @@ export function apply(ctx: ClientContext): void {
       },
     }),
   }, SessionTreeDock))
+
+  return unmountRemote
 }
 
 /** Re-export the view type so callers can type the loaded payload. */

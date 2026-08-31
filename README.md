@@ -15,14 +15,15 @@ the existing chat composer (no standalone page).
 | `packages/extensions/tool-session-tree/` | Model-facing surface: the `session_tree` tool, the `/tree` command family, and the system-prompt section |
 | `packages/client/ui-session-tree/` | Browser half: the `conversation.input.dock` tree panel (light/dark via `--dsw-alias-*` tokens) |
 | `docs/subsystems/session-tree.md` | Subsystem reference (en/zh) |
-| `harness.patch` | The harness-side integration edits (api-remotes assembly, bundle composition, tsconfig registrations, generated catalogs) |
+| `harness.patch` | Latest-Harness integration only (bundle composition/dependencies, tsconfig registrations, lockfile importers); package sources are copied separately |
 
 ## Semantics
 
 - **Append-only** — every node is immutable; branching and jumping only move
   the cursor. Old branches are never edited or deleted.
-- **Cursor navigation** — `jump(nodeId)` replays the root-to-node path and
-  leaves every sibling branch intact.
+- **Cursor navigation** — `jump(nodeId)` selects the same root-to-node path on
+  Harness' actual model-visible message surface and leaves every sibling branch
+  intact; the next turn grows from that historical leaf.
 - **LLM context** — `context` returns the standard `messages` array for the
   root→cursor path only.
 - **Snapshots** — `snapshot.save`/`snapshot.load` round-trip the whole tree as

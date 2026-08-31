@@ -72,5 +72,5 @@ SessionTree is the append-only projection of the durable Harness Session log. Na
 
 ## 已知限制与待办
 
-- **树驻留内存**——历史仅能通过 `snapshot.save`/`snapshot.load` 存活；没有会话日志事件流支撑树。
-- **存储是进程级**——重启后进程从空开始，除非恢复快照。
+- **原生事件持久化**——每次实时同步都会从 Harness Session 事件日志重建树；显式快照用于整树导出与恢复，原生模型 surface 跟随活动叶子。
+- **存储是进程级**——进程重启后，会在所属 Agent 恢复为实时状态时从持久 Session 事件重建树。

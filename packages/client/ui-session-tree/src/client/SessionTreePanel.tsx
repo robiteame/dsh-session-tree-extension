@@ -35,7 +35,7 @@ function NodeRow({
   cursor: string | null
   pending: boolean
   branchHeads: Record<string, string> | undefined
-  onJump: (nodeId: string) => void
+  onJump: (node: TreeNode) => void
   onFork: (nodeId: string) => void
   t: (key: SessionTreeKey) => string
 }) {
@@ -43,7 +43,7 @@ function NodeRow({
   const headNames = Object.entries(branchHeads ?? {}).filter(([, head]) => head === node.nodeId).map(([name]) => name)
   return (
     <div className={node.nodeId === cursor ? `${css.node} ${css.nodeActive}` : css.node}>
-      <button type="button" className={css.jump} disabled={pending} title={`${t('panel.jump')} — ${node.nodeId}`} onClick={() => { onJump(node.nodeId) }}>
+      <button type="button" className={css.jump} disabled={pending} title={`${t('panel.jump')} — ${node.nodeId}`} onClick={() => { onJump(node) }}>
         <span className={css.role}>{message === undefined ? t('node.noMessage') : t(ROLE_LABELS[message.role])}</span>
         <span className={css.summary}>{node.summary}</span>
         <span className={css.branch}>{node.branch}</span>
@@ -67,7 +67,7 @@ function TreeRows({
   cursor: string | null
   pending: boolean
   branchHeads: Record<string, string> | undefined
-  onJump: (nodeId: string) => void
+  onJump: (node: TreeNode) => void
   onFork: (nodeId: string) => void
   t: (key: SessionTreeKey) => string
 }) {
@@ -106,7 +106,7 @@ function TreeRows({
 
 /** The collapsible dock card. */
 export function SessionTreePanel({
-  sessionId, load, jump, fork, t, useInput,
+  sessionId, load, jump, fork, t, useInput, inputActions,
 }: SessionTreeViewProps & PropsLocale<'session-tree'>) {
   const [view, setView] = useState<SessionTreeView | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -140,19 +140,24 @@ export function SessionTreePanel({
     refresh().catch(() => undefined)
   }
 
-  const handleJump = useCallback(async (nodeId: string) => {
+  const handleJump = useCallback(async (node: TreeNode) => {
     if (pending) return
     setPending(true)
     setError(null)
     try {
-      await jump(nodeId)
+      // Pi's /tree editor behavior: selecting a user entry rewinds to its
+      // parent and restores that prompt for editing. Other entry kinds become
+      // the active leaf and clear the editor.
+      const editsUserPrompt = node.message?.role === 'user'
+      await jump(editsUserPrompt ? node.parentId : node.nodeId)
+      inputActions.setDraft(editsUserPrompt ? node.message?.content ?? '' : '')
       await refresh()
     } catch (jumpError) {
       setError(jumpError instanceof Error ? jumpError.message : String(jumpError))
     } finally {
       setPending(false)
     }
-  }, [jump, pending, refresh])
+  }, [inputActions, jump, pending, refresh])
 
   const handleFork = useCallback(async (nodeId: string) => {
     if (pending) return
@@ -189,7 +194,7 @@ export function SessionTreePanel({
           {error !== null ? <p className={css.error}>{t('panel.error')}: {error}</p> : null}
           {view !== null && nodeCount === 0 ? <p className={css.empty}>{t('panel.empty')}</p> : null}
           {view !== null && nodeCount > 0 ? (
-            <TreeRows nodes={view.nodes} cursor={view.cursor} pending={pending} branchHeads={view.branchHeads} onJump={(nodeId) => { handleJump(nodeId).catch(() => undefined) }} onFork={(nodeId) => { handleFork(nodeId).catch(() => undefined) }} t={t} />
+            <TreeRows nodes={view.nodes} cursor={view.cursor} pending={pending} branchHeads={view.branchHeads} onJump={(node) => { handleJump(node).catch(() => undefined) }} onFork={(nodeId) => { handleFork(nodeId).catch(() => undefined) }} t={t} />
           ) : null}
         </div>
       ) : null}

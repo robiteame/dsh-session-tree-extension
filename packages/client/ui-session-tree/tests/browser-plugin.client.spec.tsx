@@ -11,7 +11,8 @@
 import { Context, Service } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { SlotRegistry, type SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SessionTreeView, TreeNode } from '@deepseek-ai/dsh-pi-agent-session-tree/client'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { zh } from '../src/client/locales.ts'
@@ -60,6 +61,9 @@ async function bench(options: { view?: SessionTreeView; failList?: boolean; fail
   class RemoteService extends Service {
     constructor(serviceCtx: Context) {
       super(serviceCtx, 'remote')
+    }
+    $mount(): Promise<() => Promise<void>> {
+      return Promise.resolve(() => Promise.resolve())
     }
   }
   new RemoteService(ctx)
@@ -154,9 +158,13 @@ describe('ui-session-tree browser plugin', () => {
       input={undefined as never}
       useSession={() => undefined as never}
       useSessions={() => undefined as never}
+      useSessionPendingInteraction={() => undefined as never}
       useWorkspaces={() => undefined as never}
       useProjection={() => undefined as never}
-      inputActions={undefined as never}
+      useConversation={() => undefined as never}
+      useChat={() => undefined as never}
+      useTrajectory={() => undefined as never}
+      inputActions={{ setDraft: vi.fn() } as never}
       useInput={(select) => { return select(inputOf('') as never) }}
     />)
     await waitFor(() => { expect(screen.getByText(zh['panel.title'])).toBeTruthy() })
@@ -185,9 +193,13 @@ describe('ui-session-tree browser plugin', () => {
       input={undefined as never}
       useSession={() => undefined as never}
       useSessions={() => undefined as never}
+      useSessionPendingInteraction={() => undefined as never}
       useWorkspaces={() => undefined as never}
       useProjection={() => undefined as never}
-      inputActions={undefined as never}
+      useConversation={() => undefined as never}
+      useChat={() => undefined as never}
+      useTrajectory={() => undefined as never}
+      inputActions={{ setDraft: vi.fn() } as never}
       useInput={(select) => { return select(inputOf('/tree') as never) }}
     />)
     await waitFor(() => { expect(screen.getByText('root question')).toBeTruthy() })
@@ -206,6 +218,7 @@ describe('ui-session-tree browser plugin', () => {
     let draft = '/tree'
     const load = vi.fn(async () => view)
     const jump = vi.fn(async () => ({ cursor: 'a', messages: [] }))
+    const setDraft = vi.fn()
     const { rerender } = render(<SessionTreeDock
       sessionId={sid('s1')}
       load={load}
@@ -216,15 +229,22 @@ describe('ui-session-tree browser plugin', () => {
       input={undefined as never}
       useSession={() => undefined as never}
       useSessions={() => undefined as never}
+      useSessionPendingInteraction={() => undefined as never}
       useWorkspaces={() => undefined as never}
       useProjection={() => undefined as never}
-      inputActions={undefined as never}
+      useConversation={() => undefined as never}
+      useChat={() => undefined as never}
+      useTrajectory={() => undefined as never}
+      inputActions={{ setDraft } as never}
       useInput={(select) => { return select(inputOf(draft) as never) }}
     />)
     // The /tree draft expands the panel: node rows are visible without a click.
     await waitFor(() => { expect(screen.getByText('root question')).toBeTruthy() })
     fireEvent.click(screen.getByText('alt answer'))
-    expect(jump).toHaveBeenCalledWith('a')
+    // This helper creates user-role rows: pi rewinds to the selected prompt's
+    // parent and restores the prompt in the editor.
+    expect(jump).toHaveBeenCalledWith('r')
+    await waitFor(() => { expect(setDraft).toHaveBeenCalledWith('alt answer') })
     draft = ''
     rerender(<SessionTreeDock
       sessionId={sid('s1')}
@@ -236,9 +256,13 @@ describe('ui-session-tree browser plugin', () => {
       input={undefined as never}
       useSession={() => undefined as never}
       useSessions={() => undefined as never}
+      useSessionPendingInteraction={() => undefined as never}
       useWorkspaces={() => undefined as never}
       useProjection={() => undefined as never}
-      inputActions={undefined as never}
+      useConversation={() => undefined as never}
+      useChat={() => undefined as never}
+      useTrajectory={() => undefined as never}
+      inputActions={{ setDraft } as never}
       useInput={(select) => { return select(inputOf(draft) as never) }}
     />)
     // A non-/tree draft leaves the panel as the user left it (still open).

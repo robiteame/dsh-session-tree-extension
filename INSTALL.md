@@ -13,37 +13,44 @@ captured in `harness.patch`.
 
 ## Manual steps
 
-From this repository:
+Apply the Harness integration patch **before** copying the extension packages,
+then install dependencies:
 
 ```sh
 HARNESS=/path/to/deepseek-harness
-cp -R packages/extensions/pi-agent-session-tree "$HARNESS/packages/extensions/"
-cp -R packages/extensions/tool-session-tree      "$HARNESS/packages/extensions/"
-cp -R packages/client/ui-session-tree            "$HARNESS/packages/client/"
-cp -R docs/subsystems/session-tree.md            "$HARNESS/docs/subsystems/"
-cp -R docs/subsystems/session-tree.zh.md         "$HARNESS/docs/subsystems/"
-cp -R docs/subsystems/session-tree.i18n.yaml     "$HARNESS/docs/subsystems/"
-```
-
-Then apply the harness-side edits and refresh the lockfile:
-
-```sh
 cd "$HARNESS"
 git apply /path/to/dsh-session-tree-extension/harness.patch
+
+cp -R /path/to/dsh-session-tree-extension/packages/extensions/pi-agent-session-tree packages/extensions/
+cp -R /path/to/dsh-session-tree-extension/packages/extensions/tool-session-tree      packages/extensions/
+cp -R /path/to/dsh-session-tree-extension/packages/client/ui-session-tree            packages/client/
+cp /path/to/dsh-session-tree-extension/docs/subsystems/session-tree.md                docs/subsystems/
+cp /path/to/dsh-session-tree-extension/docs/subsystems/session-tree.zh.md             docs/subsystems/
+cp /path/to/dsh-session-tree-extension/docs/subsystems/session-tree.i18n.yaml         docs/subsystems/
+cp /path/to/dsh-session-tree-extension/docs/tool-catalog.md                         docs/
+cp /path/to/dsh-session-tree-extension/docs/tool-catalog.zh.md                      docs/
+cp /path/to/dsh-session-tree-extension/docs/tool-catalog.i18n.yaml                  docs/
+
 pnpm install
 ```
 
+Applying the patch first is required because it contains only changes to
+upstream Harness integration files; extension package sources are copied as new
+paths and intentionally do not appear in `harness.patch`.
+
 The patch registers:
 
-- `sessionTree` in the `api-remotes` client assembly and tsconfig references
-  (so the browser gets `ctx.remote.sessionTree`).
 - Host rows `pi-agent-session-tree` + `tool-session-tree` in the `dsh-base`
-  bundle composition.
-- The `ui-session-tree` browser row in the `dsh-web-app` bundle composition.
+  bundle composition and package dependencies.
+- The `ui-session-tree` browser row in the `dsh-web-app` bundle composition and
+  package dependencies.
 - The three packages in `tsconfig.base.json` paths and the host/client
   aggregate project references.
-- `sessionTree` in the generated Cordis API catalog and `session_tree` in the
-  generated tool schema catalog.
+- Workspace lockfile importers for all three packages. The browser package
+  mounts the generated `sessionTree` Remote contribution directly, so the
+  central `api-remotes` assembly does not need a fragile source edit.
+- The Cordis/tool catalog generator manifests and generated catalog source,
+  so `verify-cordis-catalog` and `verify-tool-catalog` remain exhaustive.
 
 ## Build and run
 

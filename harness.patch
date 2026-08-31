@@ -1,1480 +1,766 @@
-diff --git a/docs/subsystems/session-tree.md b/docs/subsystems/session-tree.md
-index 8c090d3..8cc997b 100644
---- a/docs/subsystems/session-tree.md
-+++ b/docs/subsystems/session-tree.md
-@@ -60,7 +60,7 @@ root→cursor path only — branches the cursor does not sit on stay out of
- `messages`, so context never mixes parallel alternatives.
- 
- ```ts type-equiv
--/** Result of a cursor jump: the new cursor plus the reconstructed path. */
-+/** Result of tree cursor navigation: the new cursor plus the projected path. */
- interface JumpView {
-   readonly cursor: string | null
-   readonly messages: readonly LlmMessage[]
-@@ -69,7 +69,7 @@ interface JumpView {
- 
- ## Durability
- 
--Trees are in-memory for the process lifetime; `snapshot.save` produces and
-+Harness Session events are the durable source of truth; the SessionTree store is an incrementally synchronized projection. `snapshot.save` produces and
- `snapshot.load` restores the versioned snapshot below. Unknown versions are
- rejected as `INVALID_SNAPSHOT`.
- 
-@@ -148,8 +148,9 @@ Remote-only service backing the browser tree panel.
- @Remote('list') list(agent: Agent): SessionTreeView
- 
- /**
-- * Move the cursor to an existing node and replay its root-to-node path.
-- * Old branches remain intact.
-+ * Move the tree cursor to an existing node; context returns the projected
-+ * root-to-node path while old branches remain intact. This does not rewrite
-+ * Harness' native model surface.
-  * @param agent - owning live agent.
-  * @param nodeId - target node, or null to reset before the first node.
-  * @returns the new cursor and reconstructed messages.
-diff --git a/docs/subsystems/session-tree.zh.md b/docs/subsystems/session-tree.zh.md
-index dd7dad2..ed8bbd2 100644
---- a/docs/subsystems/session-tree.zh.md
-+++ b/docs/subsystems/session-tree.zh.md
-@@ -132,8 +132,9 @@ Remote-only service backing the browser tree panel.
- @Remote('list') list(agent: Agent): SessionTreeView
- 
- /**
-- * Move the cursor to an existing node and replay its root-to-node path.
-- * Old branches remain intact.
-+ * Move the tree cursor to an existing node; context returns the projected
-+ * root-to-node path while old branches remain intact. This does not rewrite
-+ * Harness' native model surface.
-  * @param agent - owning live agent.
-  * @param nodeId - target node, or null to reset before the first node.
-  * @returns the new cursor and reconstructed messages.
-diff --git a/packages/client/ui-session-tree/src/client/SessionTreePanel.module.css b/packages/client/ui-session-tree/src/client/SessionTreePanel.module.css
-index 10c85ed..9672cac 100644
---- a/packages/client/ui-session-tree/src/client/SessionTreePanel.module.css
-+++ b/packages/client/ui-session-tree/src/client/SessionTreePanel.module.css
-@@ -112,6 +112,28 @@
-   background: var(--dsw-alias-interactive-bg-hover);
- }
- 
-+.jump {
-+  display: flex;
-+  align-items: center;
-+  gap: 8px;
-+  min-width: 0;
-+  flex: 1;
-+  border: 0;
-+  background: transparent;
-+  color: inherit;
-+  font: inherit;
-+  text-align: left;
-+  cursor: pointer;
-+}
+diff --git a/docs/tool-catalog.i18n.yaml b/docs/tool-catalog.i18n.yaml
+index 26a87fcd9d..7e27da47a8 100644
+--- a/docs/tool-catalog.i18n.yaml
++++ b/docs/tool-catalog.i18n.yaml
+@@ -2,5 +2,5 @@
+ # side as of the last confirmed-consistent state. Both languages carry equal authority;
+ # after editing either side, bring the other along and re-record with:
+ #   pnpm run verify-translation-pairing --write docs/tool-catalog.md
+-tool-catalog.md: f69f6e3650dccc06a5cbe243c26f0411befdc9e2
+-tool-catalog.zh.md: 5ac0948c3beb50b9c361ca575029a9a2763716fa
++tool-catalog.md: a274032ca1f41d5441265ba4f35ef34daf1a7c14
++tool-catalog.zh.md: b40dc70b76f5c8f2a01b3b6f5ca74c561c75ad3c
+diff --git a/docs/tool-catalog.md b/docs/tool-catalog.md
+index f69f6e3650..a274032ca1 100644
+--- a/docs/tool-catalog.md
++++ b/docs/tool-catalog.md
+@@ -38,6 +38,7 @@ This table connects model-visible tool names to the plugin package and service s
+ | `@deepseek-ai/dsh-tool-subagent-report` | `report` | `ctx.subagents`, `ctx.systemPrompt`, `a live continuable in-process child Agent` | `tool/call`, `tool/result`, `a user-role message in the direct parent session` | - | Registered per continuable in-process child rather than globally, so this schema is visible only inside such a child and survives its global `toolFilter`. The same contribution installs the child-scoped `tool:report` prompt section, which this catalog does not render. The parent-facing `send_message` tool is installed independently. |
+ | `@deepseek-ai/dsh-tool-jobs` | `job_kill`, `job_list`, `job_output` | `ctx.tools`, `ctx.jobs`, `ctx.systemPrompt` | `tool/call`, `tool/result`, `user/message via agent.inject() for background completion notices` | - | The kind-agnostic background-job controller: background bash commands, PTY sends, and subagents are read, listed, and killed through the same three tools. Loading the plugin attaches the controller that arms producers' `ctx.jobs.start()`. |
+ | `@deepseek-ai/dsh-experimental-tool-agent-team` | `followup_task`, `interrupt_agent`, `list_agents`, `send_message`, `spawn_teammate`, `team_task_create`, `team_task_get`, `team_task_list`, `team_task_update`, `wait_agent` | `ctx.tools`, `ctx.systemPrompt`, `ctx.agentTeams`, `an exact live Team member Agent` | `tool/call`, `team/member`, `team/message/queued`, `team/message/delivered`, `team/task`, `tool/result` | - | All ten tools are scoped to implicit Team Leads and durable teammates. The shipped dsh-base bundle keeps the package disabled; the documented Agent Teams profile patch enables it while disabling the legacy continuable-child control names. |
++| `@deepseek-ai/dsh-tool-session-tree` | `session_tree` | `ctx.tools`, `ctx.systemPrompt`, `ctx.commands`, `ctx.agents`, `ctx.sessionTree` | `tool/call`, `session-tree/* navigation or snapshot events`, `tool/result` | - | session_tree projects the durable Harness Session log into a Pi-style immutable tree; jump/fork select the same model-visible message path without deleting sibling history. |
+ | `@deepseek-ai/dsh-tool-todo` | `todo_write` | `ctx.tools`, `owning Agent session` | `tool/call`, `todo/write`, `tool/result` | - | todo_write is session-owned state; UIs render the latest todo/write event as a checklist. `allowParallelInProgress` is required with no default, so the catalog states its choice: `true`, whose description invites several `in_progress` items. A deployment choosing `false` receives the same tool with a description asking for exactly one active task. |
+ | `@deepseek-ai/dsh-tool-workflow` | `workflow` | `ctx.tools`, `ctx.workflowEngine`, `ctx.systemPrompt`, `a calling Agent (exec.agent parents the script children)` | `tool/call`, `tool/result` | - | - |
+ | `@deepseek-ai/dsh-tool-web` | `web_fetch`, `web_search` | `ctx.tools`, `ctx.web`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | web_search and web_fetch keep provider selection behind ctx.web so model-visible schemas stay stable across backend swaps. |
+@@ -2082,6 +2083,61 @@ Source: [`packages/experimental/tool-agent-team/src/index.ts`](../packages/exper
+
+ All ten tools are scoped to implicit Team Leads and durable teammates. The shipped dsh-base bundle keeps the package disabled; the documented Agent Teams profile patch enables it while disabling the legacy continuable-child control names.
+
++<a id="deepseek-aidsh-tool-session-tree"></a>
 +
-+.forkAction {
-+  flex: none;
-+  border: 0;
-+  background: transparent;
-+  color: var(--dsw-alias-state-business-primary);
-+  cursor: pointer;
-+}
++## `@deepseek-ai/dsh-tool-session-tree`
 +
- .nodeActive {
-   background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 12%, transparent);
-   outline: 1px solid color-mix(in srgb, var(--dsw-alias-state-business-primary) 40%, transparent);
-@@ -147,6 +169,22 @@
-   white-space: nowrap;
- }
- 
-+.forks,
-+.head {
-+  flex: none;
-+  font-size: 10px;
-+  line-height: 14px;
-+  color: var(--dsw-alias-label-tertiary);
-+}
++### `session_tree`
 +
-+.head {
-+  max-width: 112px;
-+  overflow: hidden;
-+  color: var(--dsw-alias-state-success-primary, var(--dsw-alias-state-business-primary));
-+  text-overflow: ellipsis;
-+  white-space: nowrap;
-+}
++Inspect and navigate the append-only tree projected from the durable Harness Session log. Native user/assistant/tool/model events synchronize automatically; use append only for an explicit custom entry, context to read the active cursor path, fork or branch from a historical node without deleting old history, clone the active path into an independent Harness session, and snapshot.save/snapshot.load for explicit export or restore.
 +
- .cursor {
-   flex: none;
-   font-size: 10px;
-diff --git a/packages/client/ui-session-tree/src/client/SessionTreePanel.tsx b/packages/client/ui-session-tree/src/client/SessionTreePanel.tsx
-index e7db1b0..533b30e 100644
---- a/packages/client/ui-session-tree/src/client/SessionTreePanel.tsx
-+++ b/packages/client/ui-session-tree/src/client/SessionTreePanel.tsx
-@@ -29,26 +29,30 @@ const ROLE_LABELS: Record<LlmRole, SessionTreeKey> = {
-  * @param onJump - jump callback for this node.
-  */
- function NodeRow({
--  node, cursor, onJump, t,
-+  node, cursor, branchHeads, onJump, onFork, t,
- }: {
-   node: TreeNode
-   cursor: string | null
-+  pending: boolean
-+  branchHeads: Record<string, string> | undefined
-   onJump: (nodeId: string) => void
-+  onFork: (nodeId: string) => void
-   t: (key: SessionTreeKey) => string
- }) {
-   const message = node.message
-+  const headNames = Object.entries(branchHeads ?? {}).filter(([, head]) => head === node.nodeId).map(([name]) => name)
-   return (
--    <button
--      type="button"
--      className={node.nodeId === cursor ? `${css.node} ${css.nodeActive}` : css.node}
--      title={`${t('panel.jump')} — ${node.nodeId}`}
--      onClick={() => { onJump(node.nodeId) }}
--    >
--      <span className={css.role}>{message === undefined ? t('node.noMessage') : t(ROLE_LABELS[message.role])}</span>
--      <span className={css.summary}>{node.summary}</span>
--      <span className={css.branch}>{node.branch}</span>
--      {node.nodeId === cursor ? <span className={css.cursor}>{t('panel.cursor')}</span> : null}
--    </button>
-+    <div className={node.nodeId === cursor ? `${css.node} ${css.nodeActive}` : css.node}>
-+      <button type="button" className={css.jump} disabled={pending} title={`${t('panel.jump')} — ${node.nodeId}`} onClick={() => { onJump(node.nodeId) }}>
-+        <span className={css.role}>{message === undefined ? t('node.noMessage') : t(ROLE_LABELS[message.role])}</span>
-+        <span className={css.summary}>{node.summary}</span>
-+        <span className={css.branch}>{node.branch}</span>
-+        {node.forkCount !== undefined && node.forkCount > 0 ? <span className={css.forks}>⑂{node.forkCount}</span> : null}
-+        {headNames.length > 0 ? <span className={css.head} title={`${t('panel.head')}: ${headNames.join(', ')}`}>{headNames.join(', ')}</span> : null}
-+        {node.nodeId === cursor ? <span className={css.cursor}>{t('panel.cursor')}</span> : null}
-+      </button>
-+      <button type="button" className={css.forkAction} disabled={pending} title={t('panel.fork')} aria-label={`${t('panel.fork')} — ${node.nodeId}`} onClick={() => { onFork(node.nodeId) }}>⑂</button>
-+    </div>
-   )
- }
- 
-@@ -57,11 +61,14 @@ function NodeRow({
-  * render alone. The root list groups everything with parentId === null.
-  */
- function TreeRows({
--  nodes, cursor, onJump, t,
-+  nodes, cursor, pending, branchHeads, onJump, onFork, t,
- }: {
-   nodes: readonly TreeNode[]
-   cursor: string | null
-+  pending: boolean
-+  branchHeads: Record<string, string> | undefined
-   onJump: (nodeId: string) => void
-+  onFork: (nodeId: string) => void
-   t: (key: SessionTreeKey) => string
- }) {
-   // Index children by parent once (O(n)) instead of re-filtering `nodes` per
-@@ -79,14 +86,19 @@ function TreeRows({
-     return map
-   }, [nodes])
- 
--  const render = (parent: string | null, depth: number) => {
-+  const render = (parent: string | null, depth: number, ancestors: ReadonlySet<string> = new Set()) => {
-     const children = childrenByParent.get(parent) ?? []
--    return children.map(node => (
--      <div key={node.nodeId} className={depth > 0 ? css.childRow : undefined}>
--        <NodeRow node={node} cursor={cursor} onJump={onJump} t={t} />
--        {render(node.nodeId, depth + 1)}
--      </div>
--    ))
-+    return children.map(node => {
-+      if (ancestors.has(node.nodeId)) return null
-+      const nextAncestors = new Set(ancestors)
-+      nextAncestors.add(node.nodeId)
-+      return (
-+        <div key={node.nodeId} className={depth > 0 ? css.childRow : undefined}>
-+          <NodeRow node={node} cursor={cursor} pending={pending} branchHeads={branchHeads} onJump={onJump} onFork={onFork} t={t} />
-+          {render(node.nodeId, depth + 1, nextAncestors)}
-+        </div>
-+      )
-+    })
-   }
- 
-   return <div className={css.rows}>{render(null, 0)}</div>
-@@ -94,7 +106,7 @@ function TreeRows({
- 
- /** The collapsible dock card. */
- export function SessionTreePanel({
--  sessionId, load, jump, t, useInput,
-+  sessionId, load, jump, fork, t, useInput,
- }: SessionTreeViewProps & PropsLocale<'session-tree'>) {
-   const [view, setView] = useState<SessionTreeView | null>(null)
-   const [error, setError] = useState<string | null>(null)
-@@ -142,6 +154,16 @@ export function SessionTreePanel({
++```json
++{
++  "type": "object",
++  "properties": {
++    "operation": {
++      "type": "string"
++    },
++    "sessionId": {
++      "type": "string"
++    },
++    "nodeId": {
++      "type": "string"
++    },
++    "branch": {
++      "type": "string"
++    },
++    "summary": {
++      "type": "string"
++    },
++    "message": {},
++    "snapshot": {},
++    "metadata": {},
++    "targetSessionId": {
++      "type": "string"
++    },
++    "content": {},
++    "model": {
++      "type": "string"
++    },
++    "usage": {},
++    "cost": {
++      "type": "number"
++    },
++    "error": {
++      "type": "string"
++    }
++  },
++  "required": [
++    "operation"
++  ]
++}
++```
++
++Source: [`packages/extensions/tool-session-tree/src/index.ts`](../packages/extensions/tool-session-tree/src/index.ts)
++
++session_tree projects the durable Harness Session log into a Pi-style immutable tree; jump/fork select the same model-visible message path without deleting sibling history.
++
+ <a id="deepseek-aidsh-tool-todo"></a>
+
+ ## `@deepseek-ai/dsh-tool-todo`
+diff --git a/docs/tool-catalog.zh.md b/docs/tool-catalog.zh.md
+index 5ac0948c3b..b40dc70b76 100644
+--- a/docs/tool-catalog.zh.md
++++ b/docs/tool-catalog.zh.md
+@@ -22,6 +22,7 @@
+ | `@deepseek-ai/dsh-tool-ask-user` | `ask_user_question` | `ctx.tools`、`ctx.userQuestions` | `tool/call`、`tool/result after a UI/provider answers the question` | - | ask_user_question 会暂停工具调用，直到当前 UI 提供方返回人类答案。 |
+ | `@deepseek-ai/dsh-tools` | `run_code` | `ctx.tools`、`ctx.codeRuntime (execution time)`、`ctx.systemPrompt` | `tool/call`、`one tool/code-dispatch-start + tool/code-dispatch pair per bridged sub-call`、`tool/result` | - | 在 `mode: ptc`／`mode: both` 下，它由工具注册表所有，作为可过滤能力层之外的保留传输机制（参见 PTC mode Agent Note）。在 `ptc` 下，它是注册表对协议格式（wire format）的唯一贡献；其他可见能力在使用已加载运行时语言生成的 SDK 章节中声明。程序通过 binding 调用这些能力，调用按照原生并发约定调度：启动顺序和策略遵循提交顺序，并发安全的函数体最多重叠执行 `maxParallelSubCalls` 个。调用会重新进入完整且受守卫保护的工具流水线，并将每个嵌套执行关联到此外层结果。 |
+ | `@deepseek-ai/dsh-plan-mode` | `exit_plan_mode` | `ctx.tools`、`ctx.systemPrompt`、`ctx.userQuestions (execution time, opportunistic)` | `tool/call`、`plan/mode inactive on an approved review`、`tool/result` | - | 规划未激活时，exit_plan_mode 仍保留在面向模型的 schema 中，这样状态转换不会在规划策略变更之外额外造成工具目录变动。其执行路径会拒绝规划模式之外的调用；在规划模式下，它通过用户交互 seam 提交计划（批准／根据反馈继续规划），批准后会在步骤边界记录规划模式已停用。 |
++| `@deepseek-ai/dsh-tool-session-tree` | `session_tree` | `ctx.tools`、`ctx.systemPrompt`、`ctx.commands`、`ctx.agents`、`ctx.sessionTree` | `tool/call`、`session-tree/* navigation or snapshot events`、`tool/result` | - | session_tree projects the durable Harness Session log into a Pi-style immutable tree; jump/fork select the same model-visible message path without deleting sibling history. |
+ | `@deepseek-ai/dsh-tool-bash` | `bash` | `ctx.tools`、`ctx.shell`、`ctx.systemPrompt`、`ctx.shellEnv`、`ctx.jobs at call time for run_in_background` | `tool/call`、`tool/result` | - | bash 工具是 bash 执行器 seam 面向模型的消费方。使用 `run_in_background` 的运行会注册到通用 `ctx.jobs` 运行时，并通过 `job_*` 工具（来自 `@deepseek-ai/dsh-tool-jobs`）收集／停止；禁用 `enableRunInBackground` 配置（默认为 true）后，该参数会被完全移除。 |
+ | `@deepseek-ai/dsh-tool-pwsh` | `pwsh` | `ctx.tools`、`ctx.shell`、`ctx.systemPrompt`、`ctx.shellEnv`、`ctx.jobs at call time for run_in_background` | `tool/call`、`tool/result` | - | pwsh 工具是 Windows 组合中 bash 执行器 seam 的 PowerShell 方言消费方（由 `@deepseek-ai/dsh-pwsh-local` 等 PowerShell 执行器为 `ctx.shell` 提供后端）；除沙箱接口外，它逐项对应 bash 工具调用。使用 `run_in_background` 的运行会注册到通用 `ctx.jobs` 运行时，并通过 `job_*` 工具收集／停止；托管的 `DSH_*` 环境来自 `@deepseek-ai/dsh-shell-env`。每次调用都在新进程中运行，不使用持久 PTY 会话。路径采用原生 `C:\...` 形式，变量采用 `$env:NAME`。 |
+ | `@deepseek-ai/dsh-tool-cordis` | `cordis_define`、`cordis_inspect_list`、`cordis_inspect_query`、`cordis_inspect_self`、`cordis_run`、`cordis_stop`、`cordis_undefine` | `ctx.tools`、`ctx.dynamicCordisRunner` | `tool/call`、`tool/result`、`process-local dynamic package lifecycle` | - | 不在任何随产品发布的树中，需要显式选择启用；动态 Package 代码可以访问真实运行时，见 .agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md。该工具集注入 `@deepseek-ai/dsh-cordis-host-runner` 提供的 `ctx.dynamicCordisRunner`，后者拥有定义注册表和 vm 沙箱；组合缺少它时这些工具不会激活。运行中的 Package 在停止、undefine 或 DSH 重启前可以注册**额外的**模型可见工具；发生这类工具集变化时，系统会记录完整且有变动的请求头。 |
+@@ -2089,6 +2090,61 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，
+ 这 10 个工具限定于隐式 Team Lead 与持久 teammate 作用域。随产品发布的 dsh-base bundle 默认禁用该包；文档中的 Agent Teams profile patch 会启用它，并禁用旧 continuable child 的同名控制工具。
+
+
++<a id="deepseek-aidsh-tool-session-tree"></a>
++
++## `@deepseek-ai/dsh-tool-session-tree`
++
++### `session_tree`
++
++Inspect and navigate the append-only tree projected from the durable Harness Session log. Native user/assistant/tool/model events synchronize automatically; use append only for an explicit custom entry, context to read the active cursor path, fork or branch from a historical node without deleting old history, clone the active path into an independent Harness session, and snapshot.save/snapshot.load for explicit export or restore.
++
++```json
++{
++  "type": "object",
++  "properties": {
++    "operation": {
++      "type": "string"
++    },
++    "sessionId": {
++      "type": "string"
++    },
++    "nodeId": {
++      "type": "string"
++    },
++    "branch": {
++      "type": "string"
++    },
++    "summary": {
++      "type": "string"
++    },
++    "message": {},
++    "snapshot": {},
++    "metadata": {},
++    "targetSessionId": {
++      "type": "string"
++    },
++    "content": {},
++    "model": {
++      "type": "string"
++    },
++    "usage": {},
++    "cost": {
++      "type": "number"
++    },
++    "error": {
++      "type": "string"
++    }
++  },
++  "required": [
++    "operation"
++  ]
++}
++```
++
++Source: [`packages/extensions/tool-session-tree/src/index.ts`](../packages/extensions/tool-session-tree/src/index.ts)
++
++session_tree projects the durable Harness Session log into a Pi-style immutable tree; jump/fork select the same model-visible message path without deleting sibling history.
++
+ <a id="deepseek-aidsh-tool-todo"></a>
+
+ ## `@deepseek-ai/dsh-tool-todo`
+diff --git a/packages/bundle/base/cordis.patch.yml b/packages/bundle/base/cordis.patch.yml
+index eaa8457e88..69f9fdaae1 100644
+--- a/packages/bundle/base/cordis.patch.yml
++++ b/packages/bundle/base/cordis.patch.yml
+@@ -33,6 +33,13 @@
+     - id: session
+       name: '@deepseek-ai/dsh-session'
+
++    # Pi-style append-only in-session conversation tree and its tool/commands.
++    - id: pi-agent-session-tree
++      name: '@deepseek-ai/dsh-pi-agent-session-tree'
++
++    - id: tool-session-tree
++      name: '@deepseek-ai/dsh-tool-session-tree'
++
+     - id: session-log-deepseek
+       name: '@deepseek-ai/dsh-session-log-deepseek'
+
+diff --git a/packages/bundle/base/package.json b/packages/bundle/base/package.json
+index b80a50fabc..816d0458fc 100644
+--- a/packages/bundle/base/package.json
++++ b/packages/bundle/base/package.json
+@@ -67,6 +67,7 @@
+     "@deepseek-ai/dsh-llm-pi-ai": "workspace:^",
+     "@deepseek-ai/dsh-llm-retry": "workspace:^",
+     "@deepseek-ai/dsh-permission-presets": "workspace:^",
++    "@deepseek-ai/dsh-pi-agent-session-tree": "workspace:^",
+     "@deepseek-ai/dsh-plan-mode": "workspace:^",
+     "@deepseek-ai/dsh-pwsh-sandbox": "workspace:^",
+     "@deepseek-ai/dsh-repeat-tool-reminder": "workspace:^",
+@@ -105,6 +106,7 @@
+     "@deepseek-ai/dsh-tool-goal": "workspace:^",
+     "@deepseek-ai/dsh-tool-pwsh": "workspace:^",
+     "@deepseek-ai/dsh-tool-ralph": "workspace:^",
++    "@deepseek-ai/dsh-tool-session-tree": "workspace:^",
+     "@deepseek-ai/dsh-tool-skill": "workspace:^",
+     "@deepseek-ai/dsh-tool-str-replace-editor": "workspace:^",
+     "@deepseek-ai/dsh-tool-subagent": "workspace:^",
+diff --git a/packages/bundle/web-app/cordis.patch.yml b/packages/bundle/web-app/cordis.patch.yml
+index 79c62a6e20..d2012234ba 100644
+--- a/packages/bundle/web-app/cordis.patch.yml
++++ b/packages/bundle/web-app/cordis.patch.yml
+@@ -207,6 +207,10 @@
+     - id: ui-conversation
+       name: '@deepseek-ai/dsh-client-ui-conversation'
+
++    # Pi-style session tree dock above the composer.
++    - id: ui-session-tree
++      name: '@deepseek-ai/dsh-client-ui-session-tree'
++
+     - id: ui-approval
+       name: '@deepseek-ai/dsh-client-ui-approval'
+
+diff --git a/packages/bundle/web-app/package.json b/packages/bundle/web-app/package.json
+index 0d7157e23c..6f87190b8c 100644
+--- a/packages/bundle/web-app/package.json
++++ b/packages/bundle/web-app/package.json
+@@ -74,6 +74,7 @@
+     "@deepseek-ai/dsh-client-ui-plan": "workspace:^",
+     "@deepseek-ai/dsh-client-ui-schedule": "workspace:^",
+     "@deepseek-ai/dsh-client-ui-session": "workspace:^",
++    "@deepseek-ai/dsh-client-ui-session-tree": "workspace:^",
+     "@deepseek-ai/dsh-client-ui-settings-plugins": "workspace:^",
+     "@deepseek-ai/dsh-client-ui-user-questions": "workspace:^",
+     "@deepseek-ai/dsh-client-ui-settings": "workspace:^",
+diff --git a/packages/core/session/src/index.ts b/packages/core/session/src/index.ts
+index afa2ff3604..3b3e45ab32 100644
+--- a/packages/core/session/src/index.ts
++++ b/packages/core/session/src/index.ts
+@@ -16,7 +16,7 @@ import type { Message } from '@deepseek-ai/dsh-llm'
+ import { SESSION_FORMAT_VERSION } from './types.ts'
+ import type { TypertLookup } from '@deepseek-ai/dsh-typert-protocol'
+ import type { CreateSessionOptions, EpochHeader, PrepareSessionOptions, RequestContext, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SessionId, SurfaceIntent, SurfaceEventType } from './types.ts'
+-import { deriveEventMessage, SurfaceManager } from './surface.ts'
++import { deriveEventMessage, isSurfaceEvent, SurfaceManager } from './surface.ts'
+ import type { SessionSurface } from './surface.ts'
+ import { foldRequestHeader } from './request-header.ts'
+
+@@ -424,6 +424,9 @@ export class Session {
+   private log: SessionEvent[] = []
+   /** Single incremental owner of surface acceptance and projection state. */
+   private readonly surfaceManager = new SurfaceManager(this.log)
++  /** Optional branch-selected message surface; undefined follows the canonical surface. */
++  private selectedMessageSurface: number[] | undefined
++  private selectedMessageSurfaceGeneration = 0
+
+   /** The ordered surface over this session's event log. */
+   get surface(): SessionSurface {
+@@ -639,6 +642,7 @@ export class Session {
+         callbacks = collectSessionCallbacks(entry.emitCtx, [entry.carrier, 'session/event', ...callbackArgs])
+       }
+       this.log.push(event as SessionEvent)
++      this.extendSelectedMessageSurface(event as SessionEvent)
+       this.eventsSnapshot = undefined
+       if (callbacks !== undefined && entry !== undefined) {
+         invokeContainedSessionObservers(entry.emitCtx, 'session/event', entry.id, callbackArgs, callbacks)
+@@ -652,6 +656,74 @@ export class Session {
      }
-   }, [jump, pending, refresh])
- 
-+  const handleFork = useCallback(async (nodeId: string) => {
-+    if (pending) return
-+    const branch = `fork-${Date.now().toString(36)}`
-+    setPending(true)
-+    setError(null)
-+    try { await fork(nodeId, branch); await refresh() }
-+    catch (forkError) { setError(forkError instanceof Error ? forkError.message : String(forkError)) }
-+    finally { setPending(false) }
-+  }, [fork, pending, refresh])
-+
-   const nodeCount = view === null ? 0 : view.nodes.length
-   const branchCount = view === null ? 0 : view.branches.length
- 
-@@ -167,7 +189,7 @@ export function SessionTreePanel({
-           {error !== null ? <p className={css.error}>{t('panel.error')}: {error}</p> : null}
-           {view !== null && nodeCount === 0 ? <p className={css.empty}>{t('panel.empty')}</p> : null}
-           {view !== null && nodeCount > 0 ? (
--            <TreeRows nodes={view.nodes} cursor={view.cursor} onJump={(nodeId) => { handleJump(nodeId).catch(() => undefined) }} t={t} />
-+            <TreeRows nodes={view.nodes} cursor={view.cursor} pending={pending} branchHeads={view.branchHeads} onJump={(nodeId) => { handleJump(nodeId).catch(() => undefined) }} onFork={(nodeId) => { handleFork(nodeId).catch(() => undefined) }} t={t} />
-           ) : null}
-         </div>
-       ) : null}
-diff --git a/packages/client/ui-session-tree/src/client/index.ts b/packages/client/ui-session-tree/src/client/index.ts
-index 14343d3..5c2d9cc 100644
---- a/packages/client/ui-session-tree/src/client/index.ts
-+++ b/packages/client/ui-session-tree/src/client/index.ts
-@@ -60,6 +60,11 @@ export function apply(ctx: ClientContext): void {
-         if (!answered.ok) throw new Error(`${answered.error.code}: ${answered.error.message}`)
-         return answered.value
-       },
-+      fork: async (nodeId: string, branch: string) => {
-+        const answered = await ctx.remote.sessionTree.fork(sessionId, nodeId, branch)
-+        if (!answered.ok) throw new Error(`${answered.error.code}: ${answered.error.message}`)
-+        return answered.value
-+      },
-     }),
-   }, SessionTreeDock))
- }
-diff --git a/packages/client/ui-session-tree/src/client/locales.ts b/packages/client/ui-session-tree/src/client/locales.ts
-index 658cbf2..c7373b1 100644
---- a/packages/client/ui-session-tree/src/client/locales.ts
-+++ b/packages/client/ui-session-tree/src/client/locales.ts
-@@ -13,6 +13,8 @@ export const zh = {
-   'panel.jump': '跳转到该节点',
-   'panel.jump.failed': '跳转失败',
-   'panel.refresh': '刷新',
-+  'panel.head': '分支头',
-+  'panel.fork': '从此节点分叉',
-   'node.role.system': '系统',
-   'node.role.user': '用户',
-   'node.role.assistant': '助手',
-@@ -37,6 +39,8 @@ export const en = {
-   'panel.jump': 'Jump to this node',
-   'panel.jump.failed': 'Jump failed',
-   'panel.refresh': 'Refresh',
-+  'panel.head': 'branch head',
-+  'panel.fork': 'Fork from this node',
-   'node.role.system': 'System',
-   'node.role.user': 'User',
-   'node.role.assistant': 'Assistant',
-diff --git a/packages/client/ui-session-tree/src/client/slots.ts b/packages/client/ui-session-tree/src/client/slots.ts
-index d808067..2b3a9cc 100644
---- a/packages/client/ui-session-tree/src/client/slots.ts
-+++ b/packages/client/ui-session-tree/src/client/slots.ts
-@@ -17,13 +17,16 @@ export interface SessionTreePanelActions {
-    */
-   load: (sessionId: SessionId) => Promise<SessionTreeView>
-   /**
--   * Move the tree cursor to one node; the node's root-to-node path is
--   * replayed, and old branches remain intact.
-+   * Move the SessionTree cursor to one node; the root-to-node path is returned
-+   * by `context`, while old branches remain intact. This is tree navigation and
-+   * does not claim to replace Harness' native model surface.
-    * @param nodeId - target node id.
-    * @returns the new cursor and reconstructed messages.
-    * @throws Error with the Remote error code and message when the node is unknown.
-    */
-   jump: (nodeId: string) => Promise<JumpView>
-+  /** Create/select a named branch at one historical node. */
-+  fork: (nodeId: string, branch: string) => Promise<{ cursor: string; branch: string; forkCount: number }>
- }
- 
- /** Full props of the dock entry: the framework standard kit plus the injected face. */
-diff --git a/packages/client/ui-session-tree/tests/browser-plugin.client.spec.tsx b/packages/client/ui-session-tree/tests/browser-plugin.client.spec.tsx
-index 8e93102..ddfdf17 100644
---- a/packages/client/ui-session-tree/tests/browser-plugin.client.spec.tsx
-+++ b/packages/client/ui-session-tree/tests/browser-plugin.client.spec.tsx
-@@ -55,6 +55,7 @@ async function bench(options: { view?: SessionTreeView; failList?: boolean; fail
-   let active = {
-     list: answer('sessionTree/list', options.view ?? defaultView, options.failList),
-     jump: answer('sessionTree/jump', { cursor: 'n1', messages: [] }, options.failJump),
-+    fork: answer('sessionTree/fork', { cursor: 'n1', branch: 'fork-test', forkCount: 1 }),
    }
-   class RemoteService extends Service {
-     constructor(serviceCtx: Context) {
-@@ -65,6 +66,7 @@ async function bench(options: { view?: SessionTreeView; failList?: boolean; fail
-   ctx.provide('remote.sessionTree', {
-     get list() { return active.list },
-     get jump() { return active.jump },
-+    get fork() { return active.fork },
-   })
-   await ctx.plugin(SlotRegistry).await()
-   ctx.slots.register({
-@@ -81,7 +83,7 @@ async function bench(options: { view?: SessionTreeView; failList?: boolean; fail
-     ctx,
-     fiber,
-     calls,
--    remount: () => { active = { list: answer('remounted/list', defaultView), jump: answer('remounted/jump', { cursor: 'n1', messages: [] }) } },
-+    remount: () => { active = { list: answer('remounted/list', defaultView), jump: answer('remounted/jump', { cursor: 'n1', messages: [] }), fork: answer('remounted/fork', { cursor: 'n1', branch: 'fork-test', forkCount: 1 }) } },
-     entry: () => {
-       const entry = ctx.slots.entries('conversation.input.dock')[0]
-       if (entry === undefined) return undefined
-@@ -108,9 +110,11 @@ describe('ui-session-tree browser plugin', () => {
-     const verbs = b.entry()!.inject!(sid('s1'))
-     await verbs.load(sid('s1'))
-     await verbs.jump('n1')
--    expect(b.calls.map(call => call.method)).toEqual(['sessionTree/list', 'sessionTree/jump'])
-+    await verbs.fork('n1', 'experiment')
-+    expect(b.calls.map(call => call.method)).toEqual(['sessionTree/list', 'sessionTree/jump', 'sessionTree/fork'])
-     expect(b.calls[0]?.args).toEqual(['s1'])
-     expect(b.calls[1]?.args).toEqual(['s1', 'n1'])
-+    expect(b.calls[2]?.args).toEqual(['s1', 'n1', 'experiment'])
-   })
- 
-   it('rejects a jump once the Remote namespace is gone (assembly fault)', async () => {
-@@ -144,6 +148,7 @@ describe('ui-session-tree browser plugin', () => {
-       sessionId={sid('s1')}
-       load={load}
-       jump={jump}
-+      fork={vi.fn(async (_nodeId: string, branch: string) => ({ cursor: 'a', branch, forkCount: 1 }))}
-       t={t}
-       session={undefined as never}
-       input={undefined as never}
-@@ -164,6 +169,36 @@ describe('ui-session-tree browser plugin', () => {
-     void rerender
-   })
- 
-+  it('forks from a node without also jumping and refreshes the tree', async () => {
-+    const nodes = [node('r', null, 'root question', 'main')]
-+    const view = treeView('r', nodes)
-+    const load = vi.fn(async () => view)
-+    const jump = vi.fn(async () => ({ cursor: 'r', messages: [] }))
-+    const fork = vi.fn(async (_nodeId: string, branch: string) => ({ cursor: 'r', branch, forkCount: 1 }))
-+    render(<SessionTreeDock
-+      sessionId={sid('s1')}
-+      load={load}
-+      jump={jump}
-+      fork={fork}
-+      t={tOf}
-+      session={undefined as never}
-+      input={undefined as never}
-+      useSession={() => undefined as never}
-+      useSessions={() => undefined as never}
-+      useWorkspaces={() => undefined as never}
-+      useProjection={() => undefined as never}
-+      inputActions={undefined as never}
-+      useInput={(select) => { return select(inputOf('/tree') as never) }}
-+    />)
-+    await waitFor(() => { expect(screen.getByText('root question')).toBeTruthy() })
-+    fireEvent.click(screen.getByLabelText(`${zh['panel.fork']} — r`))
-+    await waitFor(() => { expect(fork).toHaveBeenCalledTimes(1) })
-+    expect(fork.mock.calls[0]?.[0]).toBe('r')
-+    expect(fork.mock.calls[0]?.[1]).toMatch(/^fork-/u)
-+    expect(jump).not.toHaveBeenCalled()
-+    await waitFor(() => { expect(load).toHaveBeenCalledTimes(2) })
-+  })
-+
-   it('auto-expands on a /tree composer draft and jumps on node click', async () => {
-     const t = tOf
-     const nodes = [node('r', null, 'root question', 'main'), node('a', 'r', 'alt answer', 'main')]
-@@ -175,6 +210,7 @@ describe('ui-session-tree browser plugin', () => {
-       sessionId={sid('s1')}
-       load={load}
-       jump={jump}
-+      fork={vi.fn(async (_nodeId: string, branch: string) => ({ cursor: 'a', branch, forkCount: 1 }))}
-       t={t}
-       session={undefined as never}
-       input={undefined as never}
-@@ -194,6 +230,7 @@ describe('ui-session-tree browser plugin', () => {
-       sessionId={sid('s1')}
-       load={load}
-       jump={jump}
-+      fork={vi.fn(async (_nodeId: string, branch: string) => ({ cursor: 'a', branch, forkCount: 1 }))}
-       t={t}
-       session={undefined as never}
-       input={undefined as never}
-diff --git a/packages/extensions/pi-agent-session-tree/SYSTEM_PROMPT.md b/packages/extensions/pi-agent-session-tree/SYSTEM_PROMPT.md
-index 482007e..961b33c 100644
---- a/packages/extensions/pi-agent-session-tree/SYSTEM_PROMPT.md
-+++ b/packages/extensions/pi-agent-session-tree/SYSTEM_PROMPT.md
-@@ -1,14 +1,17 @@
- # Session-tree system-prompt fragment
- 
--SessionTree is the sole conversation history for this agent. Before answering,
--call `session_tree` with `operation: "context"` for the active session and
--treat its returned `messages` as the complete context; never assume a linear
--chat history. Append every user and assistant turn with `operation: "append"`.
--
--To explore an alternative, call `branch` with a historical `nodeId` and a
--branch name (or `branch.summary` to record a summary of the abandoned path),
--then append new messages; never modify or delete historical nodes. Use
--`branches` and `tree` to enumerate the conversation tree, and
--`snapshot.save` / `snapshot.load` to export or restore the whole tree as JSON.
-+SessionTree is the append-only projection of this agent's durable Harness
-+Session log. Native user, assistant, tool, and model-context events synchronize
-+automatically; never duplicate ordinary turns with `operation: "append"`.
-+
-+After tree navigation, call `session_tree` with `operation: "context"` to
-+read the root-to-cursor `messages` projection. This tree context is separate
-+from Harness' native model surface; navigation does not rewrite that surface. Use `append` only for an explicit custom tree entry not already
-+recorded by Harness.
-+
-+To explore an alternative, call `fork` or `branch` with a historical `nodeId`
-+and branch name (or `branch.summary` to record a summary). Never modify or
-+delete historical nodes. Use `branches` and `tree` to inspect topology, and
-+`snapshot.save` / `snapshot.load` for explicit export or full-tree restore.
- 
- All operations report failures as `{ok:false,error:{code,message}}`.
-diff --git a/packages/extensions/pi-agent-session-tree/src/index.ts b/packages/extensions/pi-agent-session-tree/src/index.ts
-index bd9797e..63f1e0b 100644
---- a/packages/extensions/pi-agent-session-tree/src/index.ts
-+++ b/packages/extensions/pi-agent-session-tree/src/index.ts
-@@ -8,8 +8,9 @@
-  *   `@deepseek-ai/dsh-tool-session-tree` plugin shares the same store, so
-  *   anything the model appends is immediately visible to the browser panel
-  *   and vice versa.
-- * - Trees are in-memory for the process lifetime; `snapshot.save` /
-- *   `snapshot.load` (tool operations) carry them across processes.
-+ * - Harness Session events are the durable source of truth; the process-wide
-+ *   store is an incrementally synchronized projection, while explicit snapshots
-+ *   remain available for export and full-tree restore.
-  * - Every operation answers `{ok, value}|{ok:false,error}` from the domain
-  *   layer; the Remote boundary adds its own transport envelope.
-  *
-@@ -19,7 +20,7 @@
- import type { Context } from '@deepseek-ai/cordis'
- import type { Agent } from '@deepseek-ai/dsh-agent'
- import { TypertRemoteService, Remote } from '@deepseek-ai/dsh-typert-protocol'
--import { sessionTreeStore, type SessionTree } from './session-tree.ts'
-+import { SessionTree, sessionTreeStore } from './session-tree.ts'
- import { sessionEventsToTreeNodes } from './session-event-adapter.ts'
- import type { JumpView, SessionTreeSessionInfo, SessionTreeView } from './types.ts'
- 
-@@ -33,17 +34,53 @@ declare module '@deepseek-ai/cordis' {
-   }
- }
- 
--/** Materialize native Harness history once, preserving tool-side tree ownership afterwards. */
--function treeForAgent(agent: Agent): SessionTree {
-+/** Materialize and incrementally synchronize native Harness history. */
-+export function syncSessionTree(agent: Agent): SessionTree {
-   const sessionId = agent.session.id
-   const existing = sessionTreeStore.get(sessionId)
--  if (existing !== undefined) return existing
--  const tree = sessionTreeStore.create(sessionId)
--  const nodes = sessionEventsToTreeNodes(agent.session.events)
--  if (nodes.length > 0) {
--    const restored = tree.replay(nodes.map((node, seq) => ({ seq, node })))
-+  let tree = existing === undefined ? new SessionTree(sessionId) : new SessionTree(sessionId, existing.snapshot())
-+  const lastSeq = existing?.lastSessionEventSeq() ?? -1
-+  const surfaceSeqs = new Set(agent.session.surface.nodes)
-+  const freshEvents = agent.session.events.filter(event => event.seq > lastSeq)
-+  let nativeParentId = tree.cursor
-+  for (const event of freshEvents) {
-+    if (event.type === 'session-tree/snapshot') {
-+      if (event.data.snapshot.sessionId !== sessionId) throw new Error('INVALID_SNAPSHOT: snapshot session does not match the owning Session')
-+      try {
-+        tree = new SessionTree(sessionId, event.data.snapshot)
-+      } catch (error) {
-+        throw new Error(`INVALID_SNAPSHOT: ${error instanceof Error ? error.message : 'invalid snapshot'}`)
-+      }
-+      tree.markSessionEventSeq(event.seq)
-+      nativeParentId = tree.cursor
-+      continue
-+    }
-+    if (event.type === 'session-tree/cursor') {
-+      const moved = tree.jump(event.data.nodeId)
-+      if (!moved.ok) throw new Error(`${moved.error.code}: ${moved.error.message}`)
-+      nativeParentId = event.data.nodeId
-+      continue
-+    }
-+    if (event.type === 'session-tree/branch') {
-+      const branched = tree.branch(event.data.nodeId, event.data.branch)
-+      if (!branched.ok) throw new Error(`${branched.error.code}: ${branched.error.message}`)
-+      nativeParentId = event.data.nodeId
-+      continue
-+    }
-+    // Explicit session-tree nodes are durable tree records, not model-surface
-+    // events; they must be projected even though they are absent from surface.
-+    const isExplicitTreeNode = event.type === 'session-tree/node'
-+    const isTreeMetadataEvent = event.type === 'tool/call' || event.type === 'request/context'
-+    if (!isExplicitTreeNode && !isTreeMetadataEvent && !surfaceSeqs.has(event.seq)) continue
-+    const nodes = sessionEventsToTreeNodes([event], nativeParentId)
-+    if (nodes.length === 0) continue
-+    const restored = tree.replay([{ seq: tree.list().length, node: nodes[0]! }])
-     if (!restored.ok) throw new Error(`${restored.error.code}: ${restored.error.message}`)
-+    nativeParentId = nodes[0]!.nodeId
-   }
-+  const newestSeq = freshEvents[freshEvents.length - 1]?.seq
-+  if (newestSeq !== undefined) tree.markSessionEventSeq(newestSeq)
-+  sessionTreeStore.replace(sessionId, tree)
-   return tree
- }
- 
-@@ -65,12 +102,14 @@ export class SessionTreeService extends TypertRemoteService {
-    */
-   @Remote('list')
-   list(agent: Agent): SessionTreeView {
--    return treeForAgent(agent).view()
-+    return syncSessionTree(agent).view()
-   }
- 
-   /**
--   * Move the cursor to an existing node and replay its root-to-node path.
--   * Old branches remain intact.
-+   * Move the SessionTree cursor to an existing node and return its root-to-node
-+   * path through the context operation. This updates tree navigation state; it
-+   * does not mutate Harness' native model surface because Agent.inject() only
-+   * queues additional context for a future step.
-    * @param agent - owning live agent.
-    * @param nodeId - target node, or null to reset before the first node.
-    * @returns the new cursor and reconstructed messages.
-@@ -78,16 +117,41 @@ export class SessionTreeService extends TypertRemoteService {
-    */
-   @Remote('jump')
-   jump(agent: Agent, nodeId: string | null): JumpView {
--    const tree = treeForAgent(agent)
-+    const tree = syncSessionTree(agent)
-+    const checkpoint = tree.checkpoint()
-     const result = tree.jump(nodeId)
-     if (!result.ok) throw new Error(`${result.error.code}: ${result.error.message}`)
-+    try {
-+      const event = agent.session.append('session-tree/cursor', { nodeId })
-+      tree.markSessionEventSeq(event.seq)
-+    } catch (error) {
-+      tree.rollback(checkpoint)
-+      throw error
-+    }
-+    return result.value
-+  }
-+
-+  /** Position a named branch at a historical node for the next append. */
-+  @Remote('fork')
-+  fork(agent: Agent, nodeId: string, branch = 'fork'): { cursor: string; branch: string; forkCount: number } {
-+    const tree = syncSessionTree(agent)
-+    const checkpoint = tree.checkpoint()
-+    const result = tree.fork(nodeId, branch)
-+    if (!result.ok) throw new Error(`${result.error.code}: ${result.error.message}`)
-+    try {
-+      const event = agent.session.append('session-tree/branch', { nodeId, branch: result.value.branch })
-+      tree.markSessionEventSeq(event.seq)
-+    } catch (error) {
-+      tree.rollback(checkpoint)
-+      throw error
-+    }
-     return result.value
-   }
- 
-   /** Read compact status metadata for the current session tree. */
-   @Remote('session')
-   session(agent: Agent): SessionTreeSessionInfo {
--    return treeForAgent(agent).info()
-+    return syncSessionTree(agent).info()
-   }
- }
- 
-diff --git a/packages/extensions/pi-agent-session-tree/src/session-event-adapter.ts b/packages/extensions/pi-agent-session-tree/src/session-event-adapter.ts
-index 15c8d5c..e46c627 100644
---- a/packages/extensions/pi-agent-session-tree/src/session-event-adapter.ts
-+++ b/packages/extensions/pi-agent-session-tree/src/session-event-adapter.ts
-@@ -8,9 +8,9 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
- import type { ContentPart, JsonValue, LlmMessage, TreeNode } from './types.ts'
- 
- /** Project the message-producing Harness events into an append-only tree. */
--export function sessionEventsToTreeNodes(events: readonly SessionEvent[]): TreeNode[] {
-+export function sessionEventsToTreeNodes(events: readonly SessionEvent[], initialParentId: string | null = null): TreeNode[] {
-   const nodes: TreeNode[] = []
--  let parentId: string | null = null
-+  let parentId: string | null = initialParentId
-   for (const event of events) {
-     const projected = projectEvent(event, parentId)
-     if (projected === undefined) continue
-@@ -27,17 +27,25 @@ function projectEvent(event: SessionEvent, parentId: string | null): TreeNode |
-   let summary = event.type
-   let usage: Record<string, JsonValue> | undefined
-   let model: string | undefined
--  let metadata: Record<string, JsonValue> = { sessionEventType: event.type, sessionEventSeq: event.seq }
-+  let metadata: Record<string, JsonValue> = {
-+    sessionEventType: event.type,
-+    sessionEventSeq: event.seq,
-+    sourceEventSeq: event.seq,
-+  }
- 
--  if (event.type === 'user/message') {
-+  if (event.type === 'session-tree/node') {
-+    return { ...event.data.node, metadata: { ...event.data.node.metadata, sessionEventType: event.type, sessionEventSeq: event.seq, sourceEventSeq: event.seq } }
-+  } else if (event.type === 'session-tree/snapshot') {
-+    return undefined
-+  } else if (event.type === 'user/message') {
-     type = 'message'
-     message = { role: 'user', content: textOf(event.data.content) }
--    content = [{ type: 'text', text: message.content }]
-+    content = partsOf(event.data.content)
-     summary = message.content
-   } else if (event.type === 'assistant/message') {
-     type = 'message'
-     message = { role: 'assistant', content: textOf(event.data.message.content) }
--    content = [{ type: 'text', text: message.content }]
-+    content = partsOf(event.data.message.content)
-     summary = message.content
-     if (event.data.usage !== undefined) usage = event.data.usage as unknown as Record<string, JsonValue>
-     if (event.data.interrupted === true) metadata = { ...metadata, interrupted: true }
-@@ -60,6 +68,24 @@ function projectEvent(event: SessionEvent, parentId: string | null): TreeNode |
-     return undefined
-   }
- 
-+  // Harness represents compaction as a surface replacement on a message event.
-+  // Keep it as an immutable tree record instead of pretending the shadowed
-+  // messages were deleted from the append-only tree.
-+  const surfaceOp = (event as { surfaceOp?: unknown }).surfaceOp
-+  if (typeof surfaceOp === 'object' && surfaceOp !== null && (surfaceOp as { op?: unknown }).op === 'replace') {
-+    const replacement = surfaceOp as { start?: unknown; end?: unknown }
-+    const sourceEventSeqs = (event as { sourceEventSeqs?: unknown }).sourceEventSeqs
-+    type = 'compaction'
-+    metadata = {
-+      ...metadata,
-+      surfaceReplacement: true,
-+      ...(typeof replacement.start === 'number' ? { replaceStart: replacement.start } : {}),
-+      ...(typeof replacement.end === 'number' ? { replaceEnd: replacement.end } : {}),
-+      sourceEventSeqs: Array.isArray(sourceEventSeqs) ? sourceEventSeqs.filter((seq): seq is number => typeof seq === 'number') : [],
-+    }
-+    summary = `compaction: ${summary}`
-+  }
-+
-   return {
-     nodeId: `session-event-${event.seq}`,
-     parentId,
-@@ -82,6 +108,20 @@ function textOf(value: unknown): string {
-   return String(value ?? '')
- }
- 
-+function partsOf(value: unknown): ContentPart[] {
-+  if (!Array.isArray(value)) return [{ type: 'text', text: textOf(value) }]
-+  const parts: ContentPart[] = []
-+  for (const item of value) {
-+    if (typeof item !== 'object' || item === null || !('type' in item)) continue
-+    const block = item as Record<string, unknown>
-+    if (block.type === 'text' && typeof block.text === 'string') parts.push({ type: 'text', text: block.text })
-+    else if (block.type === 'reasoning' && typeof block.text === 'string') parts.push({ type: 'reasoning', text: block.text })
-+    else if (block.type === 'tool-call' && typeof block.id === 'string' && typeof block.name === 'string' && typeof block.arguments === 'string') parts.push({ type: 'tool_call', id: block.id, name: block.name, arguments: parseJson(block.arguments) })
-+    else if (block.type === 'tool-result' && typeof block.toolCallId === 'string') parts.push({ type: 'tool_result', toolCallId: block.toolCallId, content: textOf(block.content), ...(typeof block.isError === 'boolean' ? { isError: block.isError } : {}) })
-+  }
-+  return parts
-+}
-+
- function parseJson(raw: string): JsonValue {
-   try { return JSON.parse(raw) as JsonValue } catch { return raw }
- }
-diff --git a/packages/extensions/pi-agent-session-tree/src/session-tree.ts b/packages/extensions/pi-agent-session-tree/src/session-tree.ts
-index e8e04d0..ea3c045 100644
---- a/packages/extensions/pi-agent-session-tree/src/session-tree.ts
-+++ b/packages/extensions/pi-agent-session-tree/src/session-tree.ts
-@@ -43,6 +43,7 @@ export class SessionTree {
-   private cursorId: string | null = null
-   private activeBranchName = 'main'
-   private readonly branchHeads = new Map<string, string>()
-+  private syncedSessionEventSeq = -1
- 
-   /**
-    * Create an empty tree, or restore one from a versioned snapshot.
-@@ -55,6 +56,7 @@ export class SessionTree {
-     if (!isSnapshot(snapshot, sessionId)) throw new Error('invalid session tree snapshot')
-     for (const node of snapshot.nodes) this.nodesById.set(node.nodeId, clone(node))
-     this.cursorId = snapshot.cursor
-+    if (typeof snapshot.nativeEventSeq === 'number') this.syncedSessionEventSeq = snapshot.nativeEventSeq
-     if (typeof snapshot.activeBranch === 'string') this.activeBranchName = snapshot.activeBranch
-     if (snapshot.branchHeads !== undefined) {
-       for (const [name, head] of Object.entries(snapshot.branchHeads)) {
-@@ -91,6 +93,24 @@ export class SessionTree {
-    * @param options - optional branch override, summary, and JSON extras.
-    * @returns the created node, or a standard error for invalid input.
-    */
-+  /** Capture mutable projection state so an external durable write can commit atomically. */
-+  checkpoint(): SessionTreeSnapshot {
-+    return this.snapshot()
-+  }
-+
-+  /** Roll back to a previously captured checkpoint after a durable append fails. */
-+  rollback(snapshot: SessionTreeSnapshot): TreeResult<void> {
-+    if (!isSnapshot(snapshot, this.sessionId)) return fail('INVALID_SNAPSHOT', 'checkpoint does not belong to this session')
-+    this.nodesById.clear()
-+    for (const node of snapshot.nodes) this.nodesById.set(node.nodeId, clone(node))
-+    this.cursorId = snapshot.cursor
-+    this.activeBranchName = snapshot.activeBranch
-+    this.branchHeads.clear()
-+    for (const [name, head] of Object.entries(snapshot.branchHeads ?? {})) this.branchHeads.set(name, head)
-+    this.syncedSessionEventSeq = snapshot.nativeEventSeq ?? -1
-+    return { ok: true, value: undefined }
-+  }
-+
-   append(
-     message: LlmMessage,
-     options: { branch?: string; summary?: string; content?: readonly ContentPart[]; model?: string; usage?: Record<string, JsonValue>; cost?: number; error?: string; metadata?: Record<string, JsonValue> } = {},
-@@ -141,7 +161,8 @@ export class SessionTree {
- 
-   /**
-    * Fork the active cursor from a historical node. This is the Pi `/fork`
--   * primitive: old nodes remain intact and the next append becomes a child.
-+   * primitive: old nodes remain intact and the next tree append becomes a child.
-+   * The native Harness model surface is unchanged until a loop-owned navigation hook is available.
-    */
-   fork(target: string, branch = 'fork'): TreeResult<{ cursor: string; branch: string; forkCount: number }> {
-     const result = this.branch(target, branch)
-@@ -216,12 +237,18 @@ export class SessionTree {
- 
-   replay(records: readonly SessionTreeLogEntry[]): TreeResult<{ applied: number }> {
-     let expected = this.nodesById.size
-+    const known = new Set(this.nodesById.keys())
-     for (const record of records) {
--      if (record.seq !== expected || this.nodesById.has(record.node.nodeId)) return fail('INVALID_SNAPSHOT', 'session tree log sequence or node identity is invalid')
--      if (!isNode(record.node) || (record.node.parentId !== null && !this.nodesById.has(record.node.parentId))) return fail('INVALID_SNAPSHOT', 'session tree log topology is invalid')
--      this.nodesById.set(record.node.nodeId, clone(record.node))
-+      if (record.seq !== expected || known.has(record.node.nodeId)) return fail('INVALID_SNAPSHOT', 'session tree log sequence or node identity is invalid')
-+      if (!isNode(record.node) || (record.node.parentId !== null && !known.has(record.node.parentId))) return fail('INVALID_SNAPSHOT', 'session tree log topology is invalid')
-+      known.add(record.node.nodeId)
-       expected += 1
-     }
-+    for (const record of records) {
-+      this.nodesById.set(record.node.nodeId, clone(record.node))
-+      const nativeSeq = record.node.metadata?.sessionEventSeq
-+      if (typeof nativeSeq === 'number') this.markSessionEventSeq(nativeSeq)
-+    }
-     const last = records[records.length - 1]?.node
-     if (last !== undefined) {
-       this.cursorId = last.nodeId
-@@ -273,11 +300,13 @@ export class SessionTree {
-       sessionId: this.sessionId,
-       branchHeads: Object.fromEntries(this.branchHeads),
-       nodeCount: this.nodesById.size,
-+      messageCount: [...this.nodesById.values()].filter(node => node.message !== undefined).length,
-       branchCount: this.branches().length,
-       cursor: this.cursorId,
-       activeBranch: this.activeBranchName,
-       currentPathLength: this.currentPath().length,
-       usage: Object.keys(usage).length === 0 ? undefined : usage,
-+      tokenCount: Object.entries(usage).reduce((total, [key, value]) => key.endsWith('Tokens') ? total + value : total, 0) || undefined,
-       cost: cost === 0 ? undefined : cost,
-       snapshotVersion: SNAPSHOT_VERSION,
-     }
-@@ -302,6 +331,7 @@ export class SessionTree {
-       sessionId: this.sessionId,
-       cursor: this.cursorId,
-       activeBranch: this.activeBranchName,
-+      ...(this.syncedSessionEventSeq < 0 ? {} : { nativeEventSeq: this.syncedSessionEventSeq }),
-       branchHeads: Object.fromEntries(this.branchHeads),
-       nodes: [...this.nodesById.values()],
-     })
-@@ -320,6 +350,16 @@ export class SessionTree {
-     return path.reverse()
-   }
- 
-+  /** Return the greatest native Session event seq already projected into this tree. */
-+  lastSessionEventSeq(): number {
-+    return this.syncedSessionEventSeq
-+  }
-+
-+  /** Advance the native Session event watermark after a successful sync/write. */
-+  markSessionEventSeq(seq: number): void {
-+    if (Number.isSafeInteger(seq) && seq > this.syncedSessionEventSeq) this.syncedSessionEventSeq = seq
-+  }
-+
-   /** @returns true when a node with this id exists. */
-   has(nodeId: string): boolean {
-     return this.nodesById.has(nodeId)
-@@ -404,6 +444,12 @@ export class SessionTreeStore {
-     return { ok: true, value: { sessionId: targetSessionId } }
-   }
- 
-+  /** Replace one session's tree from a previously validated candidate. */
-+  replace(sessionId: SessionId, tree: SessionTree): void {
-+    if (tree.sessionId !== sessionId) throw new Error('tree does not belong to session')
-+    this.trees.set(sessionId, tree)
-+  }
-+
-   /** Replace one session's tree from a snapshot. */
-   load(snapshot: SessionTreeSnapshot): TreeResult<{ sessionId: string }> {
-     try {
-@@ -441,9 +487,12 @@ function isSnapshot(value: unknown, sessionId: SessionId): value is SessionTreeS
-   const cursor = record.cursor
-   if (cursor !== null && typeof cursor !== 'string') return false
-   if (typeof cursor === 'string' && !(nodes as TreeNode[]).some(node => node.nodeId === cursor)) return false
-+  if (record.nativeEventSeq !== undefined && (typeof record.nativeEventSeq !== 'number' || !Number.isSafeInteger(record.nativeEventSeq) || record.nativeEventSeq < 0)) return false
-   if (record.branchHeads !== undefined && !isJsonRecord(record.branchHeads)) return false
--  if (record.branchHeads !== undefined && Object.entries(record.branchHeads).some(([_, head]) => typeof head !== 'string' || !(nodes as TreeNode[]).some(node => node.nodeId === head))) return false
--  return typeof record.activeBranch === 'string'
-+  if (record.branchHeads !== undefined && Object.entries(record.branchHeads).some(([name, head]) => name.length === 0 || typeof head !== 'string' || !(nodes as TreeNode[]).some(node => node.nodeId === head))) return false
-+  if (typeof record.activeBranch !== 'string' || record.activeBranch.length === 0) return false
-+  if (record.branchHeads !== undefined && record.branchHeads[record.activeBranch] === undefined && cursor !== null) return false
-+  return true
- }
- 
- /** Validate one restored node before it enters the tree. */
-diff --git a/packages/extensions/pi-agent-session-tree/src/types.ts b/packages/extensions/pi-agent-session-tree/src/types.ts
-index 0c9651e..35acaa8 100644
---- a/packages/extensions/pi-agent-session-tree/src/types.ts
-+++ b/packages/extensions/pi-agent-session-tree/src/types.ts
-@@ -51,9 +51,12 @@ export interface TreeNode {
-   readonly summary: string
-   /** ISO-8601 creation time. */
-   readonly createdAt: string
--  /** The carried message; nodes without one (e.g. branch summaries) omit it. */
+
 +  /**
-+   * Detached compatibility DTO for display/context responses; this is not the
-+   * Harness `Message` union and must not be passed to model APIs as-is.
++   * Select an existing message path as the model-visible branch.
++   *
++   * The append-only event log and canonical surface remain untouched. Future
++   * append-origin messages extend this selection, while positional replacements
++   * rewrite only a selected range they actually cover. Passing `null` returns
++   * to the canonical surface. This is the Session-level leaf pointer used by
++   * in-session tree navigators.
++   * @param nodes - ordered surface-event seqs, an empty root path, or null.
 +   */
-   readonly message?: LlmMessage
--  /** Pi-style structured content; message is retained as the derived compatibility view. */
-+  /** Pi-style structured content; message is retained as the derived compatibility DTO. */
-   readonly content?: readonly ContentPart[]
-   /** Optional model/provider metadata. */
-   readonly model?: string
-@@ -92,6 +95,8 @@ export interface SessionTreeSnapshot {
-   readonly sessionId: string
-   readonly cursor: string | null
-   readonly activeBranch: string
-+  /** Highest native Session event seq represented by this snapshot, when known. */
-+  readonly nativeEventSeq?: number
-   /** Session-level branch heads, matching Pi's named branch pointers. */
-   readonly branchHeads?: Record<string, string>
-   readonly nodes: readonly TreeNode[]
-@@ -103,12 +108,16 @@ export interface SessionTreeSessionInfo {
-   readonly branchHeads?: Record<string, string>
-   readonly sessionId: SessionId
-   readonly nodeCount: number
-+  /** Number of message-carrying entries across the whole tree. */
-+  readonly messageCount: number
-   readonly branchCount: number
-   readonly cursor: string | null
-   readonly activeBranch: string
-   readonly currentPathLength: number
-   /** Aggregated model usage from entries that recorded it. */
-   readonly usage?: Record<string, number>
-+  /** Sum of all numeric usage fields whose key ends in `Tokens`. */
-+  readonly tokenCount?: number
-   /** Aggregated model cost from entries that recorded it. */
-   readonly cost?: number
-   readonly snapshotVersion: 1
-@@ -125,7 +134,7 @@ export interface SessionTreeView {
-   readonly branches: readonly BranchView[]
- }
- 
--/** Result of a cursor jump: the new cursor plus the reconstructed path. */
-+/** Result of tree cursor navigation: the new cursor plus the projected path. */
- export interface JumpView {
-   readonly cursor: string | null
-   readonly messages: readonly LlmMessage[]
-@@ -144,3 +153,16 @@ export type TreeErrorCode =
- export type TreeResult<T> =
-   | { readonly ok: true; readonly value: T }
-   | { readonly ok: false; readonly error: { readonly code: TreeErrorCode; readonly message: string } }
-+
-+declare module '@deepseek-ai/dsh-session/types' {
-+  interface SessionEventMap {
-+    /** Durable append-only SessionTree node written through Harness Session.append(). */
-+    'session-tree/node': { node: TreeNode }
-+    /** Durable cursor movement; history nodes remain untouched. */
-+    'session-tree/cursor': { nodeId: string | null }
-+    /** Durable named branch pointer and active-branch selection. */
-+    'session-tree/branch': { nodeId: string; branch: string }
-+    /** Durable full-tree replacement marker for explicit snapshot restore. */
-+    'session-tree/snapshot': { snapshot: SessionTreeSnapshot }
++  selectMessageSurface(nodes: readonly number[] | null): void {
++    const next = nodes === null ? undefined : [...nodes]
++    if (next !== undefined) {
++      const seen = new Set<number>()
++      for (const seq of next) {
++        const event = this.log[seq]
++        if (!Number.isSafeInteger(seq) || seq < 0 || event?.seq !== seq || !isSurfaceEvent(event) || seen.has(seq)) {
++          throw new Error(`invalid selected message-surface event seq ${seq}`)
++        }
++        seen.add(seq)
++      }
++    }
++    const previous = this.selectedMessageSurface
++    if (previous === undefined && next === undefined) return
++    if (previous !== undefined && next !== undefined
++      && previous.length === next.length && previous.every((seq, index) => seq === next[index])) return
++    this.selectedMessageSurface = next
++    this.selectedMessageSurfaceGeneration += 1
 +  }
-+}
-diff --git a/packages/extensions/pi-agent-session-tree/tests/session-tree.spec.ts b/packages/extensions/pi-agent-session-tree/tests/session-tree.spec.ts
-index 50bc785..78b3f57 100644
---- a/packages/extensions/pi-agent-session-tree/tests/session-tree.spec.ts
-+++ b/packages/extensions/pi-agent-session-tree/tests/session-tree.spec.ts
-@@ -15,7 +15,7 @@ import ToolRuntime from '@deepseek-ai/dsh-tools'
- import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
- import CommandRuntime from '@deepseek-ai/dsh-commands'
- import { Session, SessionId } from '@deepseek-ai/dsh-session'
--import SessionTreeService, { sessionTreeStore } from '@deepseek-ai/dsh-pi-agent-session-tree'
-+import SessionTreeService, { sessionTreeStore, syncSessionTree } from '@deepseek-ai/dsh-pi-agent-session-tree'
- import type { SessionTreeSnapshot, TreeNode } from '@deepseek-ai/dsh-pi-agent-session-tree'
- import { sessionEventsToTreeNodes } from '@deepseek-ai/dsh-pi-agent-session-tree'
- import * as toolSessionTree from '@deepseek-ai/dsh-tool-session-tree'
-@@ -238,6 +238,12 @@ describe('session_tree tool: append-only history', () => {
- 
-     const missing = await runTool(ctx, beta, { operation: 'jump', nodeId: 'no-such-node' })
-     expectError(missing, 'NODE_NOT_FOUND')
-+    const foreignAppend = await runTool(ctx, alpha, { sessionId: beta.session.id, operation: 'append', message: { role: 'user', content: 'forbidden' } })
-+    expectError(foreignAppend, 'INVALID_ARGUMENT')
-+    const foreignJump = await runTool(ctx, alpha, { sessionId: beta.session.id, operation: 'jump', nodeId: 'no-such-node' })
-+    expectError(foreignJump, 'INVALID_ARGUMENT')
-+    const foreignBranch = await runTool(ctx, alpha, { sessionId: beta.session.id, operation: 'branch', nodeId: 'no-such-node', branch: 'forbidden' })
-+    expectError(foreignBranch, 'INVALID_ARGUMENT')
-     const unknownOp = await runTool(ctx, alpha, { operation: 'nope' })
-     expectError(unknownOp, 'INVALID_ARGUMENT')
-   })
-@@ -274,11 +280,24 @@ describe('session_tree tool: append-only history', () => {
-     expect(nodes).toHaveLength(4)
-     expect(nodes.map(node => node.parentId)).toEqual([null, nodes[0]?.nodeId, nodes[1]?.nodeId, nodes[2]?.nodeId])
-     expect(nodes[1]?.message?.content).toBe('world')
-+    expect(nodes[1]?.content).toEqual([{ type: 'text', text: 'world' }])
-     expect(nodes[2]?.type).toBe('tool_call')
-     expect(nodes[3]?.type).toBe('model_change')
-     expect(nodes[3]?.model).toBe('deepseek-chat')
-   })
- 
-+  it('preserves compaction replacements as append-only tree nodes', () => {
-+    const nodes = sessionEventsToTreeNodes([
-+      { type: 'user/message', seq: 4, time: 1000, data: { role: 'user', content: 'old' }, surfaceOp: 'append' },
-+      { type: 'assistant/message', seq: 9, time: 2000, data: { turn: 1, step: 1, message: { role: 'assistant', content: [{ type: 'text', text: 'summary' }] } }, surfaceOp: { op: 'replace', start: 4, end: 4 }, sourceEventSeqs: [4] },
-+    ] as never[])
-+    expect(nodes).toHaveLength(2)
-+    expect(nodes[0]?.type).toBe('message')
-+    expect(nodes[1]?.type).toBe('compaction')
-+    expect(nodes[1]?.parentId).toBe(nodes[0]?.nodeId)
-+    expect(nodes[1]?.metadata).toMatchObject({ surfaceReplacement: true, replaceStart: 4, replaceEnd: 4, sourceEventSeqs: [4] })
-+  })
 +
-   it('exports and replays append-only log records', async () => {
-     const tree = new (await import('@deepseek-ai/dsh-pi-agent-session-tree')).SessionTree(SessionId('tree-log'))
-     const first = tree.append({ role: 'user', content: 'one' })
-@@ -289,6 +308,26 @@ describe('session_tree tool: append-only history', () => {
-     const result = restored.replay(records)
-     expect(result).toEqual({ ok: true, value: { applied: 1 } })
-     expect(restored.list()[0]?.message?.content).toBe('one')
-+    const invalid = restored.replay([
-+      { seq: 1, node: { ...records[0]!.node, nodeId: 'valid-second', parentId: records[0]!.node.nodeId } },
-+      { seq: 3, node: { ...records[0]!.node, nodeId: 'bad-third', parentId: 'valid-second' } },
-+    ])
-+    expect(invalid.ok).toBe(false)
-+    expect(restored.list()).toHaveLength(1)
-+  })
++  /** Current model-visible surface nodes, including an active branch selection. */
++  messageSurfaceNodes(): readonly number[] {
++    return [...(this.selectedMessageSurface ?? this.surface.nodes)]
++  }
 +
-+  it('replays a branched append-only node log without deleting either path', async () => {
-+    const tree = new (await import('@deepseek-ai/dsh-pi-agent-session-tree')).SessionTree(SessionId('tree-mixed-log'))
-+    const root = expectOk(tree.append({ role: 'user', content: 'root' }))
-+    const main = expectOk(tree.append({ role: 'assistant', content: 'main answer' }))
-+    expect(tree.jump(root.nodeId).ok).toBe(true)
-+    const alternative = expectOk(tree.append({ role: 'assistant', content: 'alternative answer' }))
-+    const records = tree.log()
-+    const restored = new (await import('@deepseek-ai/dsh-pi-agent-session-tree')).SessionTree(SessionId('tree-mixed-restored'))
-+    expect(restored.replay(records)).toEqual({ ok: true, value: { applied: 3 } })
-+    expect(restored.list().map(node => node.nodeId)).toEqual([root.nodeId, main.nodeId, alternative.nodeId])
-+    expect(restored.list().find(node => node.nodeId === main.nodeId)?.parentId).toBe(root.nodeId)
-+    expect(restored.list().find(node => node.nodeId === alternative.nodeId)?.parentId).toBe(root.nodeId)
-   })
- 
-   it('preserves structured content and model usage metadata', async () => {
-@@ -307,6 +346,22 @@ describe('session_tree tool: append-only history', () => {
-     expect(node.model).toBe('deepseek-chat')
-     expect(node.usage).toEqual({ inputTokens: 4, outputTokens: 2 })
-     expect(node.cost).toBe(0.001)
-+    const status = expectOk(await runTool(ctx, agent, { operation: 'session' })) as { messageCount: number; tokenCount: number; cost: number }
-+    expect(status.messageCount).toBe(1)
-+    expect(status.tokenCount).toBe(6)
-+    expect(status.cost).toBe(0.001)
-+  })
++  /** Keep a selected leaf path live as new surface events are appended. */
++  private extendSelectedMessageSurface(event: SessionEvent): void {
++    const selected = this.selectedMessageSurface
++    if (selected === undefined || !isSurfaceEvent(event)) return
++    if (event.surfaceOp === 'append') {
++      // A navigation command itself runs as a tool call. Its result is
++      // appended after the cursor has moved, but its assistant tool-call
++      // message belongs to the abandoned leaf. Do not put that orphan result
++      // into the newly selected provider history. Future tool results are
++      // admitted once their matching assistant tool-call is selected.
++      if (event.type === 'tool/result' && !this.selectedSurfaceContainsToolCall(event)) return
++      selected.push(event.seq)
++      this.selectedMessageSurfaceGeneration += 1
++      return
++    }
++    const start = selected.indexOf(event.surfaceOp.start)
++    const end = selected.indexOf(event.surfaceOp.end)
++    if (start < 0 || end < start) return
++    selected.splice(start, end - start + 1, event.seq)
++    this.selectedMessageSurfaceGeneration += 1
++  }
 +
-+  it('preserves the native event watermark in snapshots and accepts legacy snapshots', async () => {
-+    const tree = new (await import('@deepseek-ai/dsh-pi-agent-session-tree')).SessionTree(SessionId('tree-watermark'))
-+    tree.markSessionEventSeq(17)
-+    const snapshot = tree.snapshot()
-+    expect(snapshot.nativeEventSeq).toBe(17)
-+    const restored = new (await import('@deepseek-ai/dsh-pi-agent-session-tree')).SessionTree(SessionId('tree-watermark'), snapshot)
-+    expect(restored.lastSessionEventSeq()).toBe(17)
-+    const legacy = { ...snapshot, nativeEventSeq: undefined }
-+    const legacyRestored = new (await import('@deepseek-ai/dsh-pi-agent-session-tree')).SessionTree(SessionId('tree-legacy'), { ...legacy, sessionId: 'tree-legacy' })
-+    expect(legacyRestored.lastSessionEventSeq()).toBe(-1)
-   })
- 
-   it('forwards tool-call message fields and metadata through append', async () => {
-@@ -358,6 +413,12 @@ describe('session_tree tool: append-only history', () => {
-     })
-     expectError(cyclic, 'INVALID_SNAPSHOT')
- 
-+    const inconsistentBranch = await runTool(ctx, agent, {
-+      operation: 'snapshot.load',
-+      snapshot: { version: 1, sessionId: agent.session.id, cursor: 'n1', activeBranch: 'missing', branchHeads: { main: 'n1' }, nodes: [{ nodeId: 'n1', parentId: null, branch: 'main', summary: 'node', createdAt: '2026-01-01T00:00:00.000Z' }] },
++  /** Whether a tool result's assistant tool-call is already on the selected path. */
++  private selectedSurfaceContainsToolCall(event: Extract<SessionEvent, { type: 'tool/result' }>): boolean {
++    const resultBlock = event.data.message.content.find(block => block.type === 'tool-result')
++    if (resultBlock?.type !== 'tool-result') return false
++    return (this.selectedMessageSurface ?? []).some(seq => {
++      const selected = this.log[seq]
++      if (selected?.type !== 'assistant/message') return false
++      return selected.data.message.content.some(block => block.type === 'tool-call' && block.id === resultBlock.toolCallId)
 +    })
-+    expectError(inconsistentBranch, 'INVALID_SNAPSHOT')
-+
-     const malformedParts = await runTool(ctx, agent, {
-       operation: 'snapshot.load',
-       snapshot: {
-@@ -373,14 +434,50 @@ describe('session_tree tool: append-only history', () => {
- })
- 
- describe('session_tree plugin surfaces', () => {
-+  it('keeps the live store unchanged when incremental synchronization fails', async () => {
-+    const { service } = await harness()
-+    const agent = stubAgent('tree-atomic-sync')
-+    agent.session.append('user/message', { role: 'user', content: 'valid' } as never, { surfaceOp: 'append' })
-+    const before = service.list(agent)
-+    agent.session.append('session-tree/cursor', { nodeId: 'missing' })
-+    expect(() => syncSessionTree(agent)).toThrow('NODE_NOT_FOUND')
-+    expect(service.list(agent).nodes.map(node => node.nodeId)).toEqual(before.nodes.map(node => node.nodeId))
-+  })
-+
-   it('hydrates the tree from native Harness session events on first Remote read', async () => {
-     const { service } = await harness()
-     const agent = stubAgent('tree-native-hydrate')
-     agent.session.append('user/message', { role: 'user', content: 'native history' } as never, { surfaceOp: 'append' })
-+    agent.session.append('turn/start', { turn: 1 } as never)
-+    agent.session.append('tool/call', { turn: 1, step: 1, callId: 'call-1', name: 'bash', arguments: '{}' } as never)
-     const view = service.list(agent)
--    expect(view.nodes).toHaveLength(1)
-+    expect(view.nodes).toHaveLength(2)
-     expect(view.nodes[0]?.message?.content).toBe('native history')
-+    expect(view.nodes[1]?.type).toBe('tool_call')
-     expect(service.jump(agent, view.nodes[0]!.nodeId).messages).toEqual([{ role: 'user', content: 'native history' }])
-+    agent.session.append('session-tree/branch', { nodeId: view.nodes[0]!.nodeId, branch: 'alternate' })
-+    agent.session.append('user/message', { role: 'user', content: 'later event' } as never, { surfaceOp: 'append' })
-+    const updated = service.list(agent)
-+    expect(updated.nodes).toHaveLength(3)
-+    expect(updated.nodes[1]?.parentId).toBe(updated.nodes[0]?.nodeId)
-+    expect(updated.nodes[1]?.type).toBe('tool_call')
-+    expect(updated.nodes[2]?.parentId).toBe(updated.nodes[0]?.nodeId)
-+    expect(updated.nodes[2]?.branch).toBe('main')
-+    expect(service.list(agent).nodes).toHaveLength(2)
-+    const snapshot = service.list(agent)
-+    const custom = expectOk(await runTool(ctx, agent, { operation: 'append', message: { role: 'assistant', content: 'custom entry' } })) as { nodeId: string }
-+    expect(custom.nodeId).toBeDefined()
-+    const afterResync = service.list(agent)
-+    expect(afterResync.nodes.some(node => node.nodeId === custom.nodeId)).toBe(true)
-+    const mixed = service.list(agent)
-+    expect(mixed.nodes).toHaveLength(3)
-+    expect(mixed.nodes.filter(node => node.message !== undefined)).toHaveLength(3)
-+    const mixedStatus = expectOk(await runTool(ctx, agent, { operation: 'session' })) as { messageCount: number }
-+    expect(mixedStatus.messageCount).toBe(3)
-+    agent.session.append('session-tree/snapshot', { snapshot: { version: 1, sessionId: agent.session.id, cursor: snapshot.cursor, activeBranch: snapshot.activeBranch, branchHeads: snapshot.branchHeads, nodes: snapshot.nodes } })
-+    agent.session.append('session-tree/node', { node: { nodeId: 'after-snapshot', parentId: snapshot.cursor, branch: snapshot.activeBranch, summary: 'after snapshot', createdAt: '2026-01-01T00:00:00.000Z', message: { role: 'user', content: 'after snapshot' } } })
-+    const restored = service.list(agent)
-+    expect(restored.nodes.some(node => node.nodeId === 'after-snapshot')).toBe(true)
-   })
- 
-   it('registers the tool, the /tree command, and the system-prompt section', async () => {
-@@ -388,8 +485,12 @@ describe('session_tree plugin surfaces', () => {
-     const agent = stubAgent('tree-surfaces')
-     expect(ctx.tools.get('session_tree')?.name).toBe('session_tree')
-     expect(ctx.commands.find(agent, 'tree')?.name).toBe('tree')
-+    expect(ctx.commands.find(agent, 'fork')?.name).toBe('fork')
-+    expect(ctx.commands.find(agent, 'clone')?.name).toBe('clone')
-+    expect(ctx.commands.find(agent, 'session')?.name).toBe('session')
-     const section = (await ctx.systemPrompt.assemble()).sections.find(item => item.name === 'plugin:pi_agent_session_tree')
--    expect(section?.text).toContain('sole conversation history')
-+    expect(section?.text).toContain('durable Harness Session log')
-+    expect(section?.text).toContain('never duplicate ordinary turns')
-     await fiber.dispose()
-     expect(ctx.tools.get('session_tree')).toBeUndefined()
-   })
-diff --git a/packages/extensions/tool-session-tree/README.md b/packages/extensions/tool-session-tree/README.md
-index 1926fcb..47b4ecc 100644
---- a/packages/extensions/tool-session-tree/README.md
-+++ b/packages/extensions/tool-session-tree/README.md
-@@ -51,11 +51,11 @@ JSON with a stable failure vocabulary.
- 
- #### What the model sees
- 
--A fixed section tells the model that the tree is the sole conversation history: read `context` before answering, append every turn, branch from historical nodes without editing them, and use snapshots for durability.
-+A fixed section tells the model that the tree projects the durable Harness Session log: native turns synchronize automatically, `context` reads the active branch after navigation, `append` is only for explicit custom entries, and branching never edits history.
- ##### SessionTree guidance
- 
- ```markdown
--SessionTree is the sole conversation history for this agent. Before answering, call session_tree with operation 'context' for your active session and treat its returned messages as the complete context; never assume a linear chat history. Append every user and assistant turn with operation 'append'. To explore an alternative, call 'branch' with a historical nodeId and a branch name (or 'branch.summary' to record a summary of the abandoned path), then append new messages; never modify or delete historical nodes. Use 'branches' and 'tree' to enumerate the conversation tree, and 'snapshot.save'/'snapshot.load' to export or restore the whole tree as JSON. All operations report failures as {ok:false,error:{code,message}}.
-+SessionTree is the append-only projection of the durable Harness Session log. Native user, assistant, tool, and model-context events synchronize automatically; never duplicate ordinary turns with operation 'append'. After navigation, use 'context' for the root-to-cursor active branch. Use 'append' only for an explicit custom entry, and use 'fork' or 'branch' to explore alternatives without modifying old nodes. Use snapshots for explicit export or full-tree restore. All operations report failures as {ok:false,error:{code,message}}.
- ```
- 
- #### Token effect
-diff --git a/packages/extensions/tool-session-tree/README.zh.md b/packages/extensions/tool-session-tree/README.zh.md
-index 91d37ae..2fb60ed 100644
---- a/packages/extensions/tool-session-tree/README.zh.md
-+++ b/packages/extensions/tool-session-tree/README.zh.md
-@@ -41,11 +41,11 @@
- 
- #### 模型看到什么
- 
--一段固定文本告诉模型：树是唯一会话历史——回答前先读 `context`，逐轮 `append`，从历史节点分叉且不修改旧节点，用快照做持久化。
-+一段固定文本告诉模型：树是 Harness 持久化 Session 日志的只追加投影——原生 user/assistant/tool/model 事件会自动同步；导航后先读 `context`，不要重复 append 普通轮次；仅用 `append` 记录明确的自定义 entry，从历史节点分叉且不修改旧节点。
- ##### SessionTree 指引
- 
- ```markdown
--SessionTree is the sole conversation history for this agent. Before answering, call session_tree with operation 'context' for your active session and treat its returned messages as the complete context; never assume a linear chat history. Append every user and assistant turn with operation 'append'. To explore an alternative, call 'branch' with a historical nodeId and a branch name (or 'branch.summary' to record a summary of the abandoned path), then append new messages; never modify or delete historical nodes. Use 'branches' and 'tree' to enumerate the conversation tree, and 'snapshot.save'/'snapshot.load' to export or restore the whole tree as JSON. All operations report failures as {ok:false,error:{code,message}}.
-+SessionTree is the append-only projection of the durable Harness Session log. Native user, assistant, tool, and model-context events synchronize automatically; never duplicate ordinary turns with operation 'append'. After navigation, use 'context' for the root-to-cursor active branch. Use 'append' only for an explicit custom entry, and use 'fork' or 'branch' to explore alternatives without modifying old nodes. Use snapshots for explicit export or full-tree restore. All operations report failures as {ok:false,error:{code,message}}.
- ```
- 
- #### Token 影响
-diff --git a/packages/extensions/tool-session-tree/src/index.ts b/packages/extensions/tool-session-tree/src/index.ts
-index c74f255..d095bc7 100644
---- a/packages/extensions/tool-session-tree/src/index.ts
-+++ b/packages/extensions/tool-session-tree/src/index.ts
-@@ -6,9 +6,9 @@
-  * and the browser panel observe the same trees.
-  *
-  * Design notes
-- * - The tool is the agent's only conversation-history surface: the system
-- *   prompt section directs the model to build context with `context` and to
-- *   append each turn, and never to edit historical nodes.
-+ * - Harness Session events remain the durable history source. The prompt tells
-+ *   the model to read the active branch with `context`, never duplicate native
-+ *   turns with `append`, and never edit historical nodes.
-  * - Every operation returns the standard `{ok, value}|{ok:false,error}` JSON
-  *   envelope; a thrown body also settles as that envelope, so tool results
-  *   are always lossless JSON.
-@@ -17,18 +17,20 @@
-  */
- 
- import type { Context } from '@deepseek-ai/cordis'
-+import { SessionId as toSessionId } from '@deepseek-ai/dsh-session'
-+import type {} from '@deepseek-ai/dsh-agent'
- import { defineTool } from '@deepseek-ai/dsh-tools'
- import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
- import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
--import { sessionTreeStore } from '@deepseek-ai/dsh-pi-agent-session-tree'
--import type { JsonValue, SessionId } from '@deepseek-ai/dsh-session/types'
-+import { SessionTree, sessionTreeStore, syncSessionTree } from '@deepseek-ai/dsh-pi-agent-session-tree'
-+import type { JsonValue, SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
- import type {} from '@deepseek-ai/dsh-system-prompt'
- 
- export const name = 'tool-session-tree'
--export const inject = ['tools', 'systemPrompt', 'commands']
-+export const inject = ['tools', 'systemPrompt', 'commands', 'agents']
- 
- /** System-prompt fragment steering the agent to the tree as its only history. */
--export const SESSION_TREE_PROMPT = 'SessionTree is the sole conversation history for this agent. Before answering, call session_tree with operation \'context\' for your active session and treat its returned messages as the complete context; never assume a linear chat history. Append every user and assistant turn with operation \'append\'. To explore an alternative, call \'branch\' with a historical nodeId and a branch name (or \'branch.summary\' to record a summary of the abandoned path), then append new messages; never modify or delete historical nodes. Use \'branches\' and \'tree\' to enumerate the conversation tree, and \'snapshot.save\'/\'snapshot.load\' to export or restore the whole tree as JSON. All operations report failures as {ok:false,error:{code,message}}.'
-+export const SESSION_TREE_PROMPT = 'SessionTree is the append-only projection of this agent\'s durable Harness Session log. Native user, assistant, tool, and model-context events are synchronized automatically: never duplicate ordinary turns with operation \'append\'. Before answering after navigation, call session_tree with operation \'context\' and treat its root-to-cursor messages as the active branch context. Use \'append\' only for an explicit custom tree entry not already recorded by Harness. To explore an alternative, call \'fork\' or \'branch\' with a historical nodeId and branch name (or \'branch.summary\' to record a summary); old nodes are never modified or deleted. Use \'branches\' and \'tree\' to inspect topology, and \'snapshot.save\'/\'snapshot.load\' for explicit export or full-tree restore. All operations report failures as {ok:false,error:{code,message}}.'
- 
- /** Register the tool, the command family, and the prompt section. */
- export function apply(ctx: Context): void {
-@@ -37,9 +39,9 @@ export function apply(ctx: Context): void {
-   ctx.tools.register(defineTool({
-     name: 'session_tree',
-     description:
--      'Manage isolated append-only conversation trees (one per agent session) and reconstruct standard LLM messages. '
--      + 'Use context to read the active cursor path, append to grow the current branch, branch from any historical node to '
--      + 'fork (old nodes are never modified or deleted), clone into an independent session, and snapshot.save/snapshot.load to export or restore the tree as JSON.',
-+      'Inspect and navigate the append-only tree projected from the durable Harness Session log. '
-+      + 'Native user/assistant/tool/model events synchronize automatically; use append only for an explicit custom entry, context to read the active cursor path, '
-+      + 'fork or branch from a historical node without deleting old history, clone the active path into an independent Harness session, and snapshot.save/snapshot.load for explicit export or restore.',
-     parameters: {
-       operation: { type: 'string', required: true },
-       sessionId: { type: 'string' },
-@@ -60,14 +62,14 @@ export function apply(ctx: Context): void {
-       schema: { type: 'json' },
-       render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
-     },
--    execute(args: SessionTreeToolArgs, exec: ToolRunContext): Promise<JsonValue> {
-+    async execute(args: SessionTreeToolArgs, exec: ToolRunContext): Promise<JsonValue> {
-       try {
--        return Promise.resolve(runToolOperation(args, exec) as JsonValue)
-+        return await runToolOperation(ctx, args, exec) as JsonValue
-       } catch (error) {
--        return Promise.resolve({
-+        return {
-           ok: false,
-           error: { code: 'INVALID_ARGUMENT', message: error instanceof Error ? error.message : 'invalid request' },
--        } as unknown as JsonValue)
-+        } as unknown as JsonValue
-       }
-     },
-   }))
-@@ -76,10 +78,10 @@ export function apply(ctx: Context): void {
-     name: 'tree',
-     description: 'Inspect and navigate the append-only session tree',
-     input: { hint: 'list | branches | context | tree | jump <nodeId> | branch <nodeId> <name> | snapshot save|load <json>' },
--    handler: invocation => runTreeCommand(invocation),
-+    handler: invocation => runTreeCommand(ctx, invocation),
-   })
-   ctx.commands.register({ name: 'fork', description: 'Fork the current session tree at a historical node', input: { hint: '<nodeId> [branch]' }, handler: invocation => runForkCommand(invocation) })
--  ctx.commands.register({ name: 'clone', description: 'Clone the current session tree into a new session', input: { hint: '<sessionId>' }, handler: invocation => runCloneCommand(invocation) })
-+  ctx.commands.register({ name: 'clone', description: 'Clone the current active branch into a new Harness session', input: { hint: '<sessionId>' }, handler: invocation => runCloneCommand(ctx, invocation) })
-   ctx.commands.register({ name: 'session', description: 'Show current session tree status', handler: invocation => runSessionCommand(invocation) })
- }
- 
-@@ -101,11 +103,16 @@ interface SessionTreeToolArgs {
-   error?: string
- }
- 
--function runToolOperation(args: SessionTreeToolArgs, exec: ToolRunContext): unknown {
-+async function runToolOperation(ctx: Context, args: SessionTreeToolArgs, exec: ToolRunContext): Promise<unknown> {
-   if (exec.agent === undefined) {
-     return { ok: false, error: { code: 'INVALID_ARGUMENT', message: 'session_tree requires an agent-backed session' } }
-   }
-   const sessionId = (args.sessionId ?? exec.agent.session.id) as SessionId
-+  const isOwnSession = sessionId === exec.agent.session.id
-+  if (isOwnSession) syncSessionTree(exec.agent)
-+  if (args.operation !== 'sessions' && args.operation !== 'clone' && !isOwnSession) {
-+    return { ok: false, error: { code: 'INVALID_ARGUMENT', message: 'session_tree can only modify the calling agent session' } }
 +  }
-   if (args.operation === 'clone' && args.targetSessionId === undefined) {
-     return { ok: false, error: { code: 'INVALID_ARGUMENT', message: 'targetSessionId is required' } }
-   }
-@@ -118,7 +125,8 @@ function runToolOperation(args: SessionTreeToolArgs, exec: ToolRunContext): unkn
-       return { ok: true, value: sessionTreeStore.list() }
-     case 'clone': {
-       if (args.targetSessionId === undefined) return { ok: false, error: { code: 'INVALID_ARGUMENT', message: 'targetSessionId is required' } }
--      return sessionTreeStore.clone(sessionId, args.targetSessionId as SessionId)
-+      if (sessionId !== exec.agent.session.id) return { ok: false, error: { code: 'INVALID_ARGUMENT', message: 'clone must target the calling agent session' } }
-+      return cloneActiveSession(ctx, exec.agent, args.targetSessionId)
-     }
-     case 'snapshot.load': {
-       if (args.snapshot === undefined) {
-@@ -128,7 +136,16 @@ function runToolOperation(args: SessionTreeToolArgs, exec: ToolRunContext): unkn
-       if (snapshot.sessionId !== sessionId) {
-         return { ok: false, error: { code: 'INVALID_SNAPSHOT', message: `snapshot session '${snapshot.sessionId}' does not match the calling session '${sessionId}'` } }
-       }
--      return sessionTreeStore.load(snapshot)
-+      if (sessionId !== exec.agent.session.id) return { ok: false, error: { code: 'INVALID_ARGUMENT', message: 'snapshot.load requires the calling agent session' } }
-+      const candidate = new SessionTree(sessionId, snapshot)
-+      try {
-+        const event = exec.agent.session.append('session-tree/snapshot', { snapshot })
-+        candidate.markSessionEventSeq(event.seq)
-+        sessionTreeStore.replace(sessionId, candidate)
-+        return { ok: true, value: { sessionId } }
-+      } catch (error) {
-+        throw error
-+      }
-     }
-     default:
-       break
-@@ -145,7 +162,8 @@ function runToolOperation(args: SessionTreeToolArgs, exec: ToolRunContext): unkn
-       if (typeof request.role !== 'string' || typeof request.content !== 'string') {
-         return { ok: false, error: { code: 'INVALID_ARGUMENT', message: 'message.role and message.content are required' } }
-       }
--      return tree.append(
-+      const checkpoint = tree.checkpoint()
-+      const appended = tree.append(
-         {
-           role: request.role as 'system' | 'user' | 'assistant' | 'tool',
-           content: request.content,
-@@ -163,6 +181,16 @@ function runToolOperation(args: SessionTreeToolArgs, exec: ToolRunContext): unkn
-           ...(args.error === undefined ? {} : { error: args.error }),
-         },
-       )
-+      if (appended.ok && sessionId === exec.agent.session.id) {
-+        try {
-+          const event = exec.agent.session.append('session-tree/node', { node: appended.value })
-+          tree.markSessionEventSeq(event.seq)
-+        } catch (error) {
-+          tree.rollback(checkpoint)
-+          throw error
-+        }
-+      }
-+      return appended
-     }
-     case 'list':
-       return { ok: true, value: tree.list() }
-@@ -172,11 +200,34 @@ function runToolOperation(args: SessionTreeToolArgs, exec: ToolRunContext): unkn
-       return { ok: true, value: tree.view() }
-     case 'session':
-       return { ok: true, value: tree.info() }
--    case 'jump':
--      return tree.jump(args.nodeId ?? null)
-+    case 'jump': {
-+      const checkpoint = tree.checkpoint()
-+      const moved = tree.jump(args.nodeId ?? null)
-+      if (moved.ok && sessionId === exec.agent.session.id) {
-+        try {
-+          const event = exec.agent.session.append('session-tree/cursor', { nodeId: args.nodeId ?? null })
-+          tree.markSessionEventSeq(event.seq)
-+        } catch (error) {
-+          tree.rollback(checkpoint)
-+          throw error
-+        }
-+      }
-+      return moved
-+    }
-     case 'fork': {
-       if (args.nodeId === undefined) return { ok: false, error: { code: 'INVALID_ARGUMENT', message: 'nodeId is required' } }
--      return tree.fork(args.nodeId, args.branch)
-+      const checkpoint = tree.checkpoint()
-+      const forked = tree.fork(args.nodeId, args.branch)
-+      if (forked.ok && sessionId === exec.agent.session.id) {
-+        try {
-+          const event = exec.agent.session.append('session-tree/branch', { nodeId: args.nodeId, branch: forked.value.branch })
-+          tree.markSessionEventSeq(event.seq)
-+        } catch (error) {
-+          tree.rollback(checkpoint)
-+          throw error
-+        }
-+      }
-+      return forked
-     }
-     case 'context':
-       return { ok: true, value: { cursor: tree.cursor, messages: tree.messages(args.nodeId ?? tree.cursor) } }
-@@ -184,13 +235,35 @@ function runToolOperation(args: SessionTreeToolArgs, exec: ToolRunContext): unkn
-       if (args.nodeId === undefined || args.branch === undefined) {
-         return { ok: false, error: { code: 'INVALID_ARGUMENT', message: 'nodeId and branch are required' } }
-       }
--      return tree.branch(args.nodeId, args.branch)
-+      const checkpoint = tree.checkpoint()
-+      const branched = tree.branch(args.nodeId, args.branch)
-+      if (branched.ok && sessionId === exec.agent.session.id) {
-+        try {
-+          const event = exec.agent.session.append('session-tree/branch', { nodeId: args.nodeId, branch: args.branch })
-+          tree.markSessionEventSeq(event.seq)
-+        } catch (error) {
-+          tree.rollback(checkpoint)
-+          throw error
-+        }
-+      }
-+      return branched
-     }
-     case 'branch.summary': {
-       if (args.nodeId === undefined || args.summary === undefined) {
-         return { ok: false, error: { code: 'INVALID_ARGUMENT', message: 'nodeId and summary are required' } }
-       }
--      return tree.branchWithSummary(args.nodeId, args.summary)
-+      const checkpoint = tree.checkpoint()
-+      const summarized = tree.branchWithSummary(args.nodeId, args.summary)
-+      if (summarized.ok && sessionId === exec.agent.session.id) {
-+        try {
-+          const event = exec.agent.session.append('session-tree/node', { node: summarized.value })
-+          tree.markSessionEventSeq(event.seq)
-+        } catch (error) {
-+          tree.rollback(checkpoint)
-+          throw error
-+        }
-+      }
-+      return summarized
-     }
-     case 'snapshot.save':
-       return { ok: true, value: tree.snapshot() }
-@@ -201,16 +274,58 @@ function runToolOperation(args: SessionTreeToolArgs, exec: ToolRunContext): unkn
- 
- function runForkCommand(invocation: CommandInvocation): CommandResult {
-   const [nodeId, branch = 'fork'] = invocation.rawInput.trim().split(/\s+/u)
--  return jsonCommand(sessionTreeStore.require(invocation.agent.session.id), tree => tree.fork(nodeId ?? '', branch))
-+  const tree = syncSessionTree(invocation.agent)
-+  const forked = tree.fork(nodeId ?? '', branch)
-+  if (forked.ok) {
-+    const event = invocation.agent.session.append('session-tree/branch', { nodeId: forked.value.cursor, branch: forked.value.branch })
-+    tree.markSessionEventSeq(event.seq)
-+  }
-+  return jsonCommand(forked)
-+}
 +
-+async function cloneActiveSession(ctx: Context, agent: NonNullable<ToolRunContext['agent']>, target: string): Promise<unknown> {
-+  const tree = syncSessionTree(agent)
-+  const path = tree.currentPath()
-+  const ids = new Map(path.map((node, index) => [node.nodeId, `${target}-clone-${index}`]))
-+  const seedTime = Date.now()
-+  const seed: SessionEvent[] = path.map((node, index) => {
-+    const metadata = node.metadata === undefined
-+      ? undefined
-+      : Object.fromEntries(Object.entries(node.metadata).filter(([key]) => key !== 'sessionEventSeq' && key !== 'sessionEventType' && key !== 'sourceEventSeq'))
-+    const clonedNode = {
-+      ...node,
-+      nodeId: ids.get(node.nodeId)!,
-+      parentId: node.parentId === null ? null : ids.get(node.parentId) ?? null,
-+      ...(metadata === undefined || Object.keys(metadata).length === 0 ? {} : { metadata }),
-+    }
-+    return {
-+      type: 'session-tree/node',
-+      seq: index,
-+      time: seedTime + index,
-+      data: { node: clonedNode },
-+    } as SessionEvent
-+  })
-+  await ctx.agents.create({
-+    sessionId: toSessionId(target),
-+    seed,
-+    meta: { parentSession: agent.session.id, seedLength: seed.length },
-+    agentOptions: agent.options,
-+  })
-+  return { ok: true, value: { sessionId: target } }
- }
- 
--function runCloneCommand(invocation: CommandInvocation): CommandResult {
-+async function runCloneCommand(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
-   const target = invocation.rawInput.trim()
--  return target === '' ? errorCommand('targetSessionId is required') : jsonCommand(sessionTreeStore.clone(invocation.agent.session.id, target as SessionId))
-+  if (target === '') return errorCommand('targetSessionId is required')
-+  try {
-+    return jsonCommand(await cloneActiveSession(ctx, invocation.agent, target))
-+  } catch (error) {
-+    return { kind: 'error', text: JSON.stringify({ ok: false, error: { code: 'INVALID_ARGUMENT', message: error instanceof Error ? error.message : 'clone failed' } }) }
-+  }
- }
- 
- function runSessionCommand(invocation: CommandInvocation): CommandResult {
--  return jsonCommand(sessionTreeStore.require(invocation.agent.session.id), tree => tree.info())
-+  return jsonCommand({ ok: true, value: syncSessionTree(invocation.agent).info() })
- }
- 
- function jsonCommand(value: unknown, map?: (tree: import('@deepseek-ai/dsh-pi-agent-session-tree').SessionTree) => unknown): CommandResult {
-@@ -225,10 +340,10 @@ function errorCommand(message: string): CommandResult {
-   return { kind: 'error', text: JSON.stringify({ ok: false, error: { code: 'INVALID_ARGUMENT', message } }) }
- }
- 
--function runTreeCommand(invocation: CommandInvocation): CommandResult {
-+async function runTreeCommand(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
-   const parts = invocation.rawInput.trim().split(/\s+/u).filter(Boolean)
-   const sessionId = invocation.agent.session.id
--  const tree = sessionTreeStore.get(sessionId) ?? sessionTreeStore.create(sessionId)
-+  const tree = syncSessionTree(invocation.agent)
-   const [head, ...rest] = parts
-   const action = head === 'snapshot' ? `snapshot.${rest[0] ?? ''}` : (head ?? 'list')
-   // Surface domain failures (`{ok:false}`) as command errors, matching the
-@@ -243,19 +358,47 @@ function runTreeCommand(invocation: CommandInvocation): CommandResult {
-     case 'branches': return json({ ok: true, value: tree.branches() })
-     case 'tree': return json({ ok: true, value: tree.view() })
-     case 'session': return json({ ok: true, value: tree.info() })
--    case 'fork': return json(tree.fork(rest[0] ?? '', rest[1] ?? 'fork'))
-+    case 'fork': {
-+      const checkpoint = tree.checkpoint()
-+      const result = tree.fork(rest[0] ?? '', rest[1] ?? 'fork')
-+      if (result.ok) {
-+        try {
-+          const event = invocation.agent.session.append('session-tree/branch', { nodeId: result.value.cursor, branch: result.value.branch })
-+          tree.markSessionEventSeq(event.seq)
-+        } catch (error) { tree.rollback(checkpoint); throw error }
-+      }
-+      return json(result)
-+    }
-     case 'clone': {
-       const target = rest[0]
-       if (target === undefined) return json({ ok: false, error: { code: 'INVALID_ARGUMENT', message: 'targetSessionId is required' } })
--      return json(sessionTreeStore.clone(sessionId, target as SessionId))
-+      try { return json(await cloneActiveSession(ctx, invocation.agent, target)) }
-+      catch (error) { return json({ ok: false, error: { code: 'INVALID_ARGUMENT', message: error instanceof Error ? error.message : 'clone failed' } }) }
+   /** Cached fold of the request-header events — see {@link requestHeader}. */
+   private headerFold: EpochHeader | undefined
+   /** Log position (events consumed) the header fold has reached. */
+@@ -702,6 +774,7 @@ export class Session {
+   private derivedNodes = 0
+   /** {@link SurfaceManager.replaceGeneration} the cache was built under. */
+   private derivedGeneration = 0
++  private derivedSelectionGeneration = 0
+
+   /**
+    * Derive the LLM message history by walking the ordered sequences of
+@@ -723,12 +796,14 @@ export class Session {
+    */
+   deriveMessages(): Message[] {
+     const surface = this.surface
+-    const nodes = surface.nodes
++    const nodes = this.selectedMessageSurface ?? surface.nodes
+     const generation = surface.replaceGeneration
+-    if (generation !== this.derivedGeneration) {
++    const selectionGeneration = this.selectedMessageSurfaceGeneration
++    if (generation !== this.derivedGeneration || selectionGeneration !== this.derivedSelectionGeneration) {
+       this.derived = []
+       this.derivedNodes = 0
+       this.derivedGeneration = generation
++      this.derivedSelectionGeneration = selectionGeneration
      }
-     case 'context': return json({ ok: true, value: { cursor: tree.cursor, messages: tree.messages() } })
-     case 'jump': {
--      const result = tree.jump(rest[0] ?? null)
-+      const nodeId = rest[0] ?? null
-+      const checkpoint = tree.checkpoint()
-+      const result = tree.jump(nodeId)
-+      if (result.ok) {
-+        try {
-+          const event = invocation.agent.session.append('session-tree/cursor', { nodeId })
-+          tree.markSessionEventSeq(event.seq)
-+        } catch (error) { tree.rollback(checkpoint); throw error }
-+      }
-       return json(result)
-     }
-     case 'branch': {
--      const result = tree.branch(rest[0] ?? '', rest[1] ?? '')
-+      const nodeId = rest[0] ?? ''
-+      const branch = rest[1] ?? ''
-+      const checkpoint = tree.checkpoint()
-+      const result = tree.branch(nodeId, branch)
-+      if (result.ok) {
-+        try {
-+          const event = invocation.agent.session.append('session-tree/branch', { nodeId, branch })
-+          tree.markSessionEventSeq(event.seq)
-+        } catch (error) { tree.rollback(checkpoint); throw error }
-+      }
-       return json(result)
-     }
-     case 'snapshot.save': return json({ ok: true, value: tree.snapshot() })
-@@ -272,8 +415,15 @@ function runTreeCommand(invocation: CommandInvocation): CommandResult {
-         if (snapshot.sessionId !== sessionId) {
-           return json({ ok: false, error: { code: 'INVALID_SNAPSHOT', message: `snapshot session '${snapshot.sessionId}' does not match the calling session '${sessionId}'` } })
-         }
--        const result = sessionTreeStore.load(snapshot)
--        return json(result)
-+        const candidate = new SessionTree(sessionId, snapshot)
-+        try {
-+          const event = invocation.agent.session.append('session-tree/snapshot', { snapshot })
-+          candidate.markSessionEventSeq(event.seq)
-+          sessionTreeStore.replace(sessionId, candidate)
-+          return json({ ok: true, value: { sessionId } })
-+        } catch (error) {
-+          throw error
-+        }
-       } catch (error) {
-         return { kind: 'error', text: JSON.stringify({ ok: false, error: { code: 'INVALID_SNAPSHOT', message: error instanceof Error ? error.message : 'invalid snapshot JSON' } }) }
-       }
+     for (const seq of nodes.slice(this.derivedNodes)) {
+       // Surface sequences are built from this.log — seq is always a valid
+diff --git a/packages/extensions/tool-cordis/src/api-catalog.ts b/packages/extensions/tool-cordis/src/api-catalog.ts
+index c8c597a983..fa64e718cf 100644
+--- a/packages/extensions/tool-cordis/src/api-catalog.ts
++++ b/packages/extensions/tool-cordis/src/api-catalog.ts
+@@ -1903,6 +1903,38 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
+       },
+     ],
+   },
++  {
++    key: 'sessionTree',
++    summary: 'Remote-only service backing the browser tree panel.',
++    description: 'Remote-only service backing the browser tree panel.',
++    methods: [
++      {
++        signature: '@Remote(\'list\') list(agent: Agent): SessionTreeView',
++        description: 'Read the current tree view (nodes, branches, cursor) for one agent. The tree is created on first read, so an empty panel is valid.',
++        parameters: [{ name: 'agent', description: 'owning live agent.' }],
++        returns: 'the complete view for the panel.',
++      },
++      {
++        signature: '@Remote(\'jump\') jump(agent: Agent, nodeId: string | null): JumpView',
++        description: 'Move the SessionTree cursor to an existing node and return its root-to-node path through the context operation. This also selects the same path on Harness\' model-visible Session surface, so the next turn genuinely branches from this leaf instead of merely changing the browser projection.',
++        parameters: [{ name: 'agent', description: 'owning live agent.' }, { name: 'nodeId', description: 'target node, or null to reset before the first node.' }],
++        returns: 'the new cursor and reconstructed messages.',
++        throws: ['Error when the node does not exist (settles as the standard error envelope).'],
++      },
++      {
++        signature: '@Remote(\'fork\') fork(agent: Agent, nodeId: string, branch: string): { cursor: string; branch: string; forkCount: number }',
++        description: 'Position a named branch at a historical node for the next append.',
++        parameters: [{ name: 'agent', description: 'owning live agent.' }, { name: 'nodeId', description: 'historical node to branch from.' }, { name: 'branch', description: 'non-empty branch label.' }],
++        returns: 'the parked cursor, branch label, and direct-child fork count.',
++      },
++      {
++        signature: '@Remote(\'session\') session(agent: Agent): SessionTreeSessionInfo',
++        description: 'Read compact status metadata for the current session tree.',
++        parameters: [{ name: 'agent', description: 'owning live agent.' }],
++        returns: 'current tree counts, cursor, branches, and usage metadata.',
++      },
++    ],
++  },
+   {
+     key: 'settings',
+     summary: 'Abstract settings service.',
+@@ -3623,6 +3655,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
+     name: 'BorrowedSessionSource',
+     declaration: 'export type BorrowedSessionSource = Disposable & ({\n    readonly source: \'prepared\';\n    readonly inspection: SessionInspection;\n    readonly revision: SessionPersistenceRevision;\n    readonly preparedSession: Session;\n} | {\n    readonly source: \'live\';\n    readonly inspection: SessionInspection;\n});',
+   },
++  {
++    name: 'BranchView',
++    declaration: 'export interface BranchView {\n    readonly name: string;\n    readonly headId: string;\n    readonly nodeIds: readonly string[];\n}',
++  },
+   {
+     name: 'Branded',
+     declaration: 'export type Branded<B extends string> = string & {\n    readonly [BRAND]: B;\n};',
+@@ -3735,6 +3771,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
+     name: 'ContentBlockType',
+     declaration: 'export type ContentBlockType = keyof ContentBlockMap;',
+   },
++  {
++    name: 'ContentPart',
++    declaration: 'export type ContentPart = {\n    readonly type: \'text\';\n    readonly text: string;\n} | {\n    readonly type: \'tool_call\';\n    readonly id: string;\n    readonly name: string;\n    readonly arguments: JsonValue;\n} | {\n    readonly type: \'tool_result\';\n    readonly toolCallId: string;\n    readonly content: string;\n    readonly isError?: boolean;\n} | {\n    readonly type: \'reasoning\';\n    readonly text: string;\n};',
++  },
+   {
+     name: 'ContextFormed',
+     declaration: 'export type ContextFormed = {\n    readonly form?: never;\n} | {\n    readonly form: \'instructions\';\n} | {\n    readonly form: \'catalog\';\n} | {\n    readonly form: \'snapshot\';\n    readonly sections: readonly ContextSnapshotSection[];\n} | {\n    readonly form: \'notice\';\n    readonly summary: string;\n} | {\n    readonly form: \'relay\';\n} | {\n    readonly form: \'recall\';\n};',
+@@ -4260,8 +4300,8 @@ export const TYPE_API: readonly TypeApiEntry[] = [
+     declaration: 'export type JsonSchemaType = \'object\' | \'array\' | \'string\' | \'number\' | \'integer\' | \'boolean\' | \'null\';',
+   },
+   {
+-    name: 'JsonValue',
+-    declaration: 'export type JsonValue = null | boolean | number | string | JsonValue[] | {\n    [key: string]: JsonValue;\n};',
++    name: 'JumpView',
++    declaration: 'export interface JumpView {\n    readonly cursor: string | null;\n    readonly messages: readonly LlmMessage[];\n}',
+   },
+   {
+     name: 'KnobState',
+@@ -4315,6 +4355,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
+     name: 'LlmImageRequestPricing',
+     declaration: 'export interface LlmImageRequestPricing {\n    priceImages(images: readonly ImageAttachmentRef[]): readonly LlmImageRequestPrice[];\n}',
+   },
++  {
++    name: 'LlmMessage',
++    declaration: 'export interface LlmMessage {\n    readonly role: LlmRole;\n    readonly content: string;\n    readonly name?: string;\n    readonly toolCallId?: string;\n}',
++  },
+   {
+     name: 'LlmModelContext',
+     declaration: 'export interface LlmModelContext {\n    contextWindow: number;\n}',
+@@ -4343,6 +4387,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
+     name: 'LlmResolvedModelInfo',
+     declaration: 'export interface LlmResolvedModelInfo extends LlmModelInfo {\n    context?: LlmModelContext;\n    defaultMaxTokens?: number;\n    reasoning?: LlmModelReasoningInfo;\n}',
+   },
++  {
++    name: 'LlmRole',
++    declaration: 'export type LlmRole = \'system\' | \'user\' | \'assistant\' | \'tool\';',
++  },
+   {
+     name: 'LlmRuntime',
+     declaration: 'export class LlmRuntime extends TypertRemoteService {\n    constructor(ctx: Context);\n    registerAdapter(providers: string[], adapter: LlmAdapter): AdapterRegistrationHandle;\n    @Remote\n    listProviders(): LlmProviderInfo[];\n    registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): DirectoryRegistrationHandle;\n    @Remote\n    listConfigurableProviders(): LlmConfigurableProvider[];\n    registerModelDiscovery(settingsNs: string, discover: (request: LlmModelDiscoveryRequest, signal?: AbortSignal) => Promise<readonly LlmDiscoveredModel[]>): () => void;\n    async discoverModels(settingsNs: string, request: LlmModelDiscoveryRequest, signal?: AbortSignal): Promise<LlmDiscoveredModel[]>;\n    @Remote(\'discoverModels\')\n    async remoteDiscoverModels(settingsNs: string, request: LlmModelDiscoveryRequest, signal: AbortSignal): Promise<LlmDiscoveredModel[]>;\n    providerRetryPolicy(provider: string): ResolvedRetryPolicy;\n    imageRequestPricing(provider: string, model: string): LlmImageRequestPricing | undefined;\n    async listModels(provider: string): Promise<LlmModelInfo[]>;\n    async resolveModelInfo(provider: string, model: string, signal?: AbortSignal): Promise<LlmResolvedModelInfo>;\n    async resolveCallConfig(config: LlmCallConfig, signal?: AbortSignal): Promise<LlmCallConfig>;\n    async prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<PreparedLlmCall>;\n    stream(options: GenerateOptions): AsyncIterable<StreamChunk>;\n}',
+@@ -4805,7 +4853,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
+   },
+   {
+     name: 'Session',
+-    declaration: 'export class Session {\n    get surface(): SessionSurface;\n    readonly header: SessionHeader;\n    get id(): SessionId;\n    readonly firstLiveSeq: number;\n    static create(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader): Session;\n    static fromRestore(id: SessionId, seed: readonly SessionEvent[], header: SessionHeader): Session;\n    get events(): readonly SessionEvent[];\n    get seq(): number;\n    append<T extends SessionEventType>(type: T, data: SessionEventMap[T], ...opts: T extends SurfaceEventType ? [\n        opts: SurfaceIntent\n    ] : [\n    ]): SessionEvent<T>;\n    requestHeader(): EpochHeader | undefined;\n    requestContext(): RequestContext | undefined;\n    deriveMessages(): Message[];\n    deriveEventMessage(event: SessionEvent): Message | null;\n}',
++    declaration: 'export class Session {\n    get surface(): SessionSurface;\n    readonly header: SessionHeader;\n    get id(): SessionId;\n    readonly firstLiveSeq: number;\n    static create(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader): Session;\n    static fromRestore(id: SessionId, seed: readonly SessionEvent[], header: SessionHeader): Session;\n    get events(): readonly SessionEvent[];\n    get seq(): number;\n    append<T extends SessionEventType>(type: T, data: SessionEventMap[T], ...opts: T extends SurfaceEventType ? [\n        opts: SurfaceIntent\n    ] : [\n    ]): SessionEvent<T>;\n    selectMessageSurface(nodes: readonly number[] | null): void;\n    messageSurfaceNodes(): readonly number[];\n    requestHeader(): EpochHeader | undefined;\n    requestContext(): RequestContext | undefined;\n    deriveMessages(): Message[];\n    deriveEventMessage(event: SessionEvent): Message | null;\n}',
+   },
+   {
+     name: 'SessionAddress',
+@@ -5207,6 +5255,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
+     name: 'SessionTitleUserMessage',
+     declaration: 'export interface SessionTitleUserMessage {\n    readonly seq: number;\n    readonly text: string;\n}',
+   },
++  {
++    name: 'SessionTreeSessionInfo',
++    declaration: 'export interface SessionTreeSessionInfo {\n    readonly branchHeads?: Record<string, string>;\n    readonly sessionId: SessionId;\n    readonly nodeCount: number;\n    readonly messageCount: number;\n    readonly branchCount: number;\n    readonly cursor: string | null;\n    readonly activeBranch: string;\n    readonly currentPathLength: number;\n    readonly usage?: Record<string, number>;\n    readonly tokenCount?: number;\n    readonly cost?: number;\n    readonly snapshotVersion: 1;\n}',
++  },
++  {
++    name: 'SessionTreeView',
++    declaration: 'export interface SessionTreeView {\n    readonly sessionId: SessionId;\n    readonly cursor: string | null;\n    readonly activeBranch: string;\n    readonly branchHeads?: Record<string, string>;\n    readonly nodes: readonly TreeNode[];\n    readonly branches: readonly BranchView[];\n}',
++  },
+   {
+     name: 'SessionUpdateQueueRequest',
+     declaration: 'export interface SessionUpdateQueueRequest {\n    readonly sessionId: SessionId;\n    readonly itemId: MessageId;\n    readonly action: QueueAction;\n}',
+@@ -5827,6 +5883,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
+     name: 'ToolSchema',
+     declaration: 'export interface ToolSchema {\n    name: string;\n    description: string;\n    parameters: Record<string, unknown>;\n}',
+   },
++  {
++    name: 'TreeEntryType',
++    declaration: 'export type TreeEntryType = \'message\' | \'tool_call\' | \'tool_result\' | \'model_change\' | \'compaction\' | \'branch_summary\' | \'custom\';',
++  },
++  {
++    name: 'TreeNode',
++    declaration: 'export interface TreeNode {\n    readonly nodeId: string;\n    readonly parentId: string | null;\n    readonly forkCount?: number;\n    readonly type?: TreeEntryType;\n    readonly branch: string;\n    readonly summary: string;\n    readonly createdAt: string;\n    readonly message?: LlmMessage;\n    readonly content?: readonly ContentPart[];\n    readonly model?: string;\n    readonly usage?: Record<string, JsonValue>;\n    readonly cost?: number;\n    readonly error?: string;\n    readonly metadata?: Record<string, JsonValue>;\n}',
++  },
+   {
+     name: 'TurnEndCancelCause',
+     declaration: 'export type TurnEndCancelCause = AgentCancelCause | {\n    readonly kind: \'legacy\';\n};',
+diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml
+index 51de950c3e..997ab1335d 100644
+--- a/pnpm-lock.yaml
++++ b/pnpm-lock.yaml
+@@ -1145,6 +1145,9 @@ importers:
+       '@deepseek-ai/dsh-permission-presets':
+         specifier: workspace:^
+         version: link:../../interaction/permission-presets
++      '@deepseek-ai/dsh-pi-agent-session-tree':
++        specifier: workspace:^
++        version: link:../../extensions/pi-agent-session-tree
+       '@deepseek-ai/dsh-plan-mode':
+         specifier: workspace:^
+         version: link:../../plan/plan-mode
+@@ -1265,6 +1268,9 @@ importers:
+       '@deepseek-ai/dsh-tool-ralph':
+         specifier: workspace:^
+         version: link:../../workflow/tool-ralph
++      '@deepseek-ai/dsh-tool-session-tree':
++        specifier: workspace:^
++        version: link:../../extensions/tool-session-tree
+       '@deepseek-ai/dsh-tool-skill':
+         specifier: workspace:^
+         version: link:../../skill/tool-skill
+@@ -1587,6 +1593,9 @@ importers:
+       '@deepseek-ai/dsh-client-ui-session':
+         specifier: workspace:^
+         version: link:../../client/ui-session
++      '@deepseek-ai/dsh-client-ui-session-tree':
++        specifier: workspace:^
++        version: link:../../client/ui-session-tree
+       '@deepseek-ai/dsh-client-ui-settings':
+         specifier: workspace:^
+         version: link:../../client/ui-settings
+@@ -3126,6 +3135,54 @@ importers:
+         specifier: ^18.2.0
+         version: 18.3.1
+
++  packages/client/ui-session-tree:
++    devDependencies:
++      '@deepseek-ai/cordis':
++        specifier: workspace:^
++        version: link:../../../vendor/cordis
++      '@deepseek-ai/dsh-api-remotes':
++        specifier: workspace:^
++        version: link:../../api/remotes
++      '@deepseek-ai/dsh-client-locale':
++        specifier: workspace:^
++        version: link:../locale
++      '@deepseek-ai/dsh-client-test-runtime':
++        specifier: workspace:^
++        version: link:../../test-support/client-runtime
++      '@deepseek-ai/dsh-client-ui-conversation':
++        specifier: workspace:^
++        version: link:../ui-conversation
++      '@deepseek-ai/dsh-client-ui-primitives':
++        specifier: workspace:^
++        version: link:../ui-primitives
++      '@deepseek-ai/dsh-client-ui-renderer':
++        specifier: workspace:^
++        version: link:../ui-renderer
++      '@deepseek-ai/dsh-client-ui-slots':
++        specifier: workspace:^
++        version: link:../ui-slots
++      '@deepseek-ai/dsh-invariants':
++        specifier: workspace:^
++        version: link:../../runtime-diagnostics/invariants
++      '@deepseek-ai/dsh-pi-agent-session-tree':
++        specifier: workspace:^
++        version: link:../../extensions/pi-agent-session-tree
++      '@deepseek-ai/dsh-session':
++        specifier: workspace:^
++        version: link:../../core/session
++      '@testing-library/react':
++        specifier: ^16.1.0
++        version: 16.3.2(@testing-library/dom@10.4.1)(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
++      '@types/react':
++        specifier: ~18.3.1
++        version: 18.3.31
++      react:
++        specifier: ^18.2.0
++        version: 18.3.1
++      react-dom:
++        specifier: ^18.2.0
++        version: 18.3.1(react@18.3.1)
++
+   packages/client/ui-settings:
+     devDependencies:
+       '@deepseek-ai/cordis':
+@@ -5213,6 +5270,37 @@ importers:
+         specifier: workspace:^
+         version: link:../../typert/protocol
+
++  packages/extensions/pi-agent-session-tree:
++    dependencies:
++      zod:
++        specifier: ^4.4.3
++        version: 4.4.3
++    devDependencies:
++      '@deepseek-ai/cordis':
++        specifier: workspace:^
++        version: link:../../../vendor/cordis
++      '@deepseek-ai/dsh-agent':
++        specifier: workspace:^
++        version: link:../../core/agent
++      '@deepseek-ai/dsh-commands':
++        specifier: workspace:^
++        version: link:../../interaction/commands
++      '@deepseek-ai/dsh-invariants':
++        specifier: workspace:^
++        version: link:../../runtime-diagnostics/invariants
++      '@deepseek-ai/dsh-session':
++        specifier: workspace:^
++        version: link:../../core/session
++      '@deepseek-ai/dsh-system-prompt':
++        specifier: workspace:^
++        version: link:../../core/system-prompt
++      '@deepseek-ai/dsh-tools':
++        specifier: workspace:^
++        version: link:../../core/tools
++      '@deepseek-ai/dsh-typert-protocol':
++        specifier: workspace:^
++        version: link:../../typert/protocol
++
+   packages/extensions/tool-cordis:
+     devDependencies:
+       '@deepseek-ai/cordis':
+@@ -5246,6 +5334,30 @@ importers:
+         specifier: workspace:^
+         version: link:../../core/tools
+
++  packages/extensions/tool-session-tree:
++    devDependencies:
++      '@deepseek-ai/cordis':
++        specifier: workspace:^
++        version: link:../../../vendor/cordis
++      '@deepseek-ai/dsh-commands':
++        specifier: workspace:^
++        version: link:../../interaction/commands
++      '@deepseek-ai/dsh-invariants':
++        specifier: workspace:^
++        version: link:../../runtime-diagnostics/invariants
++      '@deepseek-ai/dsh-pi-agent-session-tree':
++        specifier: workspace:^
++        version: link:../pi-agent-session-tree
++      '@deepseek-ai/dsh-session':
++        specifier: workspace:^
++        version: link:../../core/session
++      '@deepseek-ai/dsh-system-prompt':
++        specifier: workspace:^
++        version: link:../../core/system-prompt
++      '@deepseek-ai/dsh-tools':
++        specifier: workspace:^
++        version: link:../../core/tools
++
+   packages/extensions/ui-cordis:
+     devDependencies:
+       '@deepseek-ai/cordis':
+diff --git a/scripts/gen-cordis-catalog.ts b/scripts/gen-cordis-catalog.ts
+index eaaccfcb20..87ca848742 100644
+--- a/scripts/gen-cordis-catalog.ts
++++ b/scripts/gen-cordis-catalog.ts
+@@ -110,6 +110,7 @@ export const SERVICE_PAGE: Record<string, string> = {
+   systemPrompt: 'system-prompt.md',
+   jobs: 'jobs.md',
+   sessionTelemetry: 'session-telemetry.md',
++  sessionTree: 'session-tree.md',
+   agentTeams: 'agent-team.md',
+   tokenMeter: 'token-meter.md',
+   toolResultPruner: 'compaction.md',
+@@ -657,6 +658,9 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
+   ConsumeTokenRequest: 'event-local request contract is owned by packages/client/ui-input-trigger/src/types.ts',
+   InsertTextRequest: 'event-local request contract is owned by packages/client/ui-input-trigger/src/types.ts',
+   AgentHandle: 'agent ownership handle is owned by packages/core/agent/README.md',
++  SessionTreeView: 'session-tree payload is owned by packages/extensions/pi-agent-session-tree/README.md',
++  JumpView: 'session-tree payload is owned by packages/extensions/pi-agent-session-tree/README.md',
++  SessionTreeSessionInfo: 'session-tree payload is owned by packages/extensions/pi-agent-session-tree/README.md',
+   AgentPreset: 'discovered preset record is owned by packages/preset/agent-presets/README.md',
+   AgentPresetRoster: 'path-free preset roster is owned by packages/preset/agent-presets/README.md',
+   AgentPresetDocument: 'preset composition view is owned by packages/preset/agent-presets/README.md',
+diff --git a/scripts/gen-tool-catalog.ts b/scripts/gen-tool-catalog.ts
+index b5dea761cf..71e4d4d3ab 100644
+--- a/scripts/gen-tool-catalog.ts
++++ b/scripts/gen-tool-catalog.ts
+@@ -12,6 +12,9 @@ import { Context } from '@deepseek-ai/cordis'
+ import LlmRuntime from '@deepseek-ai/dsh-llm'
+ import type { ToolSchema } from '@deepseek-ai/dsh-llm'
+ import AgentRegistry from '@deepseek-ai/dsh-agent'
++import CommandRuntime from '@deepseek-ai/dsh-commands'
++import SessionTreeService from '@deepseek-ai/dsh-pi-agent-session-tree'
++import * as ToolSessionTree from '@deepseek-ai/dsh-tool-session-tree'
+ import type { Agent } from '@deepseek-ai/dsh-agent'
+ import { createScope } from '@deepseek-ai/dsh-scope'
+ import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+@@ -567,6 +570,21 @@ const TOOL_PACKAGES: ToolPackage[] = [
+     note:
+       'All ten tools are scoped to implicit Team Leads and durable teammates. The shipped dsh-base bundle keeps the package disabled; the documented Agent Teams profile patch enables it while disabling the legacy continuable-child control names.',
+   },
++  {
++    pkg: '@deepseek-ai/dsh-tool-session-tree',
++    dir: 'tool-session-tree',
++    source: 'packages/extensions/tool-session-tree/src/index.ts',
++    requires: ['ctx.tools', 'ctx.systemPrompt', 'ctx.commands', 'ctx.agents', 'ctx.sessionTree'],
++    writes: ['tool/call', 'session-tree/* navigation or snapshot events', 'tool/result'],
++    async mount(ctx) {
++      await ctx.plugin(AgentRegistry)
++      await ctx.plugin(CommandRuntime)
++      await ctx.plugin(SessionTreeService)
++      await ctx.plugin(ToolSessionTree)
++    },
++    note:
++      'session_tree projects the durable Harness Session log into a Pi-style immutable tree; jump/fork select the same model-visible message path without deleting sibling history.',
++  },
+   {
+     pkg: '@deepseek-ai/dsh-tool-todo',
+     dir: 'tool-todo',
+diff --git a/tsconfig.base.json b/tsconfig.base.json
+index 5a9bc4a4b0..851dfdef36 100644
+--- a/tsconfig.base.json
++++ b/tsconfig.base.json
+@@ -244,6 +244,11 @@
+       // so these aliases stay hand-written like dsh-util-crypto above.
+       "@deepseek-ai/dsh-util-time": ["./packages/util/time/src"],
+       "@deepseek-ai/dsh-util-time/invariant": ["./packages/util/time/src/invariant.ts"],
++      "@deepseek-ai/dsh-pi-agent-session-tree": ["./packages/extensions/pi-agent-session-tree/src"],
++      "@deepseek-ai/dsh-pi-agent-session-tree/client": ["./packages/extensions/pi-agent-session-tree/src/client.ts"],
++      "@deepseek-ai/dsh-tool-session-tree": ["./packages/extensions/tool-session-tree/src"],
++      "@deepseek-ai/dsh-client-ui-session-tree": ["./packages/client/ui-session-tree/src"],
++      "@deepseek-ai/dsh-client-ui-session-tree/client": ["./packages/client/ui-session-tree/src/client"],
+       // BEGIN generated package aliases — pnpm run gen-tsconfig-paths
+       "@deepseek-ai/dsh-acp": ["./packages/acp/acp/src"],
+       "@deepseek-ai/dsh-acp/invariant": ["./packages/acp/acp/src/invariant.ts"],
+@@ -379,6 +384,7 @@
+       "@deepseek-ai/dsh-permission-presets/invariant": ["./packages/interaction/permission-presets/src/invariant.ts"],
+       "@deepseek-ai/dsh-persona": ["./packages/preset/persona/src"],
+       "@deepseek-ai/dsh-persona/invariant": ["./packages/preset/persona/src/invariant.ts"],
++      "@deepseek-ai/dsh-pi-agent-session-tree/invariant": ["./packages/extensions/pi-agent-session-tree/src/invariant.ts"],
+       "@deepseek-ai/dsh-plan-mode": ["./packages/plan/plan-mode/src"],
+       "@deepseek-ai/dsh-plan-mode/invariant": ["./packages/plan/plan-mode/src/invariant.ts"],
+       "@deepseek-ai/dsh-plugin-package-inventory-deepseek": ["./packages/llm/plugin-package-inventory-deepseek/src"],
+@@ -530,6 +536,7 @@
+       "@deepseek-ai/dsh-tool-ralph/invariant": ["./packages/workflow/tool-ralph/src/invariant.ts"],
+       "@deepseek-ai/dsh-tool-session-query": ["./packages/session-query/tool-session-query/src"],
+       "@deepseek-ai/dsh-tool-session-query/invariant": ["./packages/session-query/tool-session-query/src/invariant.ts"],
++      "@deepseek-ai/dsh-tool-session-tree/invariant": ["./packages/extensions/tool-session-tree/src/invariant.ts"],
+       "@deepseek-ai/dsh-tool-skill": ["./packages/skill/tool-skill/src"],
+       "@deepseek-ai/dsh-tool-skill/invariant": ["./packages/skill/tool-skill/src/invariant.ts"],
+       "@deepseek-ai/dsh-tool-str-replace-editor": ["./packages/fs/tool-str-replace-editor/src"],
+diff --git a/tsconfig.client.json b/tsconfig.client.json
+index 2634de2cdd..45e9793e82 100644
+--- a/tsconfig.client.json
++++ b/tsconfig.client.json
+@@ -68,6 +68,7 @@
+     { "path": "./packages/client/ui-approval" },
+     { "path": "./packages/client/ui-chat" },
+     { "path": "./packages/client/ui-conversation" },
++    { "path": "./packages/client/ui-session-tree" },
+     { "path": "./packages/client/ui-tool" },
+     { "path": "./packages/client/ui-deliverables" },
+     { "path": "./packages/client/ui-workflow-run" },
+diff --git a/tsconfig.host.json b/tsconfig.host.json
+index 2d9dc3513c..7e748680c5 100644
+--- a/tsconfig.host.json
++++ b/tsconfig.host.json
+@@ -310,6 +310,8 @@
+     { "path": "./packages/preset/agent-presets" },
+     { "path": "./packages/preset/persona" },
+     { "path": "./packages/guard/repeat-tool-reminder" },
++    { "path": "./packages/extensions/pi-agent-session-tree" },
++    { "path": "./packages/extensions/tool-session-tree" },
+     { "path": "./packages/extensions/cordis-host-runner" },
+     { "path": "./packages/extensions/tool-cordis" },
+     { "path": "./packages/hooks/hook-protocol" },

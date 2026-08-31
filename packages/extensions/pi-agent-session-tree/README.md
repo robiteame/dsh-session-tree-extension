@@ -13,7 +13,8 @@ an embedded WebUI tree panel.
 |---|---|---|
 | Tool | `session_tree` | one tree per agent session; operations below |
 | Command | `/tree` | `list`, `branches`, `tree`, `context`, `jump <nodeId>`, `branch <nodeId> <name>`, `snapshot save`, `snapshot load <json>` |
-| Remote service | `sessionTree` | `list(agent)`, `jump(agent, nodeId)` — drives the browser panel |
+| Commands | `/fork`, `/clone`, `/session` | fork in-tree, clone the active path to a separate session, inspect tree status |
+| Remote service | `sessionTree` | `list(agent)`, `jump(agent, nodeId)`, `fork(agent, nodeId, branch)`, `session(agent)` — drives the browser panel |
 | Browser slot | `conversation.input.dock` | collapsible tree panel above the composer; click a node to jump |
 
 ## Tool operations
@@ -66,9 +67,10 @@ fragment this plugin installs.
 
 - The store is process-wide and shared by the tool, the command, and the
   Remote service, so model appends appear in the panel immediately.
-- Trees are in-memory; `snapshot.save`/`snapshot.load` are the durability
-  channel. This package owns no session-log events — the tree is an additive
-  overlay, never a rewrite of native chat history.
+- Harness `Session` events are the durable source of truth; the tree is an
+  incrementally synchronized projection. Explicit `snapshot.save`/`snapshot.load`
+  events remain available for export and full-tree restore. Native history is
+  never rewritten by this package.
 - Model-visible ⇔ logged: every model turn the agent commits through
   `session_tree append` becomes a tree node; the tree does not synthesize
   history that was never logged.

@@ -5,7 +5,7 @@
  * two Remote verbs; live state arrives from the panel's own `load` call.
  */
 
-import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { JumpView, SessionTreeView } from '@deepseek-ai/dsh-pi-agent-session-tree/client'
 
 /** Injected business face of the dock entry: read the tree and jump the cursor. */
@@ -18,13 +18,13 @@ export interface SessionTreePanelActions {
   load: (sessionId: SessionId) => Promise<SessionTreeView>
   /**
    * Move the SessionTree cursor to one node; the root-to-node path is returned
-   * by `context`, while old branches remain intact. This is tree navigation and
-   * does not claim to replace Harness' native model surface.
+   * by `context`, while old branches remain intact. Harness selects the same
+   * path on its actual model-visible message surface.
    * @param nodeId - target node id.
    * @returns the new cursor and reconstructed messages.
    * @throws Error with the Remote error code and message when the node is unknown.
    */
-  jump: (nodeId: string) => Promise<JumpView>
+  jump: (nodeId: string | null) => Promise<JumpView>
   /** Create/select a named branch at one historical node. */
   fork: (nodeId: string, branch: string) => Promise<{ cursor: string; branch: string; forkCount: number }>
 }

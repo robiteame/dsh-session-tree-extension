@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -59,7 +59,7 @@ async function harness() {
 async function runTool(ctx: Context, agent: Agent, args: Record<string, unknown>): Promise<Record<string, unknown>> {
   const result: ToolExecutionResult = await ctx.tools.execute({
     signal: testToolSignal,
-    callId: CallId(`call-${Math.random()}`),
+    callId: ToolCallId(`call-${Math.random()}`),
     name: 'session_tree',
     arguments: args,
     agent,
@@ -462,7 +462,7 @@ describe('session_tree plugin surfaces', () => {
     expect(updated.nodes[1]?.parentId).toBe(updated.nodes[0]?.nodeId)
     expect(updated.nodes[1]?.type).toBe('tool_call')
     expect(updated.nodes[2]?.parentId).toBe(updated.nodes[0]?.nodeId)
-    expect(updated.nodes[2]?.branch).toBe('main')
+    expect(updated.nodes[2]?.branch).toBe('alternate')
     const snapshot = service.list(agent)
     const custom = expectOk(await runTool(ctx, agent, { operation: 'append', message: { role: 'assistant', content: 'custom entry' } })) as { nodeId: string }
     expect(custom.nodeId).toBeDefined()
@@ -475,6 +475,29 @@ describe('session_tree plugin surfaces', () => {
     agent.session.append('session-tree/node', { node: { nodeId: 'after-snapshot', parentId: snapshot.cursor, branch: snapshot.activeBranch, summary: 'after snapshot', createdAt: '2026-01-01T00:00:00.000Z', message: { role: 'user', content: 'after snapshot' } } })
     const restored = service.list(agent)
     expect(restored.nodes.some(node => node.nodeId === 'after-snapshot')).toBe(true)
+  })
+
+  it('switches Harness actual model history and grows the new branch', async () => {
+    const { service } = await harness()
+    const agent = stubAgent('tree-model-surface')
+    agent.session.append('user/message', { role: 'user', content: 'root', source: 'human' } as never, { surfaceOp: 'append' })
+    agent.session.append('assistant/message', {
+      turn: 1,
+      step: 1,
+      message: { role: 'assistant', content: [{ type: 'text', text: 'main answer' }] },
+    } as never, { surfaceOp: 'append' })
+
+    const initial = service.list(agent)
+    expect(agent.session.deriveMessages()).toHaveLength(2)
+    service.jump(agent, initial.nodes[0]!.nodeId)
+    expect(agent.session.deriveMessages().map(message => message.role)).toEqual(['user'])
+
+    agent.session.append('user/message', { role: 'user', content: 'alternate prompt', source: 'human' } as never, { surfaceOp: 'append' })
+    expect(agent.session.deriveMessages().map(message => message.role)).toEqual(['user', 'user'])
+    const branched = service.list(agent)
+    const alternative = branched.nodes.find(node => node.summary === 'alternate prompt')
+    expect(alternative?.parentId).toBe(initial.nodes[0]!.nodeId)
+    expect(branched.nodes.find(node => node.summary === 'main answer')).toBeDefined()
   })
 
   it('registers the tool, the /tree command, and the system-prompt section', async () => {

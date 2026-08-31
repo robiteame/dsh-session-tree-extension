@@ -14,10 +14,9 @@ export const name = 'pi-agent-session-tree-invariant'
 export const inject = ['invariants']
 
 /**
- * No session-log invariant: the tree is an in-memory additive overlay whose
- * history immutability is enforced by the domain model itself (nodes are
- * never mutated after insertion), and its durable channel is the versioned
- * JSON snapshot validated at load time.
+ * No extra invariant: tree events pass through Session's canonical append and
+ * persistence boundary, while immutable topology and versioned snapshots are
+ * validated by the domain model itself.
  */
 const install: InvariantInstaller = () => {}
 

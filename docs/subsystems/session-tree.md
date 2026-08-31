@@ -60,7 +60,7 @@ root→cursor path only — branches the cursor does not sit on stay out of
 `messages`, so context never mixes parallel alternatives.
 
 ```ts type-equiv
-/** Result of tree cursor navigation: the new cursor plus the projected path. */
+/** Result of a cursor jump: the new cursor plus the reconstructed path. */
 interface JumpView {
   readonly cursor: string | null
   readonly messages: readonly LlmMessage[]
@@ -148,15 +148,32 @@ Remote-only service backing the browser tree panel.
 @Remote('list') list(agent: Agent): SessionTreeView
 
 /**
- * Move the tree cursor to an existing node; context returns the projected
- * root-to-node path while old branches remain intact. This does not rewrite
- * Harness' native model surface.
+ * Move the SessionTree cursor to an existing node and return its root-to-node
+ * path through the context operation. This also selects the same path on
+ * Harness' model-visible Session surface, so the next turn genuinely branches
+ * from this leaf instead of merely changing the browser projection.
  * @param agent - owning live agent.
  * @param nodeId - target node, or null to reset before the first node.
  * @returns the new cursor and reconstructed messages.
  * @throws Error when the node does not exist (settles as the standard error envelope).
  */
 @Remote('jump') jump(agent: Agent, nodeId: string | null): JumpView
+
+/**
+ * Position a named branch at a historical node for the next append.
+ * @param agent - owning live agent.
+ * @param nodeId - historical node to branch from.
+ * @param branch - non-empty branch label.
+ * @returns the parked cursor, branch label, and direct-child fork count.
+ */
+@Remote('fork') fork(agent: Agent, nodeId: string, branch: string): { cursor: string; branch: string; forkCount: number }
+
+/**
+ * Read compact status metadata for the current session tree.
+ * @param agent - owning live agent.
+ * @returns current tree counts, cursor, branches, and usage metadata.
+ */
+@Remote('session') session(agent: Agent): SessionTreeSessionInfo
 ```
 
 Types: [Agent](core.md)

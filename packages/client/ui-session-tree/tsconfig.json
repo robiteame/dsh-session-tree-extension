@@ -15,10 +15,13 @@
       "path": "../../../vendor/cordis"
     },
     {
-      "path": "../runtime"
+      "path": "../locale"
     },
     {
-      "path": "../locale"
+      "path": "../ui-renderer"
+    },
+    {
+      "path": "../ui-session"
     },
     {
       "path": "../ui-conversation"
@@ -31,6 +34,9 @@
     },
     {
       "path": "../../extensions/pi-agent-session-tree"
+    },
+    {
+      "path": "../../core/session"
     }
   ]
 }
