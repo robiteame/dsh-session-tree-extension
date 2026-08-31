@@ -41,11 +41,11 @@
 
 #### 模型看到什么
 
-一段固定文本告诉模型：树是唯一会话历史——回答前先读 `context`，逐轮 `append`，从历史节点分叉且不修改旧节点，用快照做持久化。
+一段固定文本告诉模型：树是 Harness 持久化 Session 日志的只追加投影——原生 user/assistant/tool/model 事件会自动同步；导航后先读 `context`，不要重复 append 普通轮次；仅用 `append` 记录明确的自定义 entry，从历史节点分叉且不修改旧节点。
 ##### SessionTree 指引
 
 ```markdown
-SessionTree is the sole conversation history for this agent. Before answering, call session_tree with operation 'context' for your active session and treat its returned messages as the complete context; never assume a linear chat history. Append every user and assistant turn with operation 'append'. To explore an alternative, call 'branch' with a historical nodeId and a branch name (or 'branch.summary' to record a summary of the abandoned path), then append new messages; never modify or delete historical nodes. Use 'branches' and 'tree' to enumerate the conversation tree, and 'snapshot.save'/'snapshot.load' to export or restore the whole tree as JSON. All operations report failures as {ok:false,error:{code,message}}.
+SessionTree is the append-only projection of the durable Harness Session log. Native user, assistant, tool, and model-context events synchronize automatically; never duplicate ordinary turns with operation 'append'. After navigation, use 'context' for the root-to-cursor active branch. Use 'append' only for an explicit custom entry, and use 'fork' or 'branch' to explore alternatives without modifying old nodes. Use snapshots for explicit export or full-tree restore. All operations report failures as {ok:false,error:{code,message}}.
 ```
 
 #### Token 影响

@@ -51,11 +51,11 @@ JSON with a stable failure vocabulary.
 
 #### What the model sees
 
-A fixed section tells the model that the tree is the sole conversation history: read `context` before answering, append every turn, branch from historical nodes without editing them, and use snapshots for durability.
+A fixed section tells the model that the tree projects the durable Harness Session log: native turns synchronize automatically, `context` reads the active branch after navigation, `append` is only for explicit custom entries, and branching never edits history.
 ##### SessionTree guidance
 
 ```markdown
-SessionTree is the sole conversation history for this agent. Before answering, call session_tree with operation 'context' for your active session and treat its returned messages as the complete context; never assume a linear chat history. Append every user and assistant turn with operation 'append'. To explore an alternative, call 'branch' with a historical nodeId and a branch name (or 'branch.summary' to record a summary of the abandoned path), then append new messages; never modify or delete historical nodes. Use 'branches' and 'tree' to enumerate the conversation tree, and 'snapshot.save'/'snapshot.load' to export or restore the whole tree as JSON. All operations report failures as {ok:false,error:{code,message}}.
+SessionTree is the append-only projection of the durable Harness Session log. Native user, assistant, tool, and model-context events synchronize automatically; never duplicate ordinary turns with operation 'append'. After navigation, use 'context' for the root-to-cursor active branch. Use 'append' only for an explicit custom entry, and use 'fork' or 'branch' to explore alternatives without modifying old nodes. Use snapshots for explicit export or full-tree restore. All operations report failures as {ok:false,error:{code,message}}.
 ```
 
 #### Token effect

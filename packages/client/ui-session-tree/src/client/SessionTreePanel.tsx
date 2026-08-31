@@ -29,26 +29,30 @@ const ROLE_LABELS: Record<LlmRole, SessionTreeKey> = {
  * @param onJump - jump callback for this node.
  */
 function NodeRow({
-  node, cursor, onJump, t,
+  node, cursor, branchHeads, onJump, onFork, t,
 }: {
   node: TreeNode
   cursor: string | null
+  pending: boolean
+  branchHeads: Record<string, string> | undefined
   onJump: (nodeId: string) => void
+  onFork: (nodeId: string) => void
   t: (key: SessionTreeKey) => string
 }) {
   const message = node.message
+  const headNames = Object.entries(branchHeads ?? {}).filter(([, head]) => head === node.nodeId).map(([name]) => name)
   return (
-    <button
-      type="button"
-      className={node.nodeId === cursor ? `${css.node} ${css.nodeActive}` : css.node}
-      title={`${t('panel.jump')} — ${node.nodeId}`}
-      onClick={() => { onJump(node.nodeId) }}
-    >
-      <span className={css.role}>{message === undefined ? t('node.noMessage') : t(ROLE_LABELS[message.role])}</span>
-      <span className={css.summary}>{node.summary}</span>
-      <span className={css.branch}>{node.branch}</span>
-      {node.nodeId === cursor ? <span className={css.cursor}>{t('panel.cursor')}</span> : null}
-    </button>
+    <div className={node.nodeId === cursor ? `${css.node} ${css.nodeActive}` : css.node}>
+      <button type="button" className={css.jump} disabled={pending} title={`${t('panel.jump')} — ${node.nodeId}`} onClick={() => { onJump(node.nodeId) }}>
+        <span className={css.role}>{message === undefined ? t('node.noMessage') : t(ROLE_LABELS[message.role])}</span>
+        <span className={css.summary}>{node.summary}</span>
+        <span className={css.branch}>{node.branch}</span>
+        {node.forkCount !== undefined && node.forkCount > 0 ? <span className={css.forks}>⑂{node.forkCount}</span> : null}
+        {headNames.length > 0 ? <span className={css.head} title={`${t('panel.head')}: ${headNames.join(', ')}`}>{headNames.join(', ')}</span> : null}
+        {node.nodeId === cursor ? <span className={css.cursor}>{t('panel.cursor')}</span> : null}
+      </button>
+      <button type="button" className={css.forkAction} disabled={pending} title={t('panel.fork')} aria-label={`${t('panel.fork')} — ${node.nodeId}`} onClick={() => { onFork(node.nodeId) }}>⑂</button>
+    </div>
   )
 }
 
@@ -57,11 +61,14 @@ function NodeRow({
  * render alone. The root list groups everything with parentId === null.
  */
 function TreeRows({
-  nodes, cursor, onJump, t,
+  nodes, cursor, pending, branchHeads, onJump, onFork, t,
 }: {
   nodes: readonly TreeNode[]
   cursor: string | null
+  pending: boolean
+  branchHeads: Record<string, string> | undefined
   onJump: (nodeId: string) => void
+  onFork: (nodeId: string) => void
   t: (key: SessionTreeKey) => string
 }) {
   // Index children by parent once (O(n)) instead of re-filtering `nodes` per
@@ -79,14 +86,19 @@ function TreeRows({
     return map
   }, [nodes])
 
-  const render = (parent: string | null, depth: number) => {
+  const render = (parent: string | null, depth: number, ancestors: ReadonlySet<string> = new Set()) => {
     const children = childrenByParent.get(parent) ?? []
-    return children.map(node => (
-      <div key={node.nodeId} className={depth > 0 ? css.childRow : undefined}>
-        <NodeRow node={node} cursor={cursor} onJump={onJump} t={t} />
-        {render(node.nodeId, depth + 1)}
-      </div>
-    ))
+    return children.map(node => {
+      if (ancestors.has(node.nodeId)) return null
+      const nextAncestors = new Set(ancestors)
+      nextAncestors.add(node.nodeId)
+      return (
+        <div key={node.nodeId} className={depth > 0 ? css.childRow : undefined}>
+          <NodeRow node={node} cursor={cursor} pending={pending} branchHeads={branchHeads} onJump={onJump} onFork={onFork} t={t} />
+          {render(node.nodeId, depth + 1, nextAncestors)}
+        </div>
+      )
+    })
   }
 
   return <div className={css.rows}>{render(null, 0)}</div>
@@ -94,7 +106,7 @@ function TreeRows({
 
 /** The collapsible dock card. */
 export function SessionTreePanel({
-  sessionId, load, jump, t, useInput,
+  sessionId, load, jump, fork, t, useInput,
 }: SessionTreeViewProps & PropsLocale<'session-tree'>) {
   const [view, setView] = useState<SessionTreeView | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -142,6 +154,16 @@ export function SessionTreePanel({
     }
   }, [jump, pending, refresh])
 
+  const handleFork = useCallback(async (nodeId: string) => {
+    if (pending) return
+    const branch = `fork-${Date.now().toString(36)}`
+    setPending(true)
+    setError(null)
+    try { await fork(nodeId, branch); await refresh() }
+    catch (forkError) { setError(forkError instanceof Error ? forkError.message : String(forkError)) }
+    finally { setPending(false) }
+  }, [fork, pending, refresh])
+
   const nodeCount = view === null ? 0 : view.nodes.length
   const branchCount = view === null ? 0 : view.branches.length
 
@@ -167,7 +189,7 @@ export function SessionTreePanel({
           {error !== null ? <p className={css.error}>{t('panel.error')}: {error}</p> : null}
           {view !== null && nodeCount === 0 ? <p className={css.empty}>{t('panel.empty')}</p> : null}
           {view !== null && nodeCount > 0 ? (
-            <TreeRows nodes={view.nodes} cursor={view.cursor} onJump={(nodeId) => { handleJump(nodeId).catch(() => undefined) }} t={t} />
+            <TreeRows nodes={view.nodes} cursor={view.cursor} pending={pending} branchHeads={view.branchHeads} onJump={(nodeId) => { handleJump(nodeId).catch(() => undefined) }} onFork={(nodeId) => { handleFork(nodeId).catch(() => undefined) }} t={t} />
           ) : null}
         </div>
       ) : null}

@@ -132,8 +132,9 @@ Remote-only service backing the browser tree panel.
 @Remote('list') list(agent: Agent): SessionTreeView
 
 /**
- * Move the cursor to an existing node and replay its root-to-node path.
- * Old branches remain intact.
+ * Move the tree cursor to an existing node; context returns the projected
+ * root-to-node path while old branches remain intact. This does not rewrite
+ * Harness' native model surface.
  * @param agent - owning live agent.
  * @param nodeId - target node, or null to reset before the first node.
  * @returns the new cursor and reconstructed messages.

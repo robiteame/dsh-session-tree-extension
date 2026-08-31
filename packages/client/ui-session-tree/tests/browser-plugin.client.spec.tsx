@@ -55,6 +55,7 @@ async function bench(options: { view?: SessionTreeView; failList?: boolean; fail
   let active = {
     list: answer('sessionTree/list', options.view ?? defaultView, options.failList),
     jump: answer('sessionTree/jump', { cursor: 'n1', messages: [] }, options.failJump),
+    fork: answer('sessionTree/fork', { cursor: 'n1', branch: 'fork-test', forkCount: 1 }),
   }
   class RemoteService extends Service {
     constructor(serviceCtx: Context) {
@@ -65,6 +66,7 @@ async function bench(options: { view?: SessionTreeView; failList?: boolean; fail
   ctx.provide('remote.sessionTree', {
     get list() { return active.list },
     get jump() { return active.jump },
+    get fork() { return active.fork },
   })
   await ctx.plugin(SlotRegistry).await()
   ctx.slots.register({
@@ -81,7 +83,7 @@ async function bench(options: { view?: SessionTreeView; failList?: boolean; fail
     ctx,
     fiber,
     calls,
-    remount: () => { active = { list: answer('remounted/list', defaultView), jump: answer('remounted/jump', { cursor: 'n1', messages: [] }) } },
+    remount: () => { active = { list: answer('remounted/list', defaultView), jump: answer('remounted/jump', { cursor: 'n1', messages: [] }), fork: answer('remounted/fork', { cursor: 'n1', branch: 'fork-test', forkCount: 1 }) } },
     entry: () => {
       const entry = ctx.slots.entries('conversation.input.dock')[0]
       if (entry === undefined) return undefined
@@ -108,9 +110,11 @@ describe('ui-session-tree browser plugin', () => {
     const verbs = b.entry()!.inject!(sid('s1'))
     await verbs.load(sid('s1'))
     await verbs.jump('n1')
-    expect(b.calls.map(call => call.method)).toEqual(['sessionTree/list', 'sessionTree/jump'])
+    await verbs.fork('n1', 'experiment')
+    expect(b.calls.map(call => call.method)).toEqual(['sessionTree/list', 'sessionTree/jump', 'sessionTree/fork'])
     expect(b.calls[0]?.args).toEqual(['s1'])
     expect(b.calls[1]?.args).toEqual(['s1', 'n1'])
+    expect(b.calls[2]?.args).toEqual(['s1', 'n1', 'experiment'])
   })
 
   it('rejects a jump once the Remote namespace is gone (assembly fault)', async () => {
@@ -144,6 +148,7 @@ describe('ui-session-tree browser plugin', () => {
       sessionId={sid('s1')}
       load={load}
       jump={jump}
+      fork={vi.fn(async (_nodeId: string, branch: string) => ({ cursor: 'a', branch, forkCount: 1 }))}
       t={t}
       session={undefined as never}
       input={undefined as never}
@@ -164,6 +169,36 @@ describe('ui-session-tree browser plugin', () => {
     void rerender
   })
 
+  it('forks from a node without also jumping and refreshes the tree', async () => {
+    const nodes = [node('r', null, 'root question', 'main')]
+    const view = treeView('r', nodes)
+    const load = vi.fn(async () => view)
+    const jump = vi.fn(async () => ({ cursor: 'r', messages: [] }))
+    const fork = vi.fn(async (_nodeId: string, branch: string) => ({ cursor: 'r', branch, forkCount: 1 }))
+    render(<SessionTreeDock
+      sessionId={sid('s1')}
+      load={load}
+      jump={jump}
+      fork={fork}
+      t={tOf}
+      session={undefined as never}
+      input={undefined as never}
+      useSession={() => undefined as never}
+      useSessions={() => undefined as never}
+      useWorkspaces={() => undefined as never}
+      useProjection={() => undefined as never}
+      inputActions={undefined as never}
+      useInput={(select) => { return select(inputOf('/tree') as never) }}
+    />)
+    await waitFor(() => { expect(screen.getByText('root question')).toBeTruthy() })
+    fireEvent.click(screen.getByLabelText(`${zh['panel.fork']} — r`))
+    await waitFor(() => { expect(fork).toHaveBeenCalledTimes(1) })
+    expect(fork.mock.calls[0]?.[0]).toBe('r')
+    expect(fork.mock.calls[0]?.[1]).toMatch(/^fork-/u)
+    expect(jump).not.toHaveBeenCalled()
+    await waitFor(() => { expect(load).toHaveBeenCalledTimes(2) })
+  })
+
   it('auto-expands on a /tree composer draft and jumps on node click', async () => {
     const t = tOf
     const nodes = [node('r', null, 'root question', 'main'), node('a', 'r', 'alt answer', 'main')]
@@ -175,6 +210,7 @@ describe('ui-session-tree browser plugin', () => {
       sessionId={sid('s1')}
       load={load}
       jump={jump}
+      fork={vi.fn(async (_nodeId: string, branch: string) => ({ cursor: 'a', branch, forkCount: 1 }))}
       t={t}
       session={undefined as never}
       input={undefined as never}
@@ -194,6 +230,7 @@ describe('ui-session-tree browser plugin', () => {
       sessionId={sid('s1')}
       load={load}
       jump={jump}
+      fork={vi.fn(async (_nodeId: string, branch: string) => ({ cursor: 'a', branch, forkCount: 1 }))}
       t={t}
       session={undefined as never}
       input={undefined as never}

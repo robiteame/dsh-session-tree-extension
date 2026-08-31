@@ -60,6 +60,11 @@ export function apply(ctx: ClientContext): void {
         if (!answered.ok) throw new Error(`${answered.error.code}: ${answered.error.message}`)
         return answered.value
       },
+      fork: async (nodeId: string, branch: string) => {
+        const answered = await ctx.remote.sessionTree.fork(sessionId, nodeId, branch)
+        if (!answered.ok) throw new Error(`${answered.error.code}: ${answered.error.message}`)
+        return answered.value
+      },
     }),
   }, SessionTreeDock))
 }

@@ -112,6 +112,28 @@
   background: var(--dsw-alias-interactive-bg-hover);
 }
 
+.jump {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.forkAction {
+  flex: none;
+  border: 0;
+  background: transparent;
+  color: var(--dsw-alias-state-business-primary);
+  cursor: pointer;
+}
+
 .nodeActive {
   background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 12%, transparent);
   outline: 1px solid color-mix(in srgb, var(--dsw-alias-state-business-primary) 40%, transparent);
@@ -143,6 +165,22 @@
   font-size: 11px;
   line-height: 16px;
   color: var(--dsw-alias-label-tertiary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.forks,
+.head {
+  flex: none;
+  font-size: 10px;
+  line-height: 14px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.head {
+  max-width: 112px;
+  overflow: hidden;
+  color: var(--dsw-alias-state-success-primary, var(--dsw-alias-state-business-primary));
   text-overflow: ellipsis;
   white-space: nowrap;
 }

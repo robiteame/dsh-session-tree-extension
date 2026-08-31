@@ -60,7 +60,7 @@ root→cursor path only — branches the cursor does not sit on stay out of
 `messages`, so context never mixes parallel alternatives.
 
 ```ts type-equiv
-/** Result of a cursor jump: the new cursor plus the reconstructed path. */
+/** Result of tree cursor navigation: the new cursor plus the projected path. */
 interface JumpView {
   readonly cursor: string | null
   readonly messages: readonly LlmMessage[]
@@ -69,7 +69,7 @@ interface JumpView {
 
 ## Durability
 
-Trees are in-memory for the process lifetime; `snapshot.save` produces and
+Harness Session events are the durable source of truth; the SessionTree store is an incrementally synchronized projection. `snapshot.save` produces and
 `snapshot.load` restores the versioned snapshot below. Unknown versions are
 rejected as `INVALID_SNAPSHOT`.
 
@@ -148,8 +148,9 @@ Remote-only service backing the browser tree panel.
 @Remote('list') list(agent: Agent): SessionTreeView
 
 /**
- * Move the cursor to an existing node and replay its root-to-node path.
- * Old branches remain intact.
+ * Move the tree cursor to an existing node; context returns the projected
+ * root-to-node path while old branches remain intact. This does not rewrite
+ * Harness' native model surface.
  * @param agent - owning live agent.
  * @param nodeId - target node, or null to reset before the first node.
  * @returns the new cursor and reconstructed messages.

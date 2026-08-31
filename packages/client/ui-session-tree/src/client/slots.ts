@@ -17,13 +17,16 @@ export interface SessionTreePanelActions {
    */
   load: (sessionId: SessionId) => Promise<SessionTreeView>
   /**
-   * Move the tree cursor to one node; the node's root-to-node path is
-   * replayed, and old branches remain intact.
+   * Move the SessionTree cursor to one node; the root-to-node path is returned
+   * by `context`, while old branches remain intact. This is tree navigation and
+   * does not claim to replace Harness' native model surface.
    * @param nodeId - target node id.
    * @returns the new cursor and reconstructed messages.
    * @throws Error with the Remote error code and message when the node is unknown.
    */
   jump: (nodeId: string) => Promise<JumpView>
+  /** Create/select a named branch at one historical node. */
+  fork: (nodeId: string, branch: string) => Promise<{ cursor: string; branch: string; forkCount: number }>
 }
 
 /** Full props of the dock entry: the framework standard kit plus the injected face. */

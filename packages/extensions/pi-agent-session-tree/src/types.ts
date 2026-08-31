@@ -51,9 +51,12 @@ export interface TreeNode {
   readonly summary: string
   /** ISO-8601 creation time. */
   readonly createdAt: string
-  /** The carried message; nodes without one (e.g. branch summaries) omit it. */
+  /**
+   * Detached compatibility DTO for display/context responses; this is not the
+   * Harness `Message` union and must not be passed to model APIs as-is.
+   */
   readonly message?: LlmMessage
-  /** Pi-style structured content; message is retained as the derived compatibility view. */
+  /** Pi-style structured content; message is retained as the derived compatibility DTO. */
   readonly content?: readonly ContentPart[]
   /** Optional model/provider metadata. */
   readonly model?: string
@@ -92,6 +95,8 @@ export interface SessionTreeSnapshot {
   readonly sessionId: string
   readonly cursor: string | null
   readonly activeBranch: string
+  /** Highest native Session event seq represented by this snapshot, when known. */
+  readonly nativeEventSeq?: number
   /** Session-level branch heads, matching Pi's named branch pointers. */
   readonly branchHeads?: Record<string, string>
   readonly nodes: readonly TreeNode[]
@@ -103,12 +108,16 @@ export interface SessionTreeSessionInfo {
   readonly branchHeads?: Record<string, string>
   readonly sessionId: SessionId
   readonly nodeCount: number
+  /** Number of message-carrying entries across the whole tree. */
+  readonly messageCount: number
   readonly branchCount: number
   readonly cursor: string | null
   readonly activeBranch: string
   readonly currentPathLength: number
   /** Aggregated model usage from entries that recorded it. */
   readonly usage?: Record<string, number>
+  /** Sum of all numeric usage fields whose key ends in `Tokens`. */
+  readonly tokenCount?: number
   /** Aggregated model cost from entries that recorded it. */
   readonly cost?: number
   readonly snapshotVersion: 1
@@ -125,7 +134,7 @@ export interface SessionTreeView {
   readonly branches: readonly BranchView[]
 }
 
-/** Result of a cursor jump: the new cursor plus the reconstructed path. */
+/** Result of tree cursor navigation: the new cursor plus the projected path. */
 export interface JumpView {
   readonly cursor: string | null
   readonly messages: readonly LlmMessage[]
@@ -144,3 +153,16 @@ export type TreeErrorCode =
 export type TreeResult<T> =
   | { readonly ok: true; readonly value: T }
   | { readonly ok: false; readonly error: { readonly code: TreeErrorCode; readonly message: string } }
+
+declare module '@deepseek-ai/dsh-session/types' {
+  interface SessionEventMap {
+    /** Durable append-only SessionTree node written through Harness Session.append(). */
+    'session-tree/node': { node: TreeNode }
+    /** Durable cursor movement; history nodes remain untouched. */
+    'session-tree/cursor': { nodeId: string | null }
+    /** Durable named branch pointer and active-branch selection. */
+    'session-tree/branch': { nodeId: string; branch: string }
+    /** Durable full-tree replacement marker for explicit snapshot restore. */
+    'session-tree/snapshot': { snapshot: SessionTreeSnapshot }
+  }
+}

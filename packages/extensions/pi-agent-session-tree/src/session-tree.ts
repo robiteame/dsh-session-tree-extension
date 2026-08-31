@@ -43,6 +43,7 @@ export class SessionTree {
   private cursorId: string | null = null
   private activeBranchName = 'main'
   private readonly branchHeads = new Map<string, string>()
+  private syncedSessionEventSeq = -1
 
   /**
    * Create an empty tree, or restore one from a versioned snapshot.
@@ -55,6 +56,7 @@ export class SessionTree {
     if (!isSnapshot(snapshot, sessionId)) throw new Error('invalid session tree snapshot')
     for (const node of snapshot.nodes) this.nodesById.set(node.nodeId, clone(node))
     this.cursorId = snapshot.cursor
+    if (typeof snapshot.nativeEventSeq === 'number') this.syncedSessionEventSeq = snapshot.nativeEventSeq
     if (typeof snapshot.activeBranch === 'string') this.activeBranchName = snapshot.activeBranch
     if (snapshot.branchHeads !== undefined) {
       for (const [name, head] of Object.entries(snapshot.branchHeads)) {
@@ -91,6 +93,24 @@ export class SessionTree {
    * @param options - optional branch override, summary, and JSON extras.
    * @returns the created node, or a standard error for invalid input.
    */
+  /** Capture mutable projection state so an external durable write can commit atomically. */
+  checkpoint(): SessionTreeSnapshot {
+    return this.snapshot()
+  }
+
+  /** Roll back to a previously captured checkpoint after a durable append fails. */
+  rollback(snapshot: SessionTreeSnapshot): TreeResult<void> {
+    if (!isSnapshot(snapshot, this.sessionId)) return fail('INVALID_SNAPSHOT', 'checkpoint does not belong to this session')
+    this.nodesById.clear()
+    for (const node of snapshot.nodes) this.nodesById.set(node.nodeId, clone(node))
+    this.cursorId = snapshot.cursor
+    this.activeBranchName = snapshot.activeBranch
+    this.branchHeads.clear()
+    for (const [name, head] of Object.entries(snapshot.branchHeads ?? {})) this.branchHeads.set(name, head)
+    this.syncedSessionEventSeq = snapshot.nativeEventSeq ?? -1
+    return { ok: true, value: undefined }
+  }
+
   append(
     message: LlmMessage,
     options: { branch?: string; summary?: string; content?: readonly ContentPart[]; model?: string; usage?: Record<string, JsonValue>; cost?: number; error?: string; metadata?: Record<string, JsonValue> } = {},
@@ -141,7 +161,8 @@ export class SessionTree {
 
   /**
    * Fork the active cursor from a historical node. This is the Pi `/fork`
-   * primitive: old nodes remain intact and the next append becomes a child.
+   * primitive: old nodes remain intact and the next tree append becomes a child.
+   * The native Harness model surface is unchanged until a loop-owned navigation hook is available.
    */
   fork(target: string, branch = 'fork'): TreeResult<{ cursor: string; branch: string; forkCount: number }> {
     const result = this.branch(target, branch)
@@ -216,11 +237,17 @@ export class SessionTree {
 
   replay(records: readonly SessionTreeLogEntry[]): TreeResult<{ applied: number }> {
     let expected = this.nodesById.size
+    const known = new Set(this.nodesById.keys())
     for (const record of records) {
-      if (record.seq !== expected || this.nodesById.has(record.node.nodeId)) return fail('INVALID_SNAPSHOT', 'session tree log sequence or node identity is invalid')
-      if (!isNode(record.node) || (record.node.parentId !== null && !this.nodesById.has(record.node.parentId))) return fail('INVALID_SNAPSHOT', 'session tree log topology is invalid')
-      this.nodesById.set(record.node.nodeId, clone(record.node))
+      if (record.seq !== expected || known.has(record.node.nodeId)) return fail('INVALID_SNAPSHOT', 'session tree log sequence or node identity is invalid')
+      if (!isNode(record.node) || (record.node.parentId !== null && !known.has(record.node.parentId))) return fail('INVALID_SNAPSHOT', 'session tree log topology is invalid')
+      known.add(record.node.nodeId)
       expected += 1
+    }
+    for (const record of records) {
+      this.nodesById.set(record.node.nodeId, clone(record.node))
+      const nativeSeq = record.node.metadata?.sessionEventSeq
+      if (typeof nativeSeq === 'number') this.markSessionEventSeq(nativeSeq)
     }
     const last = records[records.length - 1]?.node
     if (last !== undefined) {
@@ -273,11 +300,13 @@ export class SessionTree {
       sessionId: this.sessionId,
       branchHeads: Object.fromEntries(this.branchHeads),
       nodeCount: this.nodesById.size,
+      messageCount: [...this.nodesById.values()].filter(node => node.message !== undefined).length,
       branchCount: this.branches().length,
       cursor: this.cursorId,
       activeBranch: this.activeBranchName,
       currentPathLength: this.currentPath().length,
       usage: Object.keys(usage).length === 0 ? undefined : usage,
+      tokenCount: Object.entries(usage).reduce((total, [key, value]) => key.endsWith('Tokens') ? total + value : total, 0) || undefined,
       cost: cost === 0 ? undefined : cost,
       snapshotVersion: SNAPSHOT_VERSION,
     }
@@ -302,6 +331,7 @@ export class SessionTree {
       sessionId: this.sessionId,
       cursor: this.cursorId,
       activeBranch: this.activeBranchName,
+      ...(this.syncedSessionEventSeq < 0 ? {} : { nativeEventSeq: this.syncedSessionEventSeq }),
       branchHeads: Object.fromEntries(this.branchHeads),
       nodes: [...this.nodesById.values()],
     })
@@ -318,6 +348,16 @@ export class SessionTree {
       current = node.parentId
     }
     return path.reverse()
+  }
+
+  /** Return the greatest native Session event seq already projected into this tree. */
+  lastSessionEventSeq(): number {
+    return this.syncedSessionEventSeq
+  }
+
+  /** Advance the native Session event watermark after a successful sync/write. */
+  markSessionEventSeq(seq: number): void {
+    if (Number.isSafeInteger(seq) && seq > this.syncedSessionEventSeq) this.syncedSessionEventSeq = seq
   }
 
   /** @returns true when a node with this id exists. */
@@ -404,6 +444,12 @@ export class SessionTreeStore {
     return { ok: true, value: { sessionId: targetSessionId } }
   }
 
+  /** Replace one session's tree from a previously validated candidate. */
+  replace(sessionId: SessionId, tree: SessionTree): void {
+    if (tree.sessionId !== sessionId) throw new Error('tree does not belong to session')
+    this.trees.set(sessionId, tree)
+  }
+
   /** Replace one session's tree from a snapshot. */
   load(snapshot: SessionTreeSnapshot): TreeResult<{ sessionId: string }> {
     try {
@@ -441,9 +487,12 @@ function isSnapshot(value: unknown, sessionId: SessionId): value is SessionTreeS
   const cursor = record.cursor
   if (cursor !== null && typeof cursor !== 'string') return false
   if (typeof cursor === 'string' && !(nodes as TreeNode[]).some(node => node.nodeId === cursor)) return false
+  if (record.nativeEventSeq !== undefined && (typeof record.nativeEventSeq !== 'number' || !Number.isSafeInteger(record.nativeEventSeq) || record.nativeEventSeq < 0)) return false
   if (record.branchHeads !== undefined && !isJsonRecord(record.branchHeads)) return false
-  if (record.branchHeads !== undefined && Object.entries(record.branchHeads).some(([_, head]) => typeof head !== 'string' || !(nodes as TreeNode[]).some(node => node.nodeId === head))) return false
-  return typeof record.activeBranch === 'string'
+  if (record.branchHeads !== undefined && Object.entries(record.branchHeads).some(([name, head]) => name.length === 0 || typeof head !== 'string' || !(nodes as TreeNode[]).some(node => node.nodeId === head))) return false
+  if (typeof record.activeBranch !== 'string' || record.activeBranch.length === 0) return false
+  if (record.branchHeads !== undefined && record.branchHeads[record.activeBranch] === undefined && cursor !== null) return false
+  return true
 }
 
 /** Validate one restored node before it enters the tree. */
