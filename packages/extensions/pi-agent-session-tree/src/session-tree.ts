@@ -18,6 +18,7 @@ import type {
   SessionTreeSessionInfo,
   SessionTreeSnapshot,
   SessionTreeView,
+  TreeEntryType,
   TreeNode,
   SessionTreeLogEntry,
   TreeErrorCode,
@@ -259,10 +260,7 @@ export class SessionTree {
   }
 
   list(): TreeNode[] {
-    return clone([...this.nodesById.values()].map(node => ({
-      ...node,
-      forkCount: this.directChildren(node.nodeId).length,
-    })))
+    return clone([...this.nodesById.values()])
   }
 
   /**
@@ -296,6 +294,7 @@ export class SessionTree {
       }
       if (typeof node.cost === 'number') cost += node.cost
     }
+    const tokenCount = Object.entries(usage).reduce((total, [key, value]) => key.endsWith('Tokens') ? total + value : total, 0)
     return {
       sessionId: this.sessionId,
       branchHeads: Object.fromEntries(this.branchHeads),
@@ -305,9 +304,9 @@ export class SessionTree {
       cursor: this.cursorId,
       activeBranch: this.activeBranchName,
       currentPathLength: this.currentPath().length,
-      usage: Object.keys(usage).length === 0 ? undefined : usage,
-      tokenCount: Object.entries(usage).reduce((total, [key, value]) => key.endsWith('Tokens') ? total + value : total, 0) || undefined,
-      cost: cost === 0 ? undefined : cost,
+      ...(Object.keys(usage).length > 0 ? { usage } : {}),
+      ...(tokenCount !== 0 ? { tokenCount } : {}),
+      ...(cost !== 0 ? { cost } : {}),
       snapshotVersion: SNAPSHOT_VERSION,
     }
   }

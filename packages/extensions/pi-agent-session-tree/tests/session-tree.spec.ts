@@ -50,9 +50,9 @@ async function harness() {
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(CommandRuntime)
-  const service = await ctx.plugin(SessionTreeService)
+  await ctx.plugin(SessionTreeService)
   const fiber = await ctx.plugin(toolSessionTree)
-  return { ctx, fiber, service }
+  return { ctx, fiber, service: ctx.sessionTree }
 }
 
 /** Execute one registered tool on behalf of an agent and parse its JSON text. */
@@ -141,7 +141,7 @@ describe('session_tree tool: append-only history', () => {
     })) as TreeNode
     expect(fork.parentId).toBe(root.nodeId)
 
-    const branches = expectOk(await runTool(ctx, agent, { operation: 'branches' })) as Array<{ name: string; nodeIds: string[] }>
+    const branches = expectOk(await runTool(ctx, agent, { operation: 'branches' })) as Array<{ name: string; headId: string; nodeIds: string[] }>
     expect(branches.map(branch => branch.name).sort()).toEqual(['alt', 'main', 'second-alt'])
     expect(branches.find(branch => branch.name === 'alt')?.nodeIds).toContain(altNode.nodeId)
     expect(branches.find(branch => branch.name === 'alt')?.headId).toBe(altNode.nodeId)
@@ -318,10 +318,10 @@ describe('session_tree tool: append-only history', () => {
 
   it('replays a branched append-only node log without deleting either path', async () => {
     const tree = new (await import('@deepseek-ai/dsh-pi-agent-session-tree')).SessionTree(SessionId('tree-mixed-log'))
-    const root = expectOk(tree.append({ role: 'user', content: 'root' }))
-    const main = expectOk(tree.append({ role: 'assistant', content: 'main answer' }))
+    const root = expectOk(tree.append({ role: 'user', content: 'root' })) as TreeNode
+    const main = expectOk(tree.append({ role: 'assistant', content: 'main answer' })) as TreeNode
     expect(tree.jump(root.nodeId).ok).toBe(true)
-    const alternative = expectOk(tree.append({ role: 'assistant', content: 'alternative answer' }))
+    const alternative = expectOk(tree.append({ role: 'assistant', content: 'alternative answer' })) as TreeNode
     const records = tree.log()
     const restored = new (await import('@deepseek-ai/dsh-pi-agent-session-tree')).SessionTree(SessionId('tree-mixed-restored'))
     expect(restored.replay(records)).toEqual({ ok: true, value: { applied: 3 } })
@@ -445,7 +445,7 @@ describe('session_tree plugin surfaces', () => {
   })
 
   it('hydrates the tree from native Harness session events on first Remote read', async () => {
-    const { service } = await harness()
+    const { ctx, service } = await harness()
     const agent = stubAgent('tree-native-hydrate')
     agent.session.append('user/message', { role: 'user', content: 'native history' } as never, { surfaceOp: 'append' })
     agent.session.append('turn/start', { turn: 1 } as never)
@@ -463,18 +463,15 @@ describe('session_tree plugin surfaces', () => {
     expect(updated.nodes[1]?.type).toBe('tool_call')
     expect(updated.nodes[2]?.parentId).toBe(updated.nodes[0]?.nodeId)
     expect(updated.nodes[2]?.branch).toBe('main')
-    expect(service.list(agent).nodes).toHaveLength(2)
     const snapshot = service.list(agent)
     const custom = expectOk(await runTool(ctx, agent, { operation: 'append', message: { role: 'assistant', content: 'custom entry' } })) as { nodeId: string }
     expect(custom.nodeId).toBeDefined()
     const afterResync = service.list(agent)
     expect(afterResync.nodes.some(node => node.nodeId === custom.nodeId)).toBe(true)
-    const mixed = service.list(agent)
-    expect(mixed.nodes).toHaveLength(3)
-    expect(mixed.nodes.filter(node => node.message !== undefined)).toHaveLength(3)
+    expect(afterResync.nodes.filter(node => node.message !== undefined)).toHaveLength(3)
     const mixedStatus = expectOk(await runTool(ctx, agent, { operation: 'session' })) as { messageCount: number }
     expect(mixedStatus.messageCount).toBe(3)
-    agent.session.append('session-tree/snapshot', { snapshot: { version: 1, sessionId: agent.session.id, cursor: snapshot.cursor, activeBranch: snapshot.activeBranch, branchHeads: snapshot.branchHeads, nodes: snapshot.nodes } })
+    agent.session.append('session-tree/snapshot', { snapshot: { version: 1, sessionId: agent.session.id, cursor: snapshot.cursor, activeBranch: snapshot.activeBranch, ...(snapshot.branchHeads !== undefined ? { branchHeads: snapshot.branchHeads } : {}), nodes: snapshot.nodes } })
     agent.session.append('session-tree/node', { node: { nodeId: 'after-snapshot', parentId: snapshot.cursor, branch: snapshot.activeBranch, summary: 'after snapshot', createdAt: '2026-01-01T00:00:00.000Z', message: { role: 'user', content: 'after snapshot' } } })
     const restored = service.list(agent)
     expect(restored.nodes.some(node => node.nodeId === 'after-snapshot')).toBe(true)

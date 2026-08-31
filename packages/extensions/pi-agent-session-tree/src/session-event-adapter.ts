@@ -24,7 +24,7 @@ function projectEvent(event: SessionEvent, parentId: string | null): TreeNode | 
   let message: LlmMessage | undefined
   let content: ContentPart[] | undefined
   let type: TreeNode['type'] = 'custom'
-  let summary = event.type
+  let summary: string = event.type
   let usage: Record<string, JsonValue> | undefined
   let model: string | undefined
   let metadata: Record<string, JsonValue> = {
@@ -60,9 +60,10 @@ function projectEvent(event: SessionEvent, parentId: string | null): TreeNode | 
     summary = `model: ${event.data.provider}/${event.data.model}`
     content = [{ type: 'text', text: summary }]
   } else if (event.type === 'tool/result') {
+    const toolBlock = event.data.message.content[0]
     type = 'tool_result'
-    message = { role: 'tool', content: textOf(event.data.message.content), toolCallId: String(event.data.message.toolCallId) }
-    content = [{ type: 'tool_result', toolCallId: String(event.data.message.toolCallId), content: message.content }]
+    message = { role: 'tool', content: textOf(event.data.message.content), toolCallId: String(toolBlock.toolCallId) }
+    content = [{ type: 'tool_result', toolCallId: String(toolBlock.toolCallId), content: message.content }]
     summary = message.content
   } else {
     return undefined

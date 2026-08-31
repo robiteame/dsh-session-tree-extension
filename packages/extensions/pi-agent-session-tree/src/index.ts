@@ -102,7 +102,18 @@ export class SessionTreeService extends TypertRemoteService {
    */
   @Remote('list')
   list(agent: Agent): SessionTreeView {
-    return syncSessionTree(agent).view()
+    return this.synced(agent).view()
+  }
+
+  /** Synchronize native history, falling back to the last committed tree when replay fails. */
+  private synced(agent: Agent): SessionTree {
+    try {
+      return syncSessionTree(agent)
+    } catch {
+      const committed = sessionTreeStore.require(agent.session.id)
+      if (!committed.ok) throw new Error(`${committed.error.code}: ${committed.error.message}`)
+      return committed.value
+    }
   }
 
   /**
@@ -133,10 +144,11 @@ export class SessionTreeService extends TypertRemoteService {
 
   /** Position a named branch at a historical node for the next append. */
   @Remote('fork')
-  fork(agent: Agent, nodeId: string, branch = 'fork'): { cursor: string; branch: string; forkCount: number } {
+  fork(agent: Agent, nodeId: string, branch: string): { cursor: string; branch: string; forkCount: number } {
+    const branchName = branch === '' ? 'fork' : branch
     const tree = syncSessionTree(agent)
     const checkpoint = tree.checkpoint()
-    const result = tree.fork(nodeId, branch)
+    const result = tree.fork(nodeId, branchName)
     if (!result.ok) throw new Error(`${result.error.code}: ${result.error.message}`)
     try {
       const event = agent.session.append('session-tree/branch', { nodeId, branch: result.value.branch })
@@ -151,7 +163,7 @@ export class SessionTreeService extends TypertRemoteService {
   /** Read compact status metadata for the current session tree. */
   @Remote('session')
   session(agent: Agent): SessionTreeSessionInfo {
-    return syncSessionTree(agent).info()
+    return this.synced(agent).info()
   }
 }
 

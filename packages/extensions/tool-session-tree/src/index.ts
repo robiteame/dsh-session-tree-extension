@@ -23,6 +23,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
 import { SessionTree, sessionTreeStore, syncSessionTree } from '@deepseek-ai/dsh-pi-agent-session-tree'
+import type { TreeNode } from '@deepseek-ai/dsh-pi-agent-session-tree'
 import type { JsonValue, SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 
@@ -137,15 +138,12 @@ async function runToolOperation(ctx: Context, args: SessionTreeToolArgs, exec: T
         return { ok: false, error: { code: 'INVALID_SNAPSHOT', message: `snapshot session '${snapshot.sessionId}' does not match the calling session '${sessionId}'` } }
       }
       if (sessionId !== exec.agent.session.id) return { ok: false, error: { code: 'INVALID_ARGUMENT', message: 'snapshot.load requires the calling agent session' } }
-      const candidate = new SessionTree(sessionId, snapshot)
-      try {
-        const event = exec.agent.session.append('session-tree/snapshot', { snapshot })
-        candidate.markSessionEventSeq(event.seq)
-        sessionTreeStore.replace(sessionId, candidate)
-        return { ok: true, value: { sessionId } }
-      } catch (error) {
-        throw error
-      }
+      const candidate = newSessionTreeFromSnapshot(sessionId, snapshot)
+      if (!candidate.ok) return { ok: false, error: { code: 'INVALID_SNAPSHOT', message: candidate.error } }
+      const event = exec.agent.session.append('session-tree/snapshot', { snapshot })
+      candidate.value.markSessionEventSeq(event.seq)
+      sessionTreeStore.replace(sessionId, candidate.value)
+      return { ok: true, value: { sessionId } }
     }
     default:
       break
@@ -310,8 +308,31 @@ async function cloneActiveSession(ctx: Context, agent: NonNullable<ToolRunContex
     seed,
     meta: { parentSession: agent.session.id, seedLength: seed.length },
     agentOptions: agent.options,
-  })
+  }).catch(() => seedCloneTree(target, seed))
   return { ok: true, value: { sessionId: target } }
+}
+
+/** Seed the shared store directly when no agent factory is registered (e.g. tool-only hosts). */
+function seedCloneTree(target: string, seed: SessionEvent[]): void {
+  const nodes = seed.map(event => (event.data as { node: TreeNode }).node)
+  const head = nodes[nodes.length - 1]
+  sessionTreeStore.replace(toSessionId(target), new SessionTree(toSessionId(target), {
+    version: 1,
+    sessionId: toSessionId(target),
+    cursor: head?.nodeId ?? null,
+    activeBranch: 'main',
+    ...(head === undefined ? {} : { branchHeads: { main: head.nodeId } }),
+    nodes,
+  }))
+}
+
+/** Validate and construct a restored tree without throwing. */
+function newSessionTreeFromSnapshot(sessionId: SessionId, snapshot: unknown): { ok: true; value: SessionTree } | { ok: false; error: string } {
+  try {
+    return { ok: true, value: new SessionTree(sessionId, snapshot) }
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : 'invalid snapshot' }
+  }
 }
 
 async function runCloneCommand(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {

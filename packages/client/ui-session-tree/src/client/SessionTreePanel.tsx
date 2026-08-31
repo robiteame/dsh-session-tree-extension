@@ -29,7 +29,7 @@ const ROLE_LABELS: Record<LlmRole, SessionTreeKey> = {
  * @param onJump - jump callback for this node.
  */
 function NodeRow({
-  node, cursor, branchHeads, onJump, onFork, t,
+  node, cursor, pending, branchHeads, onJump, onFork, t,
 }: {
   node: TreeNode
   cursor: string | null
