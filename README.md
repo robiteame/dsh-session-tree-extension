@@ -12,7 +12,7 @@ the existing chat composer (no standalone page).
 | Path | Role |
 |---|---|
 | `packages/extensions/pi-agent-session-tree/` | Host domain service: `SessionTree`/`SessionTreeStore`, the Typert `sessionTree` Remote (`list`, `jump`), and pure payload types |
-| `packages/extensions/tool-session-tree/` | Model-facing surface: the `session_tree` tool, the `/tree` command family, and the system-prompt section |
+| `packages/extensions/tool-session-tree/` | Model-facing surface: the `session_tree` tool, the `/tree`, `/fork`, `/clone`, `/session` commands, and the system-prompt section |
 | `packages/client/ui-session-tree/` | Browser half: the `conversation.input.dock` tree panel (light/dark via `--dsw-alias-*` tokens) |
 | `docs/subsystems/session-tree.md` | Subsystem reference (en/zh) |
 | `harness.patch` | Latest-Harness integration only (bundle composition/dependencies, tsconfig registrations, lockfile importers); package sources are copied separately |
@@ -21,11 +21,21 @@ the existing chat composer (no standalone page).
 
 - **Append-only** — every node is immutable; branching and jumping only move
   the cursor. Old branches are never edited or deleted.
-- **Cursor navigation** — `jump(nodeId)` selects the same root-to-node path on
-  Harness' actual model-visible message surface and leaves every sibling branch
-  intact; the next turn grows from that historical leaf.
+- **Every entry is a node** — messages, tool calls, tool results, model
+  switches, compaction records, branch summaries, and custom entries all
+  become typed nodes (`message`, `tool_call`, `tool_result`, `model_change`,
+  `compaction`, `branch_summary`, `custom`); each has a unique `nodeId` and a
+  `parentId` (root is `null`). A node may have multiple children — that is the
+  fork.
+- **Cursor navigation** — `jump(nodeId)` moves the active leaf to a historical
+  node; the next append grows a new branch from there. Sibling branches stay
+  intact. Tree navigation is a projection-side view: historical nodes are
+  never deleted, and the durable Harness Session log remains the source of
+  truth.
 - **LLM context** — `context` returns the standard `messages` array for the
   root→cursor path only.
+- **Compaction** — Harness surface replacement is recorded as an immutable
+  `compaction` node instead of pretending the shadowed messages were deleted.
 - **Snapshots** — `snapshot.save`/`snapshot.load` round-trip the whole tree as
   versioned JSON (`version: 1`).
 - **Multiple trees** — one independent tree per agent session.
@@ -59,6 +69,15 @@ Type `/tree` in the composer, then:
 /tree branch <nodeId> <name>
 /tree jump <nodeId>
 /tree snapshot save
+```
+
+The command family aligns with Pi's native commands:
+
+```
+/tree     browse and jump within the current session tree
+/fork <nodeId> [branch]    branch from a historical node
+/clone <sessionId>         clone the active branch into an independent session
+/session                   show session id, node/message counts, tokens, cost
 ```
 
 The dock panel above the composer renders every branch, highlights the cursor,
