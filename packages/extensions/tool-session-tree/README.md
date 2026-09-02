@@ -13,8 +13,8 @@ the command line, and the browser panel observe the same trees.
 | Surface | Name | Notes |
 |---|---|---|
 | Tool | `session_tree` | one tree per agent session; operations below |
-| Command | `/tree` | `list`, `branches`, `tree`, `context`, `jump <nodeId>`, `branch <nodeId> <name>`, `snapshot save`, `snapshot load <json>` |
-| Commands | `/fork`, `/clone`, `/session` | fork in-tree, clone the active path to a separate session, inspect tree status |
+| Command | `/tree` | Opens/refreshes the right sidebar; low-level subcommands remain available for automation |
+| Commands | `/fork`, `/clone`, `/session` | Fork or clone the selected sidebar node with no IDs; inspect tree status |
 
 ## Tool operations
 
@@ -31,7 +31,8 @@ the command line, and the browser panel observe the same trees.
 
 Every operation answers `{ok: true, value}` or
 `{ok: false, error: {code, message}}`, so tool results are always lossless
-JSON with a stable failure vocabulary.
+JSON with a stable failure vocabulary. Human `/fork` and `/clone` commands
+require a sidebar selection and otherwise return `请先在右侧会话树选中目标节点`.
 
 ## Tool examples
 

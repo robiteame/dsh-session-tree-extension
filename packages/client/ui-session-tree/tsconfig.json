@@ -24,7 +24,10 @@
       "path": "../ui-session"
     },
     {
-      "path": "../ui-conversation"
+      "path": "../ui-chat"
+    },
+    {
+      "path": "../ui-layout"
     },
     {
       "path": "../ui-slots"

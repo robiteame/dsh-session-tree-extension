@@ -15,6 +15,7 @@ import ToolRuntime from '@deepseek-ai/dsh-tools'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import SessionTreeService, { sessionTreeStore, syncSessionTree } from '@deepseek-ai/dsh-pi-agent-session-tree'
 import type { SessionTreeSnapshot, TreeNode } from '@deepseek-ai/dsh-pi-agent-session-tree'
 import { sessionEventsToTreeNodes } from '@deepseek-ai/dsh-pi-agent-session-tree'
@@ -267,7 +268,11 @@ describe('session_tree tool: append-only history', () => {
     expect(status.nodeCount).toBe(2)
     expect(status.currentPathLength).toBe(1)
     const cloneTree = sessionTreeStoreForTest('tree-pi-clone')
-    expect(cloneTree?.list()).toHaveLength(1)
+    // The clone inherits the whole source tree (root + abandoned answer) even
+    // though the cursor is parked at root; it must not be a leaf-only envelope.
+    expect(cloneTree?.list()).toHaveLength(2)
+    expect(nodeOf(cloneTree?.list() ?? [], 'answer').message?.content).toBe('answer')
+    expect(cloneTree?.cursor).toBe(root.nodeId)
   })
 
   it('projects Harness message and tool events into a parent-linked tree', () => {
@@ -448,7 +453,7 @@ describe('session_tree plugin surfaces', () => {
     const { ctx, service } = await harness()
     const agent = stubAgent('tree-native-hydrate')
     agent.session.append('user/message', { role: 'user', content: 'native history' } as never, { surfaceOp: 'append' })
-    agent.session.append('turn/start', { turn: 1 } as never)
+    agent.session.append('turn/start', { turn: 1 })
     agent.session.append('tool/call', { turn: 1, step: 1, callId: 'call-1', name: 'bash', arguments: '{}' } as never)
     const view = service.list(agent)
     expect(view.nodes).toHaveLength(2)
@@ -498,6 +503,83 @@ describe('session_tree plugin surfaces', () => {
     const alternative = branched.nodes.find(node => node.summary === 'alternate prompt')
     expect(alternative?.parentId).toBe(initial.nodes[0]!.nodeId)
     expect(branched.nodes.find(node => node.summary === 'main answer')).toBeDefined()
+  })
+
+  it('runs /fork and /clone from the explicitly selected node without IDs', async () => {
+    const { ctx, service } = await harness()
+    const agent = stubAgent('tree-command-selection')
+    agent.session.append('user/message', { role: 'user', content: 'root', source: 'human' } as never, { surfaceOp: 'append' })
+    agent.session.append('assistant/message', { turn: 1, step: 1, message: { role: 'assistant', content: [{ type: 'text', text: 'answer' }] } } as never, { surfaceOp: 'append' })
+    const before = await ctx.commands.execute(agent, '/fork', [], new AbortController().signal)
+    expect(before?.result.kind).toBe('error')
+    expect(before?.result.text).toContain('请先在右侧会话树选中目标节点')
+
+    const selected = service.list(agent).nodes[0]!
+    service.jump(agent, selected.nodeId)
+    const forked = await ctx.commands.execute(agent, '/fork experiment', [], new AbortController().signal)
+    expect(forked?.result.kind).toBe('success')
+    expect(syncSessionTree(agent).activeBranch).toBe('experiment')
+    expect(syncSessionTree(agent).cursor).toBe(selected.nodeId)
+    // The command must synchronously re-point the model-visible surface at the
+    // fork target so the next turn starts from the selected node, not the tail.
+    expect(agent.session.deriveMessages().map(message => message.content)).toEqual(['root'])
+
+    const cloned = await ctx.commands.execute(agent, '/clone', [], new AbortController().signal)
+    expect(cloned?.result.kind).toBe('success')
+    const payload = JSON.parse(cloned?.result.text ?? '{}') as { value?: { sessionId?: string } }
+    expect(payload.value?.sessionId).toMatch(/^tree-command-selection-clone-/u)
+    const cloneTree = sessionTreeStoreForTest(payload.value?.sessionId ?? '')
+    // A clone inherits the ENTIRE source conversation, not just the selected
+    // leaf's envelope: both the root and the abandoned answer must survive.
+    expect(cloneTree?.list()).toHaveLength(2)
+    expect(nodeOf(cloneTree?.list() ?? [], 'answer').message?.content).toBe('answer')
+    expect(cloneTree?.cursor).toBe(selected.nodeId)
+    expect(cloneTree?.selectedNode).toBe(selected.nodeId)
+  })
+
+  it('grows the /fork branch as a child of the selected node, not the previous tail', async () => {
+    const { ctx, service } = await harness()
+    const agent = stubAgent('tree-fork-parent')
+    agent.session.append('user/message', { role: 'user', content: 'root', source: 'human' } as never, { surfaceOp: 'append' })
+    agent.session.append('assistant/message', { turn: 1, step: 1, message: { role: 'assistant', content: [{ type: 'text', text: 'answer' }] } } as never, { surfaceOp: 'append' })
+
+    const selected = service.list(agent).nodes[0]!
+    service.jump(agent, selected.nodeId)
+    const forked = await ctx.commands.execute(agent, '/fork experiment', [], new AbortController().signal)
+    expect(forked?.result.kind).toBe('success')
+
+    agent.session.append('user/message', { role: 'user', content: 'branch prompt', source: 'human' } as never, { surfaceOp: 'append' })
+    const branched = service.list(agent)
+    const branchNode = branched.nodes.find(node => node.summary === 'branch prompt')
+    expect(branchNode?.parentId).toBe(selected.nodeId)
+    expect(branchNode?.branch).toBe('experiment')
+  })
+
+  it('clones the full source event log so the new session derives the same messages', async () => {
+    const { ctx, service } = await harness()
+    const created: Array<{ sessionId: string; seed: readonly SessionEvent[] }> = []
+    ctx.agents.setFactory({
+      createAgent: async (_ownerCtx, options) => {
+        created.push({ sessionId: String(options.sessionId), seed: options.seed ?? [] })
+        return { agent: stubAgent(String(options.sessionId)), dispose: () => Promise.resolve() }
+      },
+      resume: async () => { throw new Error('resume is unused in this test') },
+    })
+    const agent = stubAgent('tree-clone-content')
+    agent.session.append('user/message', { id: 'm-root', role: 'user', content: [{ type: 'text', text: 'root' }], source: { kind: 'user' } } as never, { surfaceOp: 'append' })
+    agent.session.append('assistant/message', { turn: 1, step: 1, message: { id: 'm-answer', role: 'assistant', content: [{ type: 'text', text: 'answer' }], source: { kind: 'model', provider: 'p', model: 'm' } } } as never, { surfaceOp: 'append' })
+
+    const selected = service.list(agent).nodes[0]!
+    service.jump(agent, selected.nodeId)
+    const cloned = await ctx.commands.execute(agent, '/clone', [], new AbortController().signal)
+    expect(cloned?.result.kind).toBe('success')
+    expect(created).toHaveLength(1)
+
+    const replayed = Session.create(SessionId('tree-clone-replay'), created[0]!.seed)
+    const texts = replayed.deriveMessages().map(message =>
+      (message.content as Array<{ type?: string; text?: string }>).map(block => block.text ?? '').join(''),
+    )
+    expect(texts).toEqual(['root', 'answer'])
   })
 
   it('registers the tool, the /tree command, and the system-prompt section', async () => {

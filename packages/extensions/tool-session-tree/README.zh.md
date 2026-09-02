@@ -9,8 +9,8 @@
 | 表面 | 名称 | 说明 |
 |---|---|---|
 | 工具 | `session_tree` | 每个 agent 会话一棵树；操作见下 |
-| 命令 | `/tree` | `list`、`branches`、`tree`、`context`、`jump <nodeId>`、`branch <nodeId> <name>`、`snapshot save`、`snapshot load <json>` |
-| 命令 | `/fork`、`/clone`、`/session` | 在树内 fork、复制到独立 session、查看当前树状态 |
+| 命令 | `/tree` | 打开或刷新右侧会话树；低级子命令继续供自动化使用 |
+| 命令 | `/fork`、`/clone`、`/session` | 无需 ID，直接 fork/clone 右侧选中节点；查看树状态 |
 
 ## 工具操作
 
@@ -20,7 +20,7 @@
 - `branch` 把光标停在已有节点并命名下一次 append 的分支；`branch.summary` 额外追加摘要节点。历史节点永不被修改或删除。
 - `snapshot.save` 返回版本化快照；`snapshot.load` 在同一 sessionId 下恢复（`version: 1`）。
 
-每次操作都返回 `{ok: true, value}` 或 `{ok: false, error: {code, message}}`，因此工具结果始终是无损 JSON，并带有稳定失败词表。
+每次操作都返回 `{ok: true, value}` 或 `{ok: false, error: {code, message}}`，因此工具结果始终是无损 JSON，并带有稳定失败词表。用户执行 `/fork`、`/clone` 前必须先点击右侧节点，否则返回“请先在右侧会话树选中目标节点”。
 
 ## 工具示例
 

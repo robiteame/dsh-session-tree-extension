@@ -22,8 +22,8 @@ import type {} from '@deepseek-ai/dsh-agent'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
-import { SessionTree, sessionTreeStore, syncSessionTree } from '@deepseek-ai/dsh-pi-agent-session-tree'
-import type { JsonValue, TreeNode } from '@deepseek-ai/dsh-pi-agent-session-tree'
+import { applyTreeCursorToSession, SessionTree, sessionTreeStore, syncSessionTree } from '@deepseek-ai/dsh-pi-agent-session-tree'
+import type { JsonValue } from '@deepseek-ai/dsh-pi-agent-session-tree'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 
@@ -70,19 +70,18 @@ export function apply(ctx: Context): void {
         return {
           ok: false,
           error: { code: 'INVALID_ARGUMENT', message: error instanceof Error ? error.message : 'invalid request' },
-        } as unknown as JsonValue
+        }
       }
     },
   }))
 
   ctx.commands.register({
     name: 'tree',
-    description: 'Inspect and navigate the append-only session tree',
-    input: { hint: 'list | branches | context | tree | jump <nodeId> | branch <nodeId> <name> | snapshot save|load <json>' },
+    description: 'Open or refresh the right-sidebar session tree',
     handler: invocation => runTreeCommand(ctx, invocation),
   })
-  ctx.commands.register({ name: 'fork', description: 'Fork the current session tree at a historical node', input: { hint: '<nodeId> [branch]' }, handler: invocation => runForkCommand(invocation) })
-  ctx.commands.register({ name: 'clone', description: 'Clone the current active branch into a new Harness session', input: { hint: '<sessionId>' }, handler: invocation => runCloneCommand(ctx, invocation) })
+  ctx.commands.register({ name: 'fork', description: 'Fork the selected session-tree node', handler: invocation => runForkCommand(invocation) })
+  ctx.commands.register({ name: 'clone', description: 'Clone the selected session-tree node into a new Harness session', handler: invocation => runCloneCommand(ctx, invocation) })
   ctx.commands.register({ name: 'session', description: 'Show current session tree status', handler: invocation => runSessionCommand(invocation) })
 }
 
@@ -205,6 +204,13 @@ async function runToolOperation(ctx: Context, args: SessionTreeToolArgs, exec: T
         try {
           const event = exec.agent.session.append('session-tree/cursor', { nodeId: args.nodeId ?? null })
           tree.markSessionEventSeq(event.seq)
+          if (args.nodeId != null) {
+            const selected = tree.select(args.nodeId)
+            if (!selected.ok) throw new Error(`${selected.error.code}: ${selected.error.message}`)
+            const selection = exec.agent.session.append('session-tree/selection', { nodeId: args.nodeId })
+            tree.markSessionEventSeq(selection.seq)
+          }
+          applyTreeCursorToSession(exec.agent, tree)
         } catch (error) {
           tree.rollback(checkpoint)
           throw error
@@ -218,8 +224,13 @@ async function runToolOperation(ctx: Context, args: SessionTreeToolArgs, exec: T
       const forked = tree.fork(args.nodeId, args.branch)
       if (forked.ok && sessionId === exec.agent.session.id) {
         try {
+          const selected = tree.select(args.nodeId)
+          if (!selected.ok) throw new Error(`${selected.error.code}: ${selected.error.message}`)
           const event = exec.agent.session.append('session-tree/branch', { nodeId: args.nodeId, branch: forked.value.branch })
           tree.markSessionEventSeq(event.seq)
+          const selection = exec.agent.session.append('session-tree/selection', { nodeId: args.nodeId })
+          tree.markSessionEventSeq(selection.seq)
+          applyTreeCursorToSession(exec.agent, tree)
         } catch (error) {
           tree.rollback(checkpoint)
           throw error
@@ -237,8 +248,13 @@ async function runToolOperation(ctx: Context, args: SessionTreeToolArgs, exec: T
       const branched = tree.branch(args.nodeId, args.branch)
       if (branched.ok && sessionId === exec.agent.session.id) {
         try {
+          const selected = tree.select(args.nodeId)
+          if (!selected.ok) throw new Error(`${selected.error.code}: ${selected.error.message}`)
           const event = exec.agent.session.append('session-tree/branch', { nodeId: args.nodeId, branch: args.branch })
           tree.markSessionEventSeq(event.seq)
+          const selection = exec.agent.session.append('session-tree/selection', { nodeId: args.nodeId })
+          tree.markSessionEventSeq(selection.seq)
+          applyTreeCursorToSession(exec.agent, tree)
         } catch (error) {
           tree.rollback(checkpoint)
           throw error
@@ -271,63 +287,101 @@ async function runToolOperation(ctx: Context, args: SessionTreeToolArgs, exec: T
 }
 
 function runForkCommand(invocation: CommandInvocation): CommandResult {
-  const [nodeId, branch = 'fork'] = invocation.rawInput.trim().split(/\s+/u)
+  const [branch = `fork-${Date.now().toString(36)}`] = invocation.rawInput.trim().split(/\s+/u).filter(Boolean)
   const tree = syncSessionTree(invocation.agent)
-  const forked = tree.fork(nodeId ?? '', branch)
-  if (forked.ok) {
+  if (tree.selectedNode === null) return errorCommand('请先在右侧会话树选中目标节点')
+  const checkpoint = tree.checkpoint()
+  const forked = tree.fork(tree.selectedNode, branch)
+  if (!forked.ok) return jsonCommand(forked)
+  try {
+    const selected = tree.select(forked.value.cursor)
+    if (!selected.ok) throw new Error(`${selected.error.code}: ${selected.error.message}`)
     const event = invocation.agent.session.append('session-tree/branch', { nodeId: forked.value.cursor, branch: forked.value.branch })
     tree.markSessionEventSeq(event.seq)
+    const selection = invocation.agent.session.append('session-tree/selection', { nodeId: forked.value.cursor })
+    tree.markSessionEventSeq(selection.seq)
+    applyTreeCursorToSession(invocation.agent, tree)
+  } catch (error) {
+    tree.rollback(checkpoint)
+    throw error
   }
   return jsonCommand(forked)
 }
 
-async function cloneActiveSession(ctx: Context, agent: NonNullable<ToolRunContext['agent']>, target: string): Promise<unknown> {
+async function cloneActiveSession(ctx: Context, agent: NonNullable<ToolRunContext['agent']>, target: string, nodeId?: string): Promise<unknown> {
   const tree = syncSessionTree(agent)
-  const path = tree.currentPath()
-  const ids = new Map(path.map((node, index) => [node.nodeId, `${target}-clone-${index}`]))
-  const seedTime = Date.now()
-  const seed: SessionEvent[] = path.map((node, index) => {
-    const metadata = node.metadata === undefined
-      ? undefined
-      : Object.fromEntries(Object.entries(node.metadata).filter(([key]) => key !== 'sessionEventSeq' && key !== 'sessionEventType' && key !== 'sourceEventSeq'))
-    const clonedNode = {
-      ...node,
-      nodeId: ids.get(node.nodeId)!,
-      parentId: node.parentId === null ? null : ids.get(node.parentId) ?? null,
-      ...(metadata === undefined || Object.keys(metadata).length === 0 ? {} : { metadata }),
+  const focusId = nodeId ?? tree.cursor
+  // A clone must inherit the WHOLE conversation the source agent can see, not
+  // just the tree's node envelopes. Seed the new Session from the source's
+  // durable event log verbatim; the shared store then projects the identical
+  // tree. Snapshot events are rewritten so their embedded sessionId matches the
+  // target (otherwise a resumed clone would reject the seed as foreign).
+  const seed: SessionEvent[] = agent.session.events.map((event, index) => {
+    const record = JSON.parse(JSON.stringify(event)) as unknown as SessionEvent
+    if (record.type === 'session-tree/snapshot') {
+      record.data = { ...record.data, snapshot: { ...record.data.snapshot, sessionId: toSessionId(target) } }
     }
-    return {
-      type: 'session-tree/node',
-      seq: index,
-      time: seedTime + index,
-      data: { node: clonedNode },
-    } as SessionEvent
+    record.seq = index
+    return record
   })
-  await ctx.agents.create({
-    sessionId: toSessionId(target),
-    seed,
-    meta: { parentSession: agent.session.id, seedLength: seed.length },
-    agentOptions: agent.options,
-  }).catch(() => seedCloneTree(target, seed))
+  const seedTime = Date.now()
+  seed.push({
+    type: 'session-tree/cursor',
+    seq: seed.length,
+    time: seedTime + seed.length,
+    data: { nodeId: focusId },
+  })
+  if (focusId !== null) {
+    seed.push({
+      type: 'session-tree/selection',
+      seq: seed.length,
+      time: seedTime + seed.length,
+      data: { nodeId: focusId },
+    })
+  }
+
+  seedCloneTree(toSessionId(target), tree, focusId, seed.length - 1)
+  try {
+    await ctx.agents.create({
+      sessionId: toSessionId(target),
+      seed,
+      meta: { parentSession: agent.session.id, seedLength: seed.length },
+      agentOptions: agent.options,
+    })
+  } catch (error) {
+    // A tool-only host (no agent factory) is still served by the store-seeded
+    // tree. Re-throw real creation failures instead of silently degrading them.
+    if (!(error instanceof Error) || !error.message.includes('no agent factory registered')) {
+      throw error
+    }
+  }
   return { ok: true, value: { sessionId: target } }
 }
 
-/** Seed the shared store directly when no agent factory is registered (e.g. tool-only hosts). */
-function seedCloneTree(target: string, seed: SessionEvent[]): void {
-  const nodes = seed.map(event => (event.data as { node: TreeNode }).node)
-  const head = nodes[nodes.length - 1]
-  sessionTreeStore.replace(toSessionId(target), new SessionTree(toSessionId(target), {
+/** Seed the shared store for a cloned session from the source tree snapshot. */
+function seedCloneTree(targetId: SessionId, source: SessionTree, focusId: string | null, nativeEventSeq: number): void {
+  const snapshot = source.snapshot()
+  const focusNode = focusId === null ? undefined : snapshot.nodes.find(node => node.nodeId === focusId)
+  const activeBranch = focusNode?.branch ?? snapshot.activeBranch
+  const branchHeads = { ...snapshot.branchHeads }
+  if (focusNode !== undefined) branchHeads[focusNode.branch] = focusNode.nodeId
+  sessionTreeStore.replace(targetId, new SessionTree(targetId, {
     version: 1,
-    sessionId: toSessionId(target),
-    cursor: head?.nodeId ?? null,
-    activeBranch: 'main',
-    ...(head === undefined ? {} : { branchHeads: { main: head.nodeId } }),
-    nodes,
+    sessionId: targetId,
+    cursor: focusId,
+    activeBranch,
+    ...(focusId === null && Object.keys(branchHeads).length === 0 ? {} : { branchHeads }),
+    selectedNodeId: focusId,
+    nativeEventSeq,
+    nodes: snapshot.nodes,
   }))
 }
 
 /** Validate and construct a restored tree without throwing. */
-function newSessionTreeFromSnapshot(sessionId: SessionId, snapshot: unknown): { ok: true; value: SessionTree } | { ok: false; error: string } {
+function newSessionTreeFromSnapshot(
+  sessionId: SessionId,
+  snapshot: unknown,
+): { ok: true; value: SessionTree } | { ok: false; error: string } {
   try {
     return { ok: true, value: new SessionTree(sessionId, snapshot) }
   } catch (error) {
@@ -336,10 +390,11 @@ function newSessionTreeFromSnapshot(sessionId: SessionId, snapshot: unknown): { 
 }
 
 async function runCloneCommand(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
-  const target = invocation.rawInput.trim()
-  if (target === '') return errorCommand('targetSessionId is required')
+  const tree = syncSessionTree(invocation.agent)
+  if (tree.selectedNode === null) return errorCommand('请先在右侧会话树选中目标节点')
+  const target = `${invocation.agent.session.id}-clone-${Date.now().toString(36)}`
   try {
-    return jsonCommand(await cloneActiveSession(ctx, invocation.agent, target))
+    return jsonCommand(await cloneActiveSession(ctx, invocation.agent, target, tree.selectedNode))
   } catch (error) {
     return { kind: 'error', text: JSON.stringify({ ok: false, error: { code: 'INVALID_ARGUMENT', message: error instanceof Error ? error.message : 'clone failed' } }) }
   }
@@ -380,44 +435,61 @@ async function runTreeCommand(ctx: Context, invocation: CommandInvocation): Prom
     case 'tree': return json({ ok: true, value: tree.view() })
     case 'session': return json({ ok: true, value: tree.info() })
     case 'fork': {
+      if (tree.selectedNode === null) return json({ ok: false, error: { code: 'INVALID_ARGUMENT', message: '请先在右侧会话树选中目标节点' } })
       const checkpoint = tree.checkpoint()
-      const result = tree.fork(rest[0] ?? '', rest[1] ?? 'fork')
+      const result = tree.fork(tree.selectedNode, rest[0] ?? 'fork')
       if (result.ok) {
         try {
+          const selected = tree.select(result.value.cursor)
+          if (!selected.ok) throw new Error(`${selected.error.code}: ${selected.error.message}`)
           const event = invocation.agent.session.append('session-tree/branch', { nodeId: result.value.cursor, branch: result.value.branch })
           tree.markSessionEventSeq(event.seq)
+          const selection = invocation.agent.session.append('session-tree/selection', { nodeId: result.value.cursor })
+          tree.markSessionEventSeq(selection.seq)
+          applyTreeCursorToSession(invocation.agent, tree)
         } catch (error) { tree.rollback(checkpoint); throw error }
       }
       return json(result)
     }
     case 'clone': {
-      const target = rest[0]
-      if (target === undefined) return json({ ok: false, error: { code: 'INVALID_ARGUMENT', message: 'targetSessionId is required' } })
-      try { return json(await cloneActiveSession(ctx, invocation.agent, target)) }
+      if (tree.selectedNode === null) return json({ ok: false, error: { code: 'INVALID_ARGUMENT', message: '请先在右侧会话树选中目标节点' } })
+      const target = rest[0] ?? `${sessionId}-clone-${Date.now().toString(36)}`
+      try { return json(await cloneActiveSession(ctx, invocation.agent, target, tree.selectedNode)) }
       catch (error) { return json({ ok: false, error: { code: 'INVALID_ARGUMENT', message: error instanceof Error ? error.message : 'clone failed' } }) }
     }
-    case 'context': return json({ ok: true, value: { cursor: tree.cursor, messages: tree.messages() } })
+    case 'context': return json({ ok: true, value: { cursor: tree.cursor, selectedNodeId: tree.selectedNode, messages: tree.messages(tree.selectedNode ?? tree.cursor) } })
     case 'jump': {
-      const nodeId = rest[0] ?? null
+      const nodeId = rest[0] ?? tree.selectedNode
+      if (nodeId === null) return json({ ok: false, error: { code: 'INVALID_ARGUMENT', message: '请先在右侧会话树选中目标节点' } })
       const checkpoint = tree.checkpoint()
       const result = tree.jump(nodeId)
       if (result.ok) {
         try {
           const event = invocation.agent.session.append('session-tree/cursor', { nodeId })
           tree.markSessionEventSeq(event.seq)
+          const selected = tree.select(nodeId)
+          if (!selected.ok) throw new Error(`${selected.error.code}: ${selected.error.message}`)
+          const selection = invocation.agent.session.append('session-tree/selection', { nodeId })
+          tree.markSessionEventSeq(selection.seq)
+          applyTreeCursorToSession(invocation.agent, tree)
         } catch (error) { tree.rollback(checkpoint); throw error }
       }
       return json(result)
     }
     case 'branch': {
-      const nodeId = rest[0] ?? ''
-      const branch = rest[1] ?? ''
+      const nodeId = tree.selectedNode ?? ''
+      const branch = rest[0] ?? 'fork'
       const checkpoint = tree.checkpoint()
       const result = tree.branch(nodeId, branch)
       if (result.ok) {
         try {
+          const selected = tree.select(nodeId)
+          if (!selected.ok) throw new Error(`${selected.error.code}: ${selected.error.message}`)
           const event = invocation.agent.session.append('session-tree/branch', { nodeId, branch })
           tree.markSessionEventSeq(event.seq)
+          const selection = invocation.agent.session.append('session-tree/selection', { nodeId })
+          tree.markSessionEventSeq(selection.seq)
+          applyTreeCursorToSession(invocation.agent, tree)
         } catch (error) { tree.rollback(checkpoint); throw error }
       }
       return json(result)

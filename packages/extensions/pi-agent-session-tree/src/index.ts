@@ -67,6 +67,11 @@ export function syncSessionTree(agent: Agent): SessionTree {
       nativeParentId = event.data.nodeId
       continue
     }
+    if (event.type === 'session-tree/selection') {
+      const selected = tree.select(event.data.nodeId)
+      if (!selected.ok) throw new Error(`${selected.error.code}: ${selected.error.message}`)
+      continue
+    }
     // Explicit session-tree nodes are durable tree records, not model-surface
     // events; they must be projected even though they are absent from surface.
     const isExplicitTreeNode = event.type === 'session-tree/node'
@@ -77,7 +82,9 @@ export function syncSessionTree(agent: Agent): SessionTree {
     if (!isExplicitTreeNode && !isTreeMetadataEvent && !isSurfaceEvent(event)) continue
     const nodes = sessionEventsToTreeNodes([event], nativeParentId)
     if (nodes.length === 0) continue
-    const projected = isExplicitTreeNode ? nodes[0]! : { ...nodes[0]!, branch: tree.activeBranch }
+    const first = nodes[0]
+    if (first === undefined) continue
+    const projected = isExplicitTreeNode ? first : { ...first, branch: tree.activeBranch }
     const restored = tree.replay([{ seq: tree.list().length, node: projected }])
     if (!restored.ok) throw new Error(`${restored.error.code}: ${restored.error.message}`)
     nativeParentId = projected.nodeId
@@ -90,7 +97,7 @@ export function syncSessionTree(agent: Agent): SessionTree {
 }
 
 /** Apply the selected tree path to Harness' actual model-visible Session surface. */
-function applyTreeCursorToSession(agent: Agent, tree: SessionTree): void {
+export function applyTreeCursorToSession(agent: Agent, tree: SessionTree): void {
   const seqs: number[] = []
   for (const node of tree.currentPath()) {
     const seq = node.metadata?.sessionEventSeq
@@ -158,6 +165,12 @@ export class SessionTreeService extends TypertRemoteService {
     try {
       const event = agent.session.append('session-tree/cursor', { nodeId })
       tree.markSessionEventSeq(event.seq)
+      if (nodeId !== null) {
+        const selected = tree.select(nodeId)
+        if (!selected.ok) throw new Error(`${selected.error.code}: ${selected.error.message}`)
+        const selection = agent.session.append('session-tree/selection', { nodeId })
+        tree.markSessionEventSeq(selection.seq)
+      }
       applyTreeCursorToSession(agent, tree)
     } catch (error) {
       tree.rollback(checkpoint)
@@ -181,8 +194,12 @@ export class SessionTreeService extends TypertRemoteService {
     const result = tree.fork(nodeId, branchName)
     if (!result.ok) throw new Error(`${result.error.code}: ${result.error.message}`)
     try {
+      const selected = tree.select(nodeId)
+      if (!selected.ok) throw new Error(`${selected.error.code}: ${selected.error.message}`)
       const event = agent.session.append('session-tree/branch', { nodeId, branch: result.value.branch })
       tree.markSessionEventSeq(event.seq)
+      const selection = agent.session.append('session-tree/selection', { nodeId })
+      tree.markSessionEventSeq(selection.seq)
       applyTreeCursorToSession(agent, tree)
     } catch (error) {
       tree.rollback(checkpoint)

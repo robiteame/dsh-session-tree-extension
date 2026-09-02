@@ -42,6 +42,7 @@ function nodeId(): string {
 export class SessionTree {
   private readonly nodesById = new Map<string, TreeNode>()
   private cursorId: string | null = null
+  private selectedNodeId: string | null = null
   private activeBranchName = 'main'
   private readonly branchHeads = new Map<string, string>()
   private syncedSessionEventSeq = -1
@@ -57,6 +58,7 @@ export class SessionTree {
     if (!isSnapshot(snapshot, sessionId)) throw new Error('invalid session tree snapshot')
     for (const node of snapshot.nodes) this.nodesById.set(node.nodeId, clone(node))
     this.cursorId = snapshot.cursor
+    this.selectedNodeId = snapshot.selectedNodeId ?? null
     if (typeof snapshot.nativeEventSeq === 'number') this.syncedSessionEventSeq = snapshot.nativeEventSeq
     if (typeof snapshot.activeBranch === 'string') this.activeBranchName = snapshot.activeBranch
     if (snapshot.branchHeads !== undefined) {
@@ -79,6 +81,18 @@ export class SessionTree {
   /** @returns the current cursor node id, or null before the first append. */
   get cursor(): string | null {
     return this.cursorId
+  }
+
+  /** Explicit node bound to context-aware UI commands. */
+  get selectedNode(): string | null {
+    return this.selectedNodeId
+  }
+
+  /** Bind /fork and /clone to an existing node without changing cursor semantics. */
+  select(nodeId: string): TreeResult<{ nodeId: string }> {
+    if (!this.nodesById.has(nodeId)) return fail('NODE_NOT_FOUND', `node '${nodeId}' was not found`)
+    this.selectedNodeId = nodeId
+    return { ok: true, value: { nodeId } }
   }
 
   /** @returns the branch label the next append joins. */
@@ -105,6 +119,7 @@ export class SessionTree {
     this.nodesById.clear()
     for (const node of snapshot.nodes) this.nodesById.set(node.nodeId, clone(node))
     this.cursorId = snapshot.cursor
+    this.selectedNodeId = snapshot.selectedNodeId ?? null
     this.activeBranchName = snapshot.activeBranch
     this.branchHeads.clear()
     for (const [name, head] of Object.entries(snapshot.branchHeads ?? {})) this.branchHeads.set(name, head)
@@ -303,6 +318,7 @@ export class SessionTree {
       branchCount: this.branches().length,
       cursor: this.cursorId,
       activeBranch: this.activeBranchName,
+      selectedNodeId: this.selectedNodeId,
       currentPathLength: this.currentPath().length,
       ...(Object.keys(usage).length > 0 ? { usage } : {}),
       ...(tokenCount !== 0 ? { tokenCount } : {}),
@@ -317,6 +333,7 @@ export class SessionTree {
       sessionId: this.sessionId,
       cursor: this.cursorId,
       activeBranch: this.activeBranchName,
+      selectedNodeId: this.selectedNodeId,
       branchHeads: Object.fromEntries(this.branchHeads),
       nodes: this.list(),
       branches: this.branches(),
@@ -332,14 +349,15 @@ export class SessionTree {
       activeBranch: this.activeBranchName,
       ...(this.syncedSessionEventSeq < 0 ? {} : { nativeEventSeq: this.syncedSessionEventSeq }),
       branchHeads: Object.fromEntries(this.branchHeads),
+      selectedNodeId: this.selectedNodeId,
       nodes: [...this.nodesById.values()],
     })
   }
 
   /** Return the current leaf's root-to-leaf node path. */
-  currentPath(): TreeNode[] {
+  currentPath(from: string | null = this.cursorId): TreeNode[] {
     const path: TreeNode[] = []
-    let current = this.cursorId
+    let current = from
     while (current !== null) {
       const node = this.nodesById.get(current)
       if (node === undefined) break
@@ -486,6 +504,8 @@ function isSnapshot(value: unknown, sessionId: SessionId): value is SessionTreeS
   const cursor = record.cursor
   if (cursor !== null && typeof cursor !== 'string') return false
   if (typeof cursor === 'string' && !(nodes as TreeNode[]).some(node => node.nodeId === cursor)) return false
+  if (record.selectedNodeId !== undefined && record.selectedNodeId !== null
+    && (typeof record.selectedNodeId !== 'string' || !(nodes as TreeNode[]).some(node => node.nodeId === record.selectedNodeId))) return false
   if (record.nativeEventSeq !== undefined && (typeof record.nativeEventSeq !== 'number' || !Number.isSafeInteger(record.nativeEventSeq) || record.nativeEventSeq < 0)) return false
   if (record.branchHeads !== undefined && !isJsonRecord(record.branchHeads)) return false
   if (record.branchHeads !== undefined && Object.entries(record.branchHeads).some(([name, head]) => name.length === 0 || typeof head !== 'string' || !(nodes as TreeNode[]).some(node => node.nodeId === head))) return false

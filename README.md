@@ -4,8 +4,8 @@ Append-only, multi-branch conversation trees for
 [DeepSeek-Harness](https://github.com/deepseek-ai/deepseek-harness) — a
 PI-Agent-style SessionTree. The agent's history becomes a tree of immutable
 nodes, forkable at any historical node, with standard LLM message
-reconstruction, versioned JSON snapshots, and a WebUI tree panel embedded in
-the existing chat composer (no standalone page).
+reconstruction, versioned JSON snapshots, and a WebUI tree panel rendered in
+the existing right details sidebar (no standalone page or manual ID entry).
 
 ## What is here
 
@@ -13,7 +13,7 @@ the existing chat composer (no standalone page).
 |---|---|
 | `packages/extensions/pi-agent-session-tree/` | Host domain service: `SessionTree`/`SessionTreeStore`, the Typert `sessionTree` Remote (`list`, `jump`), and pure payload types |
 | `packages/extensions/tool-session-tree/` | Model-facing surface: the `session_tree` tool, the `/tree`, `/fork`, `/clone`, `/session` commands, and the system-prompt section |
-| `packages/client/ui-session-tree/` | Browser half: the `conversation.input.dock` tree panel (light/dark via `--dsw-alias-*` tokens) |
+| `packages/client/ui-session-tree/` | Browser half: the native right-details-sidebar tree panel (light/dark via `--dsw-alias-*` tokens) |
 | `docs/subsystems/session-tree.md` | Subsystem reference (en/zh) |
 | `harness.patch` | Latest-Harness integration only (bundle composition/dependencies, tsconfig registrations, lockfile importers); package sources are copied separately |
 
@@ -61,27 +61,18 @@ pnpm run build        # regenerate Typert contracts + client bundles
 pnpm run dev:web      # or the profile's usual run command
 ```
 
-Type `/tree` in the composer, then:
+Type `/tree` in the composer to open or refresh the right sidebar. Click any
+node to bind it as the active context; `/fork [branch]` and `/clone` then read
+that selection automatically. If no node is selected they return the friendly
+message `请先在右侧会话树选中目标节点`. The sidebar uses a bounded graph gutter
+and vertical rows, so deep or large trees never create horizontal overflow.
 
-```
-/tree list
-/tree context
-/tree branch <nodeId> <name>
-/tree jump <nodeId>
-/tree snapshot save
-```
-
-The command family aligns with Pi's native commands:
-
-```
-/tree     browse and jump within the current session tree
-/fork <nodeId> [branch]    branch from a historical node
-/clone <sessionId>         clone the active branch into an independent session
-/session                   show session id, node/message counts, tokens, cost
-```
-
-The dock panel above the composer renders every branch, highlights the cursor,
-and jumps on node click.
+The commands read the sidebar selection automatically: `/fork [branch]` forks
+in place from the clicked node, `/clone` opens an independent Harness session
+carrying the full source conversation, and `/session` reports tree status
+(nodes/messages/branches/tokens/cost). The lower-level `/tree` subcommands
+(`jump <nodeId>`, `branch`, `fork`, `clone`, `snapshot save|load`) remain
+available for automation and backwards compatibility.
 
 ## License
 

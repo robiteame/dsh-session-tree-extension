@@ -99,6 +99,8 @@ export interface SessionTreeSnapshot {
   readonly nativeEventSeq?: number
   /** Session-level branch heads, matching Pi's named branch pointers. */
   readonly branchHeads?: Record<string, string>
+  /** Explicit UI-selected node used as the context for /fork and /clone. */
+  readonly selectedNodeId?: string | null
   readonly nodes: readonly TreeNode[]
 }
 
@@ -113,6 +115,7 @@ export interface SessionTreeSessionInfo {
   readonly branchCount: number
   readonly cursor: string | null
   readonly activeBranch: string
+  readonly selectedNodeId?: string | null
   readonly currentPathLength: number
   /** Aggregated model usage from entries that recorded it. */
   readonly usage?: Record<string, number>
@@ -128,6 +131,8 @@ export interface SessionTreeView {
   readonly sessionId: SessionId
   readonly cursor: string | null
   readonly activeBranch: string
+  /** Explicit UI-selected node; unlike cursor, it is only set by node selection. */
+  readonly selectedNodeId?: string | null
   /** Session-level branch heads, matching Pi's named branch pointers. */
   readonly branchHeads?: Record<string, string>
   readonly nodes: readonly TreeNode[]
@@ -162,6 +167,8 @@ declare module '@deepseek-ai/dsh-session/types' {
     'session-tree/cursor': { nodeId: string | null }
     /** Durable named branch pointer and active-branch selection. */
     'session-tree/branch': { nodeId: string; branch: string }
+    /** Durable explicit browser selection used by context-aware commands. */
+    'session-tree/selection': { nodeId: string }
     /** Durable full-tree replacement marker for explicit snapshot restore. */
     'session-tree/snapshot': { snapshot: SessionTreeSnapshot }
   }

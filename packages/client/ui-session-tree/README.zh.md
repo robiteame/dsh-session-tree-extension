@@ -2,38 +2,24 @@
 
 [English](README.md) | 中文
 
-会话树插件的浏览器端：嵌入 `conversation.input.dock` 的面板，在编辑器上方渲染 agent 的会话树——不设独立页面。面板会：
+会话树插件的浏览器端。组件占用 DeepSeek Harness 原生右侧详情栏的
+`conversation.details.panel` 槽位；不再渲染于输入框上方，也不会创建独立页面。
 
-- 通过生成的 `sessionTree` Remote 服务读取实时树（与 `session_tree` 工具和 `/tree` 命令共享同一个进程级存储），
-- 在编辑器草稿以 `/tree` 开头时自动展开，
-- 按分支分组渲染每个节点并高亮当前光标，
-- 点击节点即跳转树光标并刷新。
-
-亮/暗主题开箱即用：面板样式使用平台 `--dsw-alias-*` 设计令牌（`--dsw-alias-border-l1`、`--dsw-alias-label-primary`、`--dsw-alias-interactive-bg-hover`、`--dsw-alias-state-business-primary` 等），随宿主主题变化，无需任何主题专属代码。
+- 输入 `/tree` 打开或刷新右侧会话树。
+- 鼠标点击节点后，该节点成为 `/fork`、`/clone` 的当前上下文，并显示明确高亮。
+- 固定 44px、三轨道的图形栏使用纵向轨道和曲线连接线表达分支，视觉参考 IDEA Git Log；树深度不会转化为 margin/padding，因此不会横向无限增长。
+- 分支头、角色、分支名、摘要、刷新、关闭和一键 fork 全部复用 Harness 的 `--dsw-alias-*` 原生主题 token，自动适配明暗主题。
 
 ## 组合
-
-把该行加入 web-app 组合的客户端名册（web-app 补丁已携带）：
 
 ```yaml
 - id: ui-session-tree
   name: '@deepseek-ai/dsh-client-ui-session-tree'
 ```
 
-主机端（`@deepseek-ai/dsh-pi-agent-session-tree`）必须组合在主机名册上，Remote 服务才会存在。
+同时需要 Host 端两个扩展包，以及 `harness.patch` 对
+`conversation.details.panel` 的 Harness 本体集成。
 
 ## 模型体验
 
-### 模型面
-
-#### 模型看到什么
-
-浏览器面板是基于 `sessionTree` Remote 服务的展示面：渲染树状态并在点击节点时跳转光标。它不注册任何提示、schema 或模型可见结果。
-
-#### Token 影响
-
-无——本插件渲染的任何内容都不进入模型上下文。
-
-#### KV 缓存影响
-
-无——本插件没有任何内容进入模型请求前缀。
+本包只负责展示。它读取、导航共享 SessionTree；面板内容不会进入模型上下文，也不会改变 KV Cache 前缀。

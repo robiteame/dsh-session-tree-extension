@@ -98,9 +98,9 @@ type TreeResult<T> =
 ## 表面
 
 - `session_tree` 工具（`@deepseek-ai/dsh-tool-session-tree`）：`create`、`append`、`list`、`branches`、`tree`、`jump`、`context`、`branch`、`branch.summary`、`snapshot.save`、`snapshot.load`、`sessions`。
-- `/tree` 命令族：`list`、`branches`、`tree`、`context`、`jump <nodeId>`、`branch <nodeId> <name>`、`snapshot save`、`snapshot load <json>`。
+- `/tree` 命令族：`list`、`branches`、`tree`、`context`、`jump <nodeId>`、`branch <nodeId> <name>`、`snapshot save`、`snapshot load <json>`。`/fork [branch]` 与 `/clone` 自动读取右侧会话树选中节点；未选中时返回“请先在右侧会话树选中目标节点”。
 - `sessionTree` Remote 服务（`@deepseek-ai/dsh-pi-agent-session-tree`）：`list(agent)` 与 `jump(agent, nodeId)` 驱动浏览器面板。
-- `@deepseek-ai/dsh-client-ui-session-tree`：嵌入的 `conversation.input.dock` 面板——在编辑器草稿以 `/tree` 开头时自动展开，点击节点跳转光标。
+- `@deepseek-ai/dsh-client-ui-session-tree`：占用原生右侧详情栏的 `conversation.details.panel`。`/tree` 打开或刷新视图，节点点击绑定命令上下文；固定图形栏不会随树深度横向增长。
 
 ## Cordis API
 

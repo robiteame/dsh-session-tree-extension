@@ -1,3 +1,71 @@
+diff --git a/docs/persistence-catalog.md b/docs/persistence-catalog.md
+index a15b796e78..5bf9d05cdc 100644
+--- a/docs/persistence-catalog.md
++++ b/docs/persistence-catalog.md
+@@ -706,6 +706,63 @@ Source: [`packages/session/session-title-llm/src/index.ts:44`](../packages/sessi
+
+ Source: [`packages/session/session-log-deepseek/src/types.ts:26`](../packages/session/session-log-deepseek/src/types.ts)
+
++### `session-tree/*`
++
++<a id="session-treebranch--log-only"></a>
++
++#### `session-tree/branch` — log-only
++
++```ts persistence-catalog
++/** Durable named branch pointer and active-branch selection. */
++'session-tree/branch': { nodeId: string; branch: string }
++```
++
++Source: [`packages/extensions/pi-agent-session-tree/src/types.ts:169`](../packages/extensions/pi-agent-session-tree/src/types.ts)
++
++<a id="session-treecursor--log-only"></a>
++
++#### `session-tree/cursor` — log-only
++
++```ts persistence-catalog
++/** Durable cursor movement; history nodes remain untouched. */
++'session-tree/cursor': { nodeId: string | null }
++```
++
++Source: [`packages/extensions/pi-agent-session-tree/src/types.ts:167`](../packages/extensions/pi-agent-session-tree/src/types.ts)
++
++<a id="session-treenode--log-only"></a>
++
++#### `session-tree/node` — log-only
++
++```ts persistence-catalog
++/** Durable append-only SessionTree node written through Harness Session.append(). */
++'session-tree/node': { node: TreeNode }
++```
++
++Source: [`packages/extensions/pi-agent-session-tree/src/types.ts:165`](../packages/extensions/pi-agent-session-tree/src/types.ts)
++
++<a id="session-treeselection--log-only"></a>
++
++#### `session-tree/selection` — log-only
++
++```ts persistence-catalog
++/** Durable explicit browser selection used by context-aware commands. */
++'session-tree/selection': { nodeId: string }
++```
++
++Source: [`packages/extensions/pi-agent-session-tree/src/types.ts:171`](../packages/extensions/pi-agent-session-tree/src/types.ts)
++
++<a id="session-treesnapshot--log-only"></a>
++
++#### `session-tree/snapshot` — log-only
++
++```ts persistence-catalog
++/** Durable full-tree replacement marker for explicit snapshot restore. */
++'session-tree/snapshot': { snapshot: SessionTreeSnapshot }
++```
++
++Source: [`packages/extensions/pi-agent-session-tree/src/types.ts:173`](../packages/extensions/pi-agent-session-tree/src/types.ts)
++
+ ### `step/*`
+
+ <a id="stepend--log-only"></a>
 diff --git a/docs/tool-catalog.i18n.yaml b/docs/tool-catalog.i18n.yaml
 index 26a87fcd9d..7e27da47a8 100644
 --- a/docs/tool-catalog.i18n.yaml
@@ -197,14 +265,14 @@ index b80a50fabc..816d0458fc 100644
      "@deepseek-ai/dsh-tool-str-replace-editor": "workspace:^",
      "@deepseek-ai/dsh-tool-subagent": "workspace:^",
 diff --git a/packages/bundle/web-app/cordis.patch.yml b/packages/bundle/web-app/cordis.patch.yml
-index 79c62a6e20..d2012234ba 100644
+index 79c62a6e20..c06993c101 100644
 --- a/packages/bundle/web-app/cordis.patch.yml
 +++ b/packages/bundle/web-app/cordis.patch.yml
 @@ -207,6 +207,10 @@
      - id: ui-conversation
        name: '@deepseek-ai/dsh-client-ui-conversation'
 
-+    # Pi-style session tree dock above the composer.
++    # Pi-style session tree in the native right details sidebar.
 +    - id: ui-session-tree
 +      name: '@deepseek-ai/dsh-client-ui-session-tree'
 +
@@ -223,6 +291,288 @@ index 0d7157e23c..6f87190b8c 100644
      "@deepseek-ai/dsh-client-ui-settings-plugins": "workspace:^",
      "@deepseek-ai/dsh-client-ui-user-questions": "workspace:^",
      "@deepseek-ai/dsh-client-ui-settings": "workspace:^",
+diff --git a/packages/client/ui-chat/src/client/apply.ts b/packages/client/ui-chat/src/client/apply.ts
+index a23ada43d7..e1a3175327 100644
+--- a/packages/client/ui-chat/src/client/apply.ts
++++ b/packages/client/ui-chat/src/client/apply.ts
+@@ -161,7 +161,10 @@ export function apply(ctx: Context): void {
+   ctx.slots.inject('details', () => ctx.slots.register({
+     name: 'details',
+     locale: NS,
+-    children: { 'conversation.details.tool': { kind: 'single', scope: 'session' } },
++    children: {
++      'conversation.details.tool': { kind: 'single', scope: 'session' },
++      'conversation.details.panel': { kind: 'list', scope: 'session' },
++    },
+     store: chatStore,
+     inject: (): DetailsInjected => ({ closeDetails: () => { ctx.layout.closeDetails() } }),
+   }, DetailsPanel))
+diff --git a/packages/client/ui-chat/src/client/contract/slots.ts b/packages/client/ui-chat/src/client/contract/slots.ts
+index 14fe308321..a9ca4033ee 100644
+--- a/packages/client/ui-chat/src/client/contract/slots.ts
++++ b/packages/client/ui-chat/src/client/contract/slots.ts
+@@ -148,7 +148,7 @@ export interface DetailsInjected {
+ /** Full details-panel props. */
+ export type DetailsSlotProps =
+   PropsRuntime<'details'>
+-  & PropsRenderSlots<'conversation.details.tool'>
++  & PropsRenderSlots<'conversation.details.tool' | 'conversation.details.panel'>
+   & PropsStore<ChatStore>
+   & InjectFace<DetailsInjected>
+   & PropsLocale<'chat'>
+@@ -208,5 +208,13 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
+      * replaces the shipped Tool details renderer; absence uses the raw fallback.
+      */
+     'conversation.details.tool': { kind: 'single'; scope: 'session'; owner: DetailsToolOwnerProps }
++    /** Additive right-sidebar panels selected by ctx.layout.openDetails(id). */
++    'conversation.details.panel': { kind: 'list'; scope: 'session'; owner: DetailsPanelOwnerProps }
+   }
+ }
++
++/** The shell-selected right-sidebar occupant id. */
++export interface DetailsPanelOwnerProps {
++  panel: string
++  closeDetails: () => void
++}
+diff --git a/packages/client/ui-chat/src/client/details/DetailsPanel.module.css b/packages/client/ui-chat/src/client/details/DetailsPanel.module.css
+index cc5d732e45..2347a7b91f 100644
+--- a/packages/client/ui-chat/src/client/details/DetailsPanel.module.css
++++ b/packages/client/ui-chat/src/client/details/DetailsPanel.module.css
+@@ -56,6 +56,12 @@
+   overflow-y: auto;
+ }
+
++/* Feature panels own their internal spacing and use the full sidebar width. */
++.bodyPanel {
++  padding: 0;
++  overflow: hidden;
++}
++
+ .empty {
+   padding: 8px 0;
+   font-size: 13px;
+diff --git a/packages/client/ui-chat/src/client/details/DetailsPanel.tsx b/packages/client/ui-chat/src/client/details/DetailsPanel.tsx
+index 05c997e1fe..55d8f33daf 100644
+--- a/packages/client/ui-chat/src/client/details/DetailsPanel.tsx
++++ b/packages/client/ui-chat/src/client/details/DetailsPanel.tsx
+@@ -45,7 +45,7 @@ function rawResultText(block: ToolCallBlock): string {
+   return parts.join('\n')
+ }
+
+-export function DetailsPanel({ useChat, useSessions, sessionId, useStore, renderSlot, closeDetails, t }: DetailsPanelProps) {
++export function DetailsPanel({ panel = 'tool', useChat, useSessions, sessionId, useStore, renderSlot, closeDetails, t }: DetailsPanelProps) {
+   const selection = useStore(s => s.selection)
+   // Session workspace root: a card model resolves omitted or relative
+   // tool paths against it without reading Session services.
+@@ -58,21 +58,25 @@ export function DetailsPanel({ useChat, useSessions, sessionId, useStore, render
+     (a, b) => shallowEqual(a, b))
+   return (
+     <div className={css.root}>
+-      <div className={css.header}>
+-        <div className={css.title}>
+-          {selection === null ? t('details.title') : material?.name ?? selection.toolName ?? t('details.title')}
++      {panel === 'tool' ? (
++        <div className={css.header}>
++          <div className={css.title}>
++            {selection === null ? t('details.title') : material?.name ?? selection.toolName ?? t('details.title')}
++          </div>
++          <button
++            type="button" className={css.close} aria-label={t('details.close')}
++            onClick={() => { closeDetails() }}
++          >
++            <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden>
++              <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
++            </svg>
++          </button>
+         </div>
+-        <button
+-          type="button" className={css.close} aria-label={t('details.close')}
+-          onClick={() => { closeDetails() }}
+-        >
+-          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden>
+-            <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+-          </svg>
+-        </button>
+-      </div>
+-      <div className={css.body}>
+-        {selection === null || callId === undefined
++      ) : null}
++      <div className={panel === 'tool' ? css.body : `${css.body} ${css.bodyPanel}`}>
++        {panel !== 'tool'
++          ? renderSlot('conversation.details.panel', { panel, closeDetails }, { only: panel, fallback: <div className={css.empty}>Unknown details panel</div> })
++          : selection === null || callId === undefined
+           ? <div className={css.empty}>{t('details.empty')}</div>
+           : material === null
+             ? <div className={css.empty}>{t('details.notInWindow')}</div>
+diff --git a/packages/client/ui-chat/src/client/index.ts b/packages/client/ui-chat/src/client/index.ts
+index f45b686af5..269e516378 100644
+--- a/packages/client/ui-chat/src/client/index.ts
++++ b/packages/client/ui-chat/src/client/index.ts
+@@ -32,7 +32,7 @@ export type { TranscriptViewMode } from '../chat-settings.ts'
+ export type {
+   AssistantActionOwnerProps, ChatFileMentions, ChatNodeOwnerProps, ChatNodeTurnDataInjected,
+   ChatNodeViewProps, ChatScrollPosition, ChatStore, ChatViewInjected, ChatViewSlotProps,
+-  CommandRowOwnerProps, CommandRowProps, DetailsInjected, DetailsSlotProps,
++  CommandRowOwnerProps, CommandRowProps, DetailsInjected, DetailsPanelOwnerProps, DetailsSlotProps,
+   DetailsToolOwnerProps, MessageImagesProps,
+   TurnProcessOwnerProps, TurnTailOwnerProps, UseChat, UseChatNodeTurnData,
+ } from './contract/slots.ts'
+diff --git a/packages/client/ui-layout/src/client/AppFrame.tsx b/packages/client/ui-layout/src/client/AppFrame.tsx
+index cbef893aed..9f1641b42c 100644
+--- a/packages/client/ui-layout/src/client/AppFrame.tsx
++++ b/packages/client/ui-layout/src/client/AppFrame.tsx
+@@ -204,7 +204,7 @@ export function AppFrame({
+             entry while no session is current. */}
+         <CenterColumn>{renderSlot('conversation', {})}</CenterColumn>
+         <DetailsColumn>
+-          <SessionProvider>{renderSlot('details', {})}</SessionProvider>
++          <SessionProvider>{renderSlot('details', { panel: panels.detailsPanel })}</SessionProvider>
+         </DetailsColumn>
+       </>
+       <div className={css.overlayLayer} data-shell-overlay>
+diff --git a/packages/client/ui-layout/src/client/index.ts b/packages/client/ui-layout/src/client/index.ts
+index 56afec15e3..cb29507542 100644
+--- a/packages/client/ui-layout/src/client/index.ts
++++ b/packages/client/ui-layout/src/client/index.ts
+@@ -104,8 +104,11 @@ export interface SidebarOwnerProps {
+ /** Conversation owner share: business state and actions belong to the registrant. */
+ export interface ConvOwnerProps {}
+
+-/** Details owner share: empty — sessionId arrives as a framework-standard prop. */
+-export interface DetailsOwnerProps {}
++/** Details owner share: selected right-sidebar occupant; sessionId is standard. */
++export interface DetailsOwnerProps {
++  /** Named panel selected through ctx.layout.openDetails(panel). */
++  panel?: string
++}
+
+ /** Required services (cordis fiber inject — the loader passes all module exports as an object plugin). */
+ export const inject = ['slots', 'theme', 'locale']
+diff --git a/packages/client/ui-layout/src/client/service.ts b/packages/client/ui-layout/src/client/service.ts
+index 2b2e50e5d5..0ba7c860d1 100644
+--- a/packages/client/ui-layout/src/client/service.ts
++++ b/packages/client/ui-layout/src/client/service.ts
+@@ -23,8 +23,8 @@ export type PanelActions = BoundActions<ReturnType<typeof createLayoutStore>>
+ export interface ILayout {
+   /** Toggle the sidebar panel (closed ⟷ contract default width). */
+   toggleSidebar(): void
+-  /** Open the details panel (no-op when already open). */
+-  openDetails(): void
++  /** Open the right details sidebar on a named occupant (tool by default). */
++  openDetails(panel?: string): void
+   /** Close the details panel. */
+   closeDetails(): void
+ }
+@@ -49,9 +49,9 @@ export class LayoutController implements ILayout {
+     this.#require().toggleSidebar()
+   }
+
+-  /** Open the details panel (no-op when already open). */
+-  openDetails(): void {
+-    this.#require().openDetails()
++  /** Open the right details sidebar and select its named occupant. */
++  openDetails(panel = 'tool'): void {
++    this.#require().openDetails(panel)
+   }
+
+   /** Close the details panel. */
+diff --git a/packages/client/ui-layout/src/client/stores.ts b/packages/client/ui-layout/src/client/stores.ts
+index 7b6e2807ee..481330a88f 100644
+--- a/packages/client/ui-layout/src/client/stores.ts
++++ b/packages/client/ui-layout/src/client/stores.ts
+@@ -20,7 +20,7 @@ import {
+  * `narrowExpanded` is the manual override that re-expands the auto-collapsed
+  * sidebar over the squeezed center without rewriting the width preference.
+  */
+-type LayoutState = { sidebar: number; details: number; narrow: boolean; narrowExpanded: boolean }
++type LayoutState = { sidebar: number; details: number; detailsPanel: string; narrow: boolean; narrowExpanded: boolean }
+
+ /**
+  * Annotation twin of the actions literal below (the export needs a declared
+@@ -31,7 +31,7 @@ type LayoutActions = {
+   setDetails: (draft: LayoutState, px: number) => void
+   toggleSidebar: (draft: LayoutState) => void
+   setNarrow: (draft: LayoutState, narrow: boolean) => void
+-  openDetails: (draft: LayoutState) => void
++  openDetails: (draft: LayoutState, panel?: string) => void
+   closeDetails: (draft: LayoutState) => void
+ }
+
+@@ -47,7 +47,7 @@ type LayoutActions = {
+  */
+ export function createLayoutStore(): EngineStoreHandle<LayoutState, LayoutActions>  {
+   const handle = defineStore({
+-    init: (): LayoutState => ({ sidebar: SIDEBAR_DEFAULT, details: 0, narrow: false, narrowExpanded: false }),
++    init: (): LayoutState => ({ sidebar: SIDEBAR_DEFAULT, details: 0, detailsPanel: 'tool', narrow: false, narrowExpanded: false }),
+     actions: {
+       setSidebar: (d, px: number) => { d.sidebar = clampWidth(px, SIDEBAR_MIN, SIDEBAR_MAX) },
+       setDetails: (d, px: number) => { d.details = clampWidth(px, DETAILS_MIN, DETAILS_MAX) },
+@@ -64,7 +64,10 @@ export function createLayoutStore(): EngineStoreHandle<LayoutState, LayoutAction
+         d.narrow = narrow
+         d.narrowExpanded = false
+       },
+-      openDetails: (d) => { if (d.details === 0) d.details = DETAILS_DEFAULT },
++      openDetails: (d, panel = 'tool') => {
++        d.detailsPanel = panel
++        if (d.details === 0) d.details = DETAILS_DEFAULT
++      },
+       closeDetails: (d) => { d.details = 0 },
+     },
+   })
+diff --git a/packages/client/ui-layout/tests/app-frame.client.spec.tsx b/packages/client/ui-layout/tests/app-frame.client.spec.tsx
+index a640480360..77edbe6bed 100644
+--- a/packages/client/ui-layout/tests/app-frame.client.spec.tsx
++++ b/packages/client/ui-layout/tests/app-frame.client.spec.tsx
+@@ -187,7 +187,7 @@ describe('AppFrame', () => {
+     expect(keys).toContain('details')
+     expect(keys).not.toContain('conversation.empty')
+     expect(slotCalls.find(c => c.key === 'conversation')!.props).toEqual({})
+-    expect(slotCalls.find(c => c.key === 'details')!.props).toEqual({})
++    expect(slotCalls.find(c => c.key === 'details')!.props).toEqual({ panel: 'tool' })
+   })
+
+   it('keeps the conversation slot mounted while no session is current', () => {
+diff --git a/packages/client/ui-layout/tests/layout-store.client.spec.ts b/packages/client/ui-layout/tests/layout-store.client.spec.ts
+index c6f0069197..b443ebb456 100644
+--- a/packages/client/ui-layout/tests/layout-store.client.spec.ts
++++ b/packages/client/ui-layout/tests/layout-store.client.spec.ts
+@@ -19,7 +19,7 @@ beforeEach(() => { localStorage.clear() })
+ describe('createLayoutStore', () => {
+   it('initializes the sidebar at its default width, details closed, wide viewport assumed', () => {
+     const { store } = createLayoutStore().create()
+-    expect(store.getSnapshot()).toEqual({ sidebar: SIDEBAR_DEFAULT, details: 0, narrow: false, narrowExpanded: false })
++    expect(store.getSnapshot()).toEqual({ sidebar: SIDEBAR_DEFAULT, details: 0, detailsPanel: 'tool', narrow: false, narrowExpanded: false })
+   })
+
+   it('each create() is an independent instance (factory is not a singleton)', () => {
+@@ -55,7 +55,7 @@ describe('createLayoutStore', () => {
+     actions.setSidebar(400)
+     actions.setNarrow(true)
+     actions.toggleSidebar()
+-    expect(store.getSnapshot()).toEqual({ sidebar: 400, details: 0, narrow: true, narrowExpanded: true })
++    expect(store.getSnapshot()).toEqual({ sidebar: 400, details: 0, detailsPanel: 'tool', narrow: true, narrowExpanded: true })
+     actions.toggleSidebar()
+     expect(store.getSnapshot().narrowExpanded).toBe(false)
+     expect(store.getSnapshot().sidebar).toBe(400)
+@@ -76,8 +76,8 @@ describe('createLayoutStore', () => {
+
+   it('openDetails uses the contract default, preserves an open width, and closeDetails zeroes', () => {
+     const { store, actions } = createLayoutStore().create()
+-    actions.openDetails()
+-    expect(store.getSnapshot().details).toBe(DETAILS_DEFAULT)
++    actions.openDetails('session-tree')
++    expect(store.getSnapshot()).toMatchObject({ details: DETAILS_DEFAULT, detailsPanel: 'session-tree' })
+     actions.setDetails(500)
+     actions.openDetails()
+     expect(store.getSnapshot().details).toBe(500)
+@@ -96,6 +96,7 @@ describe('createLayoutStore', () => {
+     expect(second.store.getSnapshot()).toEqual({
+       sidebar: SIDEBAR_DEFAULT,
+       details: 0,
++      detailsPanel: 'tool',
+       narrow: false,
+       narrowExpanded: false,
+     })
 diff --git a/packages/core/session/src/index.ts b/packages/core/session/src/index.ts
 index afa2ff3604..3b3e45ab32 100644
 --- a/packages/core/session/src/index.ts
@@ -354,6 +704,22 @@ index afa2ff3604..3b3e45ab32 100644
      }
      for (const seq of nodes.slice(this.derivedNodes)) {
        // Surface sequences are built from this.log — seq is always a valid
+diff --git a/packages/core/session/src/known-event-types.ts b/packages/core/session/src/known-event-types.ts
+index 774e1a55cb..52cf993b12 100644
+--- a/packages/core/session/src/known-event-types.ts
++++ b/packages/core/session/src/known-event-types.ts
+@@ -47,6 +47,11 @@ export const KNOWN_SESSION_EVENT_TYPES: ReadonlySet<string> = new Set([
+   'sandbox/mode',
+   'schedule/change',
+   'session-log-deepseek/delivery-accepted',
++  'session-tree/branch',
++  'session-tree/cursor',
++  'session-tree/node',
++  'session-tree/selection',
++  'session-tree/snapshot',
+   'session/end-seed',
+   'session/title',
+   'session/title-llm-request',
 diff --git a/packages/extensions/tool-cordis/src/api-catalog.ts b/packages/extensions/tool-cordis/src/api-catalog.ts
 index c8c597a983..fa64e718cf 100644
 --- a/packages/extensions/tool-cordis/src/api-catalog.ts
@@ -492,7 +858,7 @@ index c8c597a983..fa64e718cf 100644
      name: 'TurnEndCancelCause',
      declaration: 'export type TurnEndCancelCause = AgentCancelCause | {\n    readonly kind: \'legacy\';\n};',
 diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml
-index 51de950c3e..997ab1335d 100644
+index 51de950c3e..37c6c10f03 100644
 --- a/pnpm-lock.yaml
 +++ b/pnpm-lock.yaml
 @@ -1145,6 +1145,9 @@ importers:
@@ -525,7 +891,7 @@ index 51de950c3e..997ab1335d 100644
        '@deepseek-ai/dsh-client-ui-settings':
          specifier: workspace:^
          version: link:../../client/ui-settings
-@@ -3126,6 +3135,54 @@ importers:
+@@ -3126,6 +3135,60 @@ importers:
          specifier: ^18.2.0
          version: 18.3.1
 
@@ -543,9 +909,12 @@ index 51de950c3e..997ab1335d 100644
 +      '@deepseek-ai/dsh-client-test-runtime':
 +        specifier: workspace:^
 +        version: link:../../test-support/client-runtime
-+      '@deepseek-ai/dsh-client-ui-conversation':
++      '@deepseek-ai/dsh-client-ui-chat':
 +        specifier: workspace:^
-+        version: link:../ui-conversation
++        version: link:../ui-chat
++      '@deepseek-ai/dsh-client-ui-layout':
++        specifier: workspace:^
++        version: link:../ui-layout
 +      '@deepseek-ai/dsh-client-ui-primitives':
 +        specifier: workspace:^
 +        version: link:../ui-primitives
@@ -555,6 +924,9 @@ index 51de950c3e..997ab1335d 100644
 +      '@deepseek-ai/dsh-client-ui-slots':
 +        specifier: workspace:^
 +        version: link:../ui-slots
++      '@deepseek-ai/dsh-commands':
++        specifier: workspace:^
++        version: link:../../interaction/commands
 +      '@deepseek-ai/dsh-invariants':
 +        specifier: workspace:^
 +        version: link:../../runtime-diagnostics/invariants
@@ -580,7 +952,7 @@ index 51de950c3e..997ab1335d 100644
    packages/client/ui-settings:
      devDependencies:
        '@deepseek-ai/cordis':
-@@ -5213,6 +5270,37 @@ importers:
+@@ -5213,6 +5276,37 @@ importers:
          specifier: workspace:^
          version: link:../../typert/protocol
 
@@ -618,7 +990,7 @@ index 51de950c3e..997ab1335d 100644
    packages/extensions/tool-cordis:
      devDependencies:
        '@deepseek-ai/cordis':
-@@ -5246,6 +5334,30 @@ importers:
+@@ -5246,6 +5340,30 @@ importers:
          specifier: workspace:^
          version: link:../../core/tools
 

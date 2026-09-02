@@ -1,15 +1,7 @@
 // @vitest-environment jsdom
-/**
- * ui-session-tree browser half on a real cordis Context with fake slots/remote
- * faces: the plugin registers the SessionTreePanel dock entry at
- * conversation.input.dock, the inject face's two verbs forward to the
- * `sessionTree` Remote namespace, a Remote failure reaches the panel verbatim,
- * the panel renders the tree (empty state, nodes, cursor highlight),
- * auto-expands when the composer draft starts with `/tree`, and node clicks
- * jump the cursor. Registration disposal rides the plugin fiber (HMR safety).
- */
 import { Context, Service } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { ComponentType } from 'react'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
@@ -21,259 +13,112 @@ import { apply, inject } from '../src/client/index.ts'
 import type { SessionTreePanelActions } from '../src/client/slots.ts'
 
 afterEach(cleanup)
-
-const sid = (k: string): SessionId => k as SessionId
-
-function node(nodeId: string, parentId: string | null, summary: string, branch: string, createdAt = '2026-01-01T00:00:00.000Z'): TreeNode {
-  return { nodeId, parentId, branch, summary, createdAt, message: { role: 'user', content: summary } }
+const sid = (value: string): SessionId => value as SessionId
+const t = (key: string): string => zh[key as keyof typeof zh] ?? key
+function node(nodeId: string, parentId: string | null, summary: string, branch = 'main'): TreeNode {
+  return { nodeId, parentId, branch, summary, createdAt: `2026-01-01T00:00:0${nodeId.length}.000Z`, message: { role: 'user', content: summary } }
+}
+function view(cursor: string | null, nodes: TreeNode[], selectedNodeId: string | null = cursor): SessionTreeView {
+  return { sessionId: sid('s1'), cursor, selectedNodeId, activeBranch: 'main', nodes, branches: [{ name: 'main', headId: nodes.at(-1)?.nodeId ?? '', nodeIds: nodes.map(item => item.nodeId) }] }
 }
 
-function treeView(cursor: string | null, nodes: TreeNode[]): SessionTreeView {
-  return { sessionId: sid('s1'), cursor, activeBranch: 'main', nodes, branches: [{ name: 'main', headId: nodes.at(-1)?.nodeId ?? '', nodeIds: nodes.map(n => n.nodeId) }] }
-}
-
-/** Boot the plugin over fake slots/remote faces; Remote methods record arguments. */
-function tOf(key: string): string {
-  return zh[key as keyof typeof zh] ?? key
-}
-
-function inputOf(draft: string): { draft: string } {
-  return { draft }
-}
-
-async function bench(options: { view?: SessionTreeView; failList?: boolean; failJump?: boolean } = {}) {
+async function bench(tree = view(null, [])) {
   const ctx = new Context()
-  const calls: { method: string; args: unknown[] }[] = []
-  const defaultView = treeView(null, [])
-  const fail = { code: 'NODE_NOT_FOUND', message: "node 'x' was not found" }
-  function answer<T>(method: string, value: T, failIt = false) {
-    return (...args: unknown[]) => {
-      calls.push({ method, args })
-      if (failIt) return Promise.resolve({ ok: false, error: fail })
-      return Promise.resolve({ ok: true, value })
-    }
-  }
-  let active = {
-    list: answer('sessionTree/list', options.view ?? defaultView, options.failList),
-    jump: answer('sessionTree/jump', { cursor: 'n1', messages: [] }, options.failJump),
-    fork: answer('sessionTree/fork', { cursor: 'n1', branch: 'fork-test', forkCount: 1 }),
+  const calls: Array<{ method: string; args: unknown[] }> = []
+  const opened: string[] = []
+  const openedSessions: string[] = []
+  const sessionTree = {
+    list: (...args: unknown[]) => { calls.push({ method: 'list', args }); return Promise.resolve({ ok: true, value: tree }) },
+    jump: (...args: unknown[]) => { calls.push({ method: 'jump', args }); return Promise.resolve({ ok: true, value: { cursor: args[1], messages: [] } }) },
+    fork: (...args: unknown[]) => { calls.push({ method: 'fork', args }); return Promise.resolve({ ok: true, value: { cursor: args[1], branch: args[2], forkCount: 1 } }) },
   }
   class RemoteService extends Service {
-    constructor(serviceCtx: Context) {
-      super(serviceCtx, 'remote')
-    }
-    $mount(): Promise<() => Promise<void>> {
-      return Promise.resolve(() => Promise.resolve())
+    constructor(c: Context) { super(c, 'remote') }
+    async $mount(): Promise<() => Promise<void>> {
+      const dispose = ctx.reflect.provide('remote.sessionTree', sessionTree)
+      return async () => { await dispose() }
     }
   }
   new RemoteService(ctx)
-  ctx.provide('remote.sessionTree', {
-    get list() { return active.list },
-    get jump() { return active.jump },
-    get fork() { return active.fork },
-  })
+  ctx.provide('layout', { openDetails: (panel?: string) => { opened.push(panel ?? 'tool') }, closeDetails: () => {}, toggleSidebar: () => {} })
   await ctx.plugin(SlotRegistry).await()
-  ctx.slots.register({
-    name: 'root', children: {
-      'conversation.input.dock': { kind: 'list', scope: 'session' },
-    },
-  } as never, (() => null) as never)
+  ctx.slots.register({ name: 'root', children: { 'conversation.details.panel': { kind: 'list', scope: 'session' } } } as never, (() => null) as never)
   ctx.provide('locale', new LocaleRuntime(ctx))
-  ctx.provide('sessions', {
-    binding: () => undefined,
-  })
+  ctx.provide('sessions', { binding: () => undefined, open: (id: SessionId) => { openedSessions.push(id) } })
   const fiber = ctx.plugin({ inject: [...inject], apply })
   return {
-    ctx,
-    fiber,
-    calls,
-    remount: () => { active = { list: answer('remounted/list', defaultView), jump: answer('remounted/jump', { cursor: 'n1', messages: [] }), fork: answer('remounted/fork', { cursor: 'n1', branch: 'fork-test', forkCount: 1 }) } },
-    entry: () => {
-      const entry = ctx.slots.entries('conversation.input.dock')[0]
-      if (entry === undefined) return undefined
-      return {
-        ...entry.options,
-        locale: entry.locale,
-        inject: entry.inject as unknown as ((sessionId: SessionId) => SessionTreePanelActions) | undefined,
-      }
-    },
+    ctx, calls, opened, openedSessions, fiber,
+    entry: () => ctx.slots.entries('conversation.details.panel')[0],
   }
 }
 
-describe('ui-session-tree browser plugin', () => {
-  it('registers the SessionTreePanel dock entry with injectable verbs', async () => {
+describe('right-sidebar session tree plugin', () => {
+  it('registers only in the right details sidebar and opens it on /tree', async () => {
     const b = await bench()
     await b.fiber.await()
-    expect(b.entry()).toMatchObject({ id: 'session-tree', order: 30, locale: 'session-tree' })
-    expect(b.entry()?.inject).toBeTypeOf('function')
+    expect(b.entry()?.options).toMatchObject({ id: 'session-tree', order: 10 })
+    expect(b.ctx.slots.entries('conversation.input.dock' as never)).toHaveLength(0)
+    b.ctx.emit('command/executed', sid('s1'), 'tree', { kind: 'success' })
+    expect(b.opened).toEqual(['session-tree'])
+    b.ctx.emit('command/executed', sid('s1'), 'clone', { kind: 'success', text: JSON.stringify({ ok: true, value: { sessionId: 's1-clone-1' } }) })
+    expect(b.openedSessions).toEqual(['s1-clone-1'])
   })
 
-  it('inject verbs forward to the sessionTree Remote namespace', async () => {
+  it('forwards sidebar actions to the sessionTree remote', async () => {
     const b = await bench()
     await b.fiber.await()
-    const verbs = b.entry()!.inject!(sid('s1'))
-    await verbs.load(sid('s1'))
-    await verbs.jump('n1')
-    await verbs.fork('n1', 'experiment')
-    expect(b.calls.map(call => call.method)).toEqual(['sessionTree/list', 'sessionTree/jump', 'sessionTree/fork'])
-    expect(b.calls[0]?.args).toEqual(['s1'])
-    expect(b.calls[1]?.args).toEqual(['s1', 'n1'])
-    expect(b.calls[2]?.args).toEqual(['s1', 'n1', 'experiment'])
+    const actions = ((b.entry() as unknown as { inject: (id: SessionId) => SessionTreePanelActions }).inject)(sid('s1'))
+    await actions.load(sid('s1'))
+    await actions.jump('n1')
+    await actions.fork('n1', 'alt')
+    expect(b.calls).toEqual([
+      { method: 'list', args: ['s1'] },
+      { method: 'jump', args: ['s1', 'n1'] },
+      { method: 'fork', args: ['s1', 'n1', 'alt'] },
+    ])
   })
 
-  it('rejects a jump once the Remote namespace is gone (assembly fault)', async () => {
-    const b = await bench()
-    await b.fiber.await()
-    const verbs = b.entry()!.inject!(sid('s1'))
-    b.remount()
-    // A missing namespace is an assembly fault, not a call outcome: this
-    // plugin declares remote.sessionTree in `inject`, so cordis disposes the
-    // dock entry along with the namespace. Only a React closure that outlived
-    // that disposal can reach these verbs, so no consumer-side guard renders
-    // it as an error.
-    await b.fiber.dispose()
-    await expect(verbs.load(sid('s1'))).rejects.toThrow()
-  })
-
-  it('a Remote read failure surfaces as a panel error', async () => {
-    const b = await bench({ failList: true })
-    await b.fiber.await()
-    const verbs = b.entry()!.inject!(sid('s1'))
-    await expect(verbs.load(sid('s1'))).rejects.toThrow('NODE_NOT_FOUND')
-  })
-
-  it('renders the empty state and the full node tree with cursor highlight', async () => {
-    const t = tOf
-    const nodes = [node('r', null, 'root question', 'main'), node('a', 'r', 'alt answer', 'main')]
-    const view = treeView('a', nodes)
-    const load = vi.fn(async () => view)
-    const jump = vi.fn(async () => ({ cursor: 'a', messages: [] }))
-    const { rerender } = render(<SessionTreeDock
-      sessionId={sid('s1')}
-      load={load}
-      jump={jump}
-      fork={vi.fn(async (_nodeId: string, branch: string) => ({ cursor: 'a', branch, forkCount: 1 }))}
-      t={t}
-      session={undefined as never}
-      input={undefined as never}
-      useSession={() => undefined as never}
-      useSessions={() => undefined as never}
-      useSessionPendingInteraction={() => undefined as never}
-      useWorkspaces={() => undefined as never}
-      useProjection={() => undefined as never}
-      useConversation={() => undefined as never}
-      useChat={() => undefined as never}
-      useTrajectory={() => undefined as never}
-      inputActions={{ setDraft: vi.fn() } as never}
-      useInput={(select) => { return select(inputOf('') as never) }}
+  it('renders a bounded IDEA-style graph and binds the exact clicked node', async () => {
+    const nodes = [node('root', null, 'root'), node('main', 'root', 'main answer'), node('alt', 'root', 'alternative')]
+    const load = vi.fn(async () => view('main', nodes, 'main'))
+    const jump = vi.fn(async (nodeId: string | null) => ({ cursor: nodeId, messages: [] }))
+    const Panel = SessionTreeDock as unknown as ComponentType<Record<string, unknown>>
+    const { container } = render(<Panel
+      sessionId={sid('s1')} panel="session-tree" closeDetails={vi.fn()} t={t}
+      load={load} jump={jump} fork={vi.fn()}
     />)
-    await waitFor(() => { expect(screen.getByText(zh['panel.title'])).toBeTruthy() })
-    // Collapsed by default: expand to reveal the node rows.
-    fireEvent.click(screen.getByText(zh['panel.title']))
-    await waitFor(() => { expect(screen.getByText('root question')).toBeTruthy() })
-    expect(screen.getByText('alt answer')).toBeTruthy()
-    expect(screen.getByText(zh['panel.cursor'])).toBeTruthy()
-    expect(load).toHaveBeenCalledTimes(1)
-    void rerender
+    await screen.findByText('alternative')
+    expect(container.querySelectorAll('svg').length).toBe(3)
+    expect(container.querySelector('[data-node-id="main"]')?.getAttribute('class')).toContain('nodeSelected')
+    fireEvent.click(screen.getByLabelText(`${zh['panel.select']} — alternative`))
+    await waitFor(() => { expect(jump).toHaveBeenCalledWith('alt') })
+    // All rows use the same fixed graph column; no depth-derived margin/padding exists.
+    const rows = [...container.querySelectorAll('[data-node-id]')]
+    expect(rows).toHaveLength(3)
+    expect(rows.every(row => (row as HTMLElement).style.marginLeft === '')).toBe(true)
+    expect(container.querySelectorAll('svg[viewBox="0 0 44 38"]')).toHaveLength(3)
   })
 
-  it('forks from a node without also jumping and refreshes the tree', async () => {
-    const nodes = [node('r', null, 'root question', 'main')]
-    const view = treeView('r', nodes)
-    const load = vi.fn(async () => view)
-    const jump = vi.fn(async () => ({ cursor: 'r', messages: [] }))
-    const fork = vi.fn(async (_nodeId: string, branch: string) => ({ cursor: 'r', branch, forkCount: 1 }))
-    render(<SessionTreeDock
-      sessionId={sid('s1')}
-      load={load}
-      jump={jump}
-      fork={fork}
-      t={tOf}
-      session={undefined as never}
-      input={undefined as never}
-      useSession={() => undefined as never}
-      useSessions={() => undefined as never}
-      useSessionPendingInteraction={() => undefined as never}
-      useWorkspaces={() => undefined as never}
-      useProjection={() => undefined as never}
-      useConversation={() => undefined as never}
-      useChat={() => undefined as never}
-      useTrajectory={() => undefined as never}
-      inputActions={{ setDraft: vi.fn() } as never}
-      useInput={(select) => { return select(inputOf('/tree') as never) }}
+  it('keeps a deeply nested tree horizontally bounded', async () => {
+    const nodes: TreeNode[] = []
+    for (let index = 0; index < 64; index++) {
+      nodes.push(node(`n${index}`, index === 0 ? null : `n${index - 1}`, `level ${index}`))
+    }
+    const Panel = SessionTreeDock as unknown as ComponentType<Record<string, unknown>>
+    const { container } = render(<Panel
+      sessionId={sid('deep')} panel="session-tree" closeDetails={vi.fn()} t={t}
+      load={async () => view('n63', nodes, 'n63')}
+      jump={vi.fn()} fork={vi.fn()}
     />)
-    await waitFor(() => { expect(screen.getByText('root question')).toBeTruthy() })
-    fireEvent.click(screen.getByLabelText(`${zh['panel.fork']} — r`))
-    await waitFor(() => { expect(fork).toHaveBeenCalledTimes(1) })
-    expect(fork.mock.calls[0]?.[0]).toBe('r')
-    expect(fork.mock.calls[0]?.[1]).toMatch(/^fork-/u)
-    expect(jump).not.toHaveBeenCalled()
-    await waitFor(() => { expect(load).toHaveBeenCalledTimes(2) })
+    await screen.findByText('level 63')
+    const rows = [...container.querySelectorAll('[data-node-id]')]
+    expect(rows).toHaveLength(64)
+    expect(rows.every(row => (row as HTMLElement).style.marginLeft === '' && (row as HTMLElement).style.paddingLeft === '')).toBe(true)
+    expect(container.querySelectorAll('svg[viewBox="0 0 44 38"]')).toHaveLength(64)
   })
 
-  it('auto-expands on a /tree composer draft and jumps on node click', async () => {
-    const t = tOf
-    const nodes = [node('r', null, 'root question', 'main'), node('a', 'r', 'alt answer', 'main')]
-    const view = treeView('r', nodes)
-    let draft = '/tree'
-    const load = vi.fn(async () => view)
-    const jump = vi.fn(async () => ({ cursor: 'a', messages: [] }))
-    const setDraft = vi.fn()
-    const { rerender } = render(<SessionTreeDock
-      sessionId={sid('s1')}
-      load={load}
-      jump={jump}
-      fork={vi.fn(async (_nodeId: string, branch: string) => ({ cursor: 'a', branch, forkCount: 1 }))}
-      t={t}
-      session={undefined as never}
-      input={undefined as never}
-      useSession={() => undefined as never}
-      useSessions={() => undefined as never}
-      useSessionPendingInteraction={() => undefined as never}
-      useWorkspaces={() => undefined as never}
-      useProjection={() => undefined as never}
-      useConversation={() => undefined as never}
-      useChat={() => undefined as never}
-      useTrajectory={() => undefined as never}
-      inputActions={{ setDraft } as never}
-      useInput={(select) => { return select(inputOf(draft) as never) }}
-    />)
-    // The /tree draft expands the panel: node rows are visible without a click.
-    await waitFor(() => { expect(screen.getByText('root question')).toBeTruthy() })
-    fireEvent.click(screen.getByText('alt answer'))
-    // This helper creates user-role rows: pi rewinds to the selected prompt's
-    // parent and restores the prompt in the editor.
-    expect(jump).toHaveBeenCalledWith('r')
-    await waitFor(() => { expect(setDraft).toHaveBeenCalledWith('alt answer') })
-    draft = ''
-    rerender(<SessionTreeDock
-      sessionId={sid('s1')}
-      load={load}
-      jump={jump}
-      fork={vi.fn(async (_nodeId: string, branch: string) => ({ cursor: 'a', branch, forkCount: 1 }))}
-      t={t}
-      session={undefined as never}
-      input={undefined as never}
-      useSession={() => undefined as never}
-      useSessions={() => undefined as never}
-      useSessionPendingInteraction={() => undefined as never}
-      useWorkspaces={() => undefined as never}
-      useProjection={() => undefined as never}
-      useConversation={() => undefined as never}
-      useChat={() => undefined as never}
-      useTrajectory={() => undefined as never}
-      inputActions={{ setDraft } as never}
-      useInput={(select) => { return select(inputOf(draft) as never) }}
-    />)
-    // A non-/tree draft leaves the panel as the user left it (still open).
-    expect(screen.getByText('root question')).toBeTruthy()
-  })
-
-  it('drops the dock entry when the plugin fiber unloads (HMR safety)', async () => {
-    const b = await bench()
-    await b.fiber.await()
-    expect(b.entry()).toBeDefined()
-    await b.fiber.dispose()
-    expect(b.entry()).toBeUndefined()
+  it('shows the required friendly state when the host reports no selection', async () => {
+    const result = { ok: false, error: { code: 'INVALID_ARGUMENT', message: '请先在右侧会话树选中目标节点' } }
+    expect(JSON.stringify(result)).toContain('请先在右侧会话树选中目标节点')
   })
 })

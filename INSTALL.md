@@ -60,4 +60,4 @@ pnpm run build        # Host tsdown regenerates the sessionTree Typert Remote co
 pnpm run dev:web      # or the profile's usual run command
 ```
 
-Then type `/tree` in the composer and open the dock panel.
+Then type `/tree` in the composer. The tree opens in the native right details sidebar; select a node there before running `/fork` or `/clone`.

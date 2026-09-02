@@ -116,11 +116,14 @@ type TreeResult<T> =
   `branch.summary`, `snapshot.save`, `snapshot.load`, `sessions`.
 - `/tree` command family: `list`, `branches`, `tree`, `context`, `jump
   <nodeId>`, `branch <nodeId> <name>`, `snapshot save`, `snapshot load <json>`.
+  `/fork [branch]` and `/clone` automatically use the selected sidebar node;
+  without one they return `请先在右侧会话树选中目标节点`.
 - `sessionTree` Remote service (`@deepseek-ai/dsh-pi-agent-session-tree`):
   `list(agent)` and `jump(agent, nodeId)` drive the browser panel.
-- `@deepseek-ai/dsh-client-ui-session-tree`: the embedded
-  `conversation.input.dock` panel — auto-expands on a `/tree` composer draft
-  and jumps the cursor on node click.
+- `@deepseek-ai/dsh-client-ui-session-tree`: a native
+  `conversation.details.panel` occupant in the right details sidebar. `/tree`
+  opens or refreshes it; node clicks bind the selected command context. Its
+  fixed graph gutter never grows with tree depth.
 
 ## Cordis API
 
