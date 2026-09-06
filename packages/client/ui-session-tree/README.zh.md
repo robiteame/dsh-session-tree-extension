@@ -2,8 +2,10 @@
 
 [English](README.md) | 中文
 
-会话树插件的浏览器端。组件占用 DeepSeek Harness 原生右侧详情栏的
-`conversation.details.panel` 槽位；不再渲染于输入框上方，也不会创建独立页面。
+会话树插件的浏览器端。在应用 `harness.patch` 的源码集成中，组件占用
+DeepSeek Harness 原生右侧详情栏的 `conversation.details.panel` 槽位；在未
+修改的官方 Web profile 中使用叠加式 `shell.overlay` 槽位，因此不会占用工具
+详情；不再渲染于输入框上方，也不会创建独立页面。
 
 - 输入 `/tree` 打开或刷新右侧会话树。
 - 鼠标点击节点后，该节点成为 `/fork`、`/clone` 的当前上下文，并显示明确高亮。

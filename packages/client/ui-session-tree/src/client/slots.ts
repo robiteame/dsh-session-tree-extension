@@ -10,7 +10,10 @@ export interface SessionTreePanelActions {
   onRefresh?: (callback: () => void) => () => void
 }
 
-export type SessionTreeViewProps =
-  import('@deepseek-ai/dsh-client-ui-slots').PropsRuntime<'conversation.details.panel'>
-  & SessionTreePanelActions
-  & { t: (key: import('./locales.ts').SessionTreeKey) => string; [key: string]: unknown }
+/** Props the visual tree actually consumes, independent of its slot adapter. */
+export type SessionTreeViewProps = SessionTreePanelActions & {
+  sessionId: SessionId
+  panel?: string
+  closeDetails?: () => void
+  t: (key: import('./locales.ts').SessionTreeKey) => string
+}

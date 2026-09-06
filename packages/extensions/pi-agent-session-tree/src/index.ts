@@ -19,7 +19,9 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { Session } from '@deepseek-ai/dsh-session'
 import { isSurfaceEvent } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, SessionEventMap } from '@deepseek-ai/dsh-session/types'
 import { TypertRemoteService, Remote } from '@deepseek-ai/dsh-typert-protocol'
 import { SessionTree, sessionTreeStore } from './session-tree.ts'
 import { sessionEventsToTreeNodes } from './session-event-adapter.ts'
@@ -33,6 +35,60 @@ declare module '@deepseek-ai/cordis' {
   interface Context {
     sessionTree: SessionTreeService
   }
+}
+
+/** Selected-message-surface API added by the repository's optional harness.patch. */
+interface SelectedMessageSurfaceSession {
+  selectMessageSurface(nodes: readonly number[] | null): void
+  messageSurfaceNodes(): readonly number[]
+}
+
+/**
+ * Whether a live Session exposes the selected-message-surface API shipped by
+ * this repository's `harness.patch`. A stock DeepSeek-Harness install (the
+ * target of `dsh plugin add`) has no such API: `deriveMessages()` always walks
+ * the canonical surface, and unknown `session-tree/*` events cannot be marked
+ * `ignorable` through the public append API, so a profile cannot persist them.
+ * The tree remains fully browsable and branchable inside the process store in
+ * that mode; only the in-place model-surface switch is unavailable.
+ */
+export function supportsSelectedMessageSurface(
+  session: Session,
+): session is Session & SelectedMessageSurfaceSession {
+  const candidate = session as Partial<SelectedMessageSurfaceSession>
+  return typeof candidate.selectMessageSurface === 'function'
+    && typeof candidate.messageSurfaceNodes === 'function'
+}
+
+/**
+ * Whether the running Harness recognizes the durable `session-tree/*` event
+ * vocabulary. The event names are registered in the session known-event-types
+ * table by `harness.patch`; on stock packages an appended unknown event would
+ * make a resumed persisted log unreadable, so callers must skip those appends.
+ */
+export function supportsDurableSessionTreeEvents(session: Session): boolean {
+  return supportsSelectedMessageSurface(session)
+}
+
+/** Durable SessionTree event types appended to the owning Session log. */
+export type SessionTreeEventType =
+  | 'session-tree/node'
+  | 'session-tree/cursor'
+  | 'session-tree/branch'
+  | 'session-tree/selection'
+  | 'session-tree/snapshot'
+
+/**
+ * Append one durable SessionTree marker when the runtime supports it, and
+ * return undefined on stock Harness so callers can skip sequence tracking.
+ */
+export function appendSessionTreeEvent(
+  session: Session,
+  type: SessionTreeEventType,
+  data: SessionEventMap[SessionTreeEventType],
+): SessionEvent<SessionTreeEventType> | undefined {
+  if (!supportsDurableSessionTreeEvents(session)) return undefined
+  return session.append(type, data)
 }
 
 /** Materialize and incrementally synchronize native Harness history. */
@@ -98,6 +154,7 @@ export function syncSessionTree(agent: Agent): SessionTree {
 
 /** Apply the selected tree path to Harness' actual model-visible Session surface. */
 export function applyTreeCursorToSession(agent: Agent, tree: SessionTree): void {
+  if (!supportsSelectedMessageSurface(agent.session)) return
   const seqs: number[] = []
   for (const node of tree.currentPath()) {
     const seq = node.metadata?.sessionEventSeq
@@ -163,13 +220,13 @@ export class SessionTreeService extends TypertRemoteService {
     const result = tree.jump(nodeId)
     if (!result.ok) throw new Error(`${result.error.code}: ${result.error.message}`)
     try {
-      const event = agent.session.append('session-tree/cursor', { nodeId })
-      tree.markSessionEventSeq(event.seq)
+      const event = appendSessionTreeEvent(agent.session, 'session-tree/cursor', { nodeId })
+      if (event !== undefined) tree.markSessionEventSeq(event.seq)
       if (nodeId !== null) {
         const selected = tree.select(nodeId)
         if (!selected.ok) throw new Error(`${selected.error.code}: ${selected.error.message}`)
-        const selection = agent.session.append('session-tree/selection', { nodeId })
-        tree.markSessionEventSeq(selection.seq)
+        const selection = appendSessionTreeEvent(agent.session, 'session-tree/selection', { nodeId })
+        if (selection !== undefined) tree.markSessionEventSeq(selection.seq)
       }
       applyTreeCursorToSession(agent, tree)
     } catch (error) {
@@ -196,10 +253,10 @@ export class SessionTreeService extends TypertRemoteService {
     try {
       const selected = tree.select(nodeId)
       if (!selected.ok) throw new Error(`${selected.error.code}: ${selected.error.message}`)
-      const event = agent.session.append('session-tree/branch', { nodeId, branch: result.value.branch })
-      tree.markSessionEventSeq(event.seq)
-      const selection = agent.session.append('session-tree/selection', { nodeId })
-      tree.markSessionEventSeq(selection.seq)
+      const event = appendSessionTreeEvent(agent.session, 'session-tree/branch', { nodeId, branch: result.value.branch })
+      if (event !== undefined) tree.markSessionEventSeq(event.seq)
+      const selection = appendSessionTreeEvent(agent.session, 'session-tree/selection', { nodeId })
+      if (selection !== undefined) tree.markSessionEventSeq(selection.seq)
       applyTreeCursorToSession(agent, tree)
     } catch (error) {
       tree.rollback(checkpoint)

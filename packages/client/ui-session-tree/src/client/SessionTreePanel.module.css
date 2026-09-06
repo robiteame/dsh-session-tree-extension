@@ -11,6 +11,28 @@
   font: inherit;
 }
 
+/* Official Harness fallback: shell.overlay is additive, unlike the shipped
+   single-occupant Tool details surface. The root stays click-through and only
+   the visible drawer accepts pointer input. */
+.overlayRoot[data-session-tree-overlay] {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.overlayDrawer {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: 0;
+  width: min(380px, calc(100vw - 48px));
+  min-width: 0;
+  overflow: hidden;
+  border-inline-start: 1px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-base);
+  box-shadow: -10px 0 28px rgb(0 0 0 / 18%);
+  pointer-events: auto;
+}
+
 .header {
   display: flex;
   flex: none;
@@ -231,4 +253,12 @@
 
 @media (prefers-reduced-motion: reduce) {
   .node, .refresh, .forkAction { transition: none; }
+}
+
+@media (max-width: 640px) {
+  .overlayDrawer {
+    width: 100%;
+    border-inline-start: 0;
+    box-shadow: none;
+  }
 }

@@ -2,8 +2,11 @@
 
 English | [中文](README.zh.md)
 
-Browser half of the session-tree plugin. It occupies the native
-`conversation.details.panel` seat in DeepSeek Harness' right details sidebar;
+Browser half of the session-tree plugin. In a patched source checkout it
+occupies the native `conversation.details.panel` seat in DeepSeek Harness'
+right details sidebar; in an official unmodified Web profile it uses the
+additive `shell.overlay` seat so the shipped Tool-details surface remains
+available.
 it never renders above the composer and creates no standalone page.
 
 - `/tree` opens or refreshes the right sidebar.

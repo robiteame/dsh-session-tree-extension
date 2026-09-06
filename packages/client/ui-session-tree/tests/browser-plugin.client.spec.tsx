@@ -9,6 +9,11 @@ import type { SessionTreeView, TreeNode } from '@deepseek-ai/dsh-pi-agent-sessio
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { zh } from '../src/client/locales.ts'
 import { SessionTreeDock } from '../src/client/SessionTreePanel.tsx'
+import {
+  SessionTreeOverlay,
+  SessionTreeOverlayController,
+  type SessionTreeRemoteActions,
+} from '../src/client/SessionTreeOverlay.tsx'
 import { apply, inject } from '../src/client/index.ts'
 import type { SessionTreePanelActions } from '../src/client/slots.ts'
 
@@ -22,7 +27,7 @@ function view(cursor: string | null, nodes: TreeNode[], selectedNodeId: string |
   return { sessionId: sid('s1'), cursor, selectedNodeId, activeBranch: 'main', nodes, branches: [{ name: 'main', headId: nodes.at(-1)?.nodeId ?? '', nodeIds: nodes.map(item => item.nodeId) }] }
 }
 
-async function bench(tree = view(null, [])) {
+async function bench(tree = view(null, []), nativePanel = true) {
   const ctx = new Context()
   const calls: Array<{ method: string; args: unknown[] }> = []
   const opened: string[] = []
@@ -42,26 +47,49 @@ async function bench(tree = view(null, [])) {
   new RemoteService(ctx)
   ctx.provide('layout', { openDetails: (panel?: string) => { opened.push(panel ?? 'tool') }, closeDetails: () => {}, toggleSidebar: () => {} })
   await ctx.plugin(SlotRegistry).await()
-  ctx.slots.register({ name: 'root', children: { 'conversation.details.panel': { kind: 'list', scope: 'session' } } } as never, (() => null) as never)
+  const children = {
+    'details': { kind: 'single', scope: 'session' },
+    'shell.overlay': { kind: 'list', scope: 'root' },
+    ...(nativePanel ? { 'conversation.details.panel': { kind: 'list', scope: 'session' } } : {}),
+  }
+  ctx.slots.register({ name: 'root', children } as never, (() => null) as never)
+  const toolDetails = (() => null) as never
+  ctx.slots.register({ name: 'details' } as never, toolDetails)
   ctx.provide('locale', new LocaleRuntime(ctx))
   ctx.provide('sessions', { binding: () => undefined, open: (id: SessionId) => { openedSessions.push(id) } })
   const fiber = ctx.plugin({ inject: [...inject], apply })
   return {
-    ctx, calls, opened, openedSessions, fiber,
-    entry: () => ctx.slots.entries('conversation.details.panel')[0],
+    ctx, calls, opened, openedSessions, fiber, toolDetails,
+    entry: () => ctx.slots.entries('conversation.details.panel' as never)[0],
+    overlayEntry: () => ctx.slots.entries('shell.overlay' as never)[0],
   }
 }
 
-describe('right-sidebar session tree plugin', () => {
-  it('registers only in the right details sidebar and opens it on /tree', async () => {
+describe('session tree browser plugin', () => {
+  it('uses the patched named details panel when available without replacing Tool details', async () => {
     const b = await bench()
     await b.fiber.await()
     expect(b.entry()?.options).toMatchObject({ id: 'session-tree', order: 10 })
+    expect(b.overlayEntry()?.options).toMatchObject({ id: 'session-tree', order: 10 })
+    expect(b.ctx.slots.entries('details' as never)[0]?.component).toBe(b.toolDetails)
     expect(b.ctx.slots.entries('conversation.input.dock' as never)).toHaveLength(0)
     b.ctx.emit('command/executed', sid('s1'), 'tree', { kind: 'success' })
     expect(b.opened).toEqual(['session-tree'])
     b.ctx.emit('command/executed', sid('s1'), 'clone', { kind: 'success', text: JSON.stringify({ ok: true, value: { sessionId: 's1-clone-1' } }) })
     expect(b.openedSessions).toEqual(['s1-clone-1'])
+  })
+
+  it('falls back to the additive official shell overlay and opens it on /tree', async () => {
+    const b = await bench(view(null, []), false)
+    await b.fiber.await()
+    expect(b.entry()).toBeUndefined()
+    expect(b.overlayEntry()?.options).toMatchObject({ id: 'session-tree', order: 10 })
+    expect(b.ctx.slots.entries('details' as never)[0]?.component).toBe(b.toolDetails)
+    const injected = b.overlayEntry()?.inject?.() as { controller: SessionTreeOverlayController }
+    expect(injected.controller.getSnapshot()).toEqual({ open: false, nativePanel: false })
+    b.ctx.emit('command/executed', sid('s1'), 'tree', { kind: 'success' })
+    expect(injected.controller.getSnapshot()).toEqual({ open: true, nativePanel: false })
+    expect(b.opened).toEqual([])
   })
 
   it('forwards sidebar actions to the sessionTree remote', async () => {
@@ -115,6 +143,61 @@ describe('right-sidebar session tree plugin', () => {
     expect(rows).toHaveLength(64)
     expect(rows.every(row => (row as HTMLElement).style.marginLeft === '' && (row as HTMLElement).style.paddingLeft === '')).toBe(true)
     expect(container.querySelectorAll('svg[viewBox="0 0 44 38"]')).toHaveLength(64)
+  })
+
+  it('renders and closes the official overlay drawer for the current non-blank session', async () => {
+    const nodes = [node('root', null, 'root')]
+    const controller = new SessionTreeOverlayController()
+    const remoteActions: SessionTreeRemoteActions = {
+      load: vi.fn(async () => view('root', nodes)),
+      jump: vi.fn(async (_sessionId, nodeId) => ({ cursor: nodeId, messages: [] })),
+      fork: vi.fn(async (_sessionId, nodeId, branch) => ({ cursor: nodeId, branch, forkCount: 1 })),
+      onRefresh: vi.fn(() => () => {}),
+    }
+    controller.open()
+    const useSessions = (<T,>(select: (state: {
+      current: SessionId
+      byId: Record<SessionId, { blank: boolean }>
+    }) => T): T => select({ current: sid('s1'), byId: { [sid('s1')]: { blank: false } } }))
+    const Overlay = SessionTreeOverlay as unknown as ComponentType<Record<string, unknown>>
+    const { container } = render(<Overlay
+      controller={controller}
+      remoteActions={remoteActions}
+      useSessions={useSessions}
+      t={t}
+    />)
+    await screen.findByText('root')
+    expect(container.querySelector('[data-session-tree-overlay="mounted"]')?.getAttribute('data-open')).toBe('true')
+    fireEvent.click(screen.getByLabelText(zh['panel.close']))
+    await waitFor(() => {
+      expect(container.querySelector('[data-session-tree-overlay="mounted"]')?.hasAttribute('data-open')).toBe(false)
+    })
+    expect(screen.queryByText('root')).toBeNull()
+  })
+
+  it('closes the official overlay when the current session changes', async () => {
+    const controller = new SessionTreeOverlayController()
+    const current = { value: sid('s1') }
+    const remoteActions: SessionTreeRemoteActions = {
+      load: vi.fn(async sessionId => ({ ...view(null, []), sessionId })),
+      jump: vi.fn(async (_sessionId, nodeId) => ({ cursor: nodeId, messages: [] })),
+      fork: vi.fn(async (_sessionId, nodeId, branch) => ({ cursor: nodeId, branch, forkCount: 1 })),
+      onRefresh: vi.fn(() => () => {}),
+    }
+    const useSessions = (<T,>(select: (state: {
+      current: SessionId
+      byId: Record<SessionId, { blank: boolean }>
+    }) => T): T => select({
+      current: current.value,
+      byId: { [sid('s1')]: { blank: false }, [sid('s2')]: { blank: false } },
+    }))
+    const Overlay = SessionTreeOverlay as unknown as ComponentType<Record<string, unknown>>
+    controller.open()
+    const rendered = render(<Overlay controller={controller} remoteActions={remoteActions} useSessions={useSessions} t={t} />)
+    expect(controller.getSnapshot().open).toBe(true)
+    current.value = sid('s2')
+    rendered.rerender(<Overlay controller={controller} remoteActions={remoteActions} useSessions={useSessions} t={t} />)
+    await waitFor(() => { expect(controller.getSnapshot().open).toBe(false) })
   })
 
   it('shows the required friendly state when the host reports no selection', async () => {

@@ -1,0 +1,7 @@
+# Standalone session-tree profile layer.
+# One package-root row owns both faces: its Host entry mounts the service,
+# tool, and commands; its dsh.client declaration makes the WebUI client
+# discoverable by the web module graph.
+- insert:
+    - id: session-tree
+      name: '@deepseek-ai/dsh-session-tree'

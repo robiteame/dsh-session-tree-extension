@@ -1,4 +1,8 @@
 node_modules/
-lib/
+**/lib/
+!/lib/
+!/lib/**
 *.tsbuildinfo
 .DS_Store
+*.tgz
+.bundle-build/

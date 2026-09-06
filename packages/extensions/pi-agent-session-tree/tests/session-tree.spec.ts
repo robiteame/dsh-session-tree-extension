@@ -16,7 +16,15 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import SessionTreeService, { sessionTreeStore, syncSessionTree } from '@deepseek-ai/dsh-pi-agent-session-tree'
+import SessionTreeService, {
+  appendSessionTreeEvent,
+  applyTreeCursorToSession,
+  SessionTree,
+  sessionTreeStore,
+  supportsDurableSessionTreeEvents,
+  supportsSelectedMessageSurface,
+  syncSessionTree,
+} from '@deepseek-ai/dsh-pi-agent-session-tree'
 import type { SessionTreeSnapshot, TreeNode } from '@deepseek-ai/dsh-pi-agent-session-tree'
 import { sessionEventsToTreeNodes } from '@deepseek-ai/dsh-pi-agent-session-tree'
 import * as toolSessionTree from '@deepseek-ai/dsh-tool-session-tree'
@@ -595,5 +603,33 @@ describe('session_tree plugin surfaces', () => {
     expect(section?.text).toContain('never duplicate ordinary turns')
     await fiber.dispose()
     expect(ctx.tools.get('session_tree')).toBeUndefined()
+  })
+})
+
+describe('stock Harness Session compatibility (no harness.patch)', () => {
+  it('detects the missing selected-surface API and skips in-place surface switches', () => {
+    const agent = stubAgent('tree-stock-compat')
+    // A stock Session has no selectMessageSurface/messageSurfaceNodes members.
+    const stockLike = { id: SessionId('tree-stock-compat') } as unknown as Session
+    agent.session = stockLike
+    expect(supportsSelectedMessageSurface(agent.session)).toBe(false)
+    expect(supportsDurableSessionTreeEvents(agent.session)).toBe(false)
+    const tree = new SessionTree(agent.session.id)
+    expect(() => applyTreeCursorToSession(agent, tree)).not.toThrow()
+    expect(appendSessionTreeEvent(agent.session, 'session-tree/cursor', { nodeId: null })).toBeUndefined()
+  })
+
+  it('keeps tree store mutations working when durable tree markers cannot be appended', async () => {
+    const { service } = await harness()
+    const agent = stubAgent('tree-stock-mutation')
+    const original = agent.session
+    agent.session = { id: original.id, events: [...original.events] } as unknown as Session
+    expect(supportsSelectedMessageSurface(agent.session)).toBe(false)
+    // Reading the projection must not throw even though the surface cannot be
+    // re-pointed at the selected path.
+    const view = service.list(agent)
+    expect(view.nodes).toEqual([])
+    expect(() => service.jump(agent, null)).not.toThrow()
+    expect(service.list(agent).cursor).toBeNull()
   })
 })

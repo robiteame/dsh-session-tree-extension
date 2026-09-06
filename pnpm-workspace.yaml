@@ -1,0 +1,11 @@
+packages:
+  - .
+
+nodeLinker: hoisted
+autoInstallPeers: false
+
+# pnpm >= 10 requires explicit permission for native lifecycle scripts. This
+# root allowlist covers esbuild during local development; a consuming Harness
+# profile must instead allowlist the exact Git package key printed by pnpm.
+allowBuilds:
+  esbuild: true

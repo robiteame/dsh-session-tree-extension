@@ -22,7 +22,7 @@ import type {} from '@deepseek-ai/dsh-agent'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
-import { applyTreeCursorToSession, SessionTree, sessionTreeStore, syncSessionTree } from '@deepseek-ai/dsh-pi-agent-session-tree'
+import { appendSessionTreeEvent, applyTreeCursorToSession, SessionTree, sessionTreeStore, supportsDurableSessionTreeEvents, syncSessionTree } from '@deepseek-ai/dsh-pi-agent-session-tree'
 import type { JsonValue } from '@deepseek-ai/dsh-pi-agent-session-tree'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 import type {} from '@deepseek-ai/dsh-system-prompt'
@@ -139,8 +139,8 @@ async function runToolOperation(ctx: Context, args: SessionTreeToolArgs, exec: T
       if (sessionId !== exec.agent.session.id) return { ok: false, error: { code: 'INVALID_ARGUMENT', message: 'snapshot.load requires the calling agent session' } }
       const candidate = newSessionTreeFromSnapshot(sessionId, snapshot)
       if (!candidate.ok) return { ok: false, error: { code: 'INVALID_SNAPSHOT', message: candidate.error } }
-      const event = exec.agent.session.append('session-tree/snapshot', { snapshot })
-      candidate.value.markSessionEventSeq(event.seq)
+      const event = appendSessionTreeEvent(exec.agent.session, 'session-tree/snapshot', { snapshot })
+      if (event !== undefined) candidate.value.markSessionEventSeq(event.seq)
       sessionTreeStore.replace(sessionId, candidate.value)
       return { ok: true, value: { sessionId } }
     }
@@ -180,8 +180,8 @@ async function runToolOperation(ctx: Context, args: SessionTreeToolArgs, exec: T
       )
       if (appended.ok && sessionId === exec.agent.session.id) {
         try {
-          const event = exec.agent.session.append('session-tree/node', { node: appended.value })
-          tree.markSessionEventSeq(event.seq)
+          const event = appendSessionTreeEvent(exec.agent.session, 'session-tree/node', { node: appended.value })
+          if (event !== undefined) tree.markSessionEventSeq(event.seq)
         } catch (error) {
           tree.rollback(checkpoint)
           throw error
@@ -202,13 +202,13 @@ async function runToolOperation(ctx: Context, args: SessionTreeToolArgs, exec: T
       const moved = tree.jump(args.nodeId ?? null)
       if (moved.ok && sessionId === exec.agent.session.id) {
         try {
-          const event = exec.agent.session.append('session-tree/cursor', { nodeId: args.nodeId ?? null })
-          tree.markSessionEventSeq(event.seq)
+          const event = appendSessionTreeEvent(exec.agent.session, 'session-tree/cursor', { nodeId: args.nodeId ?? null })
+          if (event !== undefined) tree.markSessionEventSeq(event.seq)
           if (args.nodeId != null) {
             const selected = tree.select(args.nodeId)
             if (!selected.ok) throw new Error(`${selected.error.code}: ${selected.error.message}`)
-            const selection = exec.agent.session.append('session-tree/selection', { nodeId: args.nodeId })
-            tree.markSessionEventSeq(selection.seq)
+            const selection = appendSessionTreeEvent(exec.agent.session, 'session-tree/selection', { nodeId: args.nodeId })
+            if (selection !== undefined) tree.markSessionEventSeq(selection.seq)
           }
           applyTreeCursorToSession(exec.agent, tree)
         } catch (error) {
@@ -226,10 +226,10 @@ async function runToolOperation(ctx: Context, args: SessionTreeToolArgs, exec: T
         try {
           const selected = tree.select(args.nodeId)
           if (!selected.ok) throw new Error(`${selected.error.code}: ${selected.error.message}`)
-          const event = exec.agent.session.append('session-tree/branch', { nodeId: args.nodeId, branch: forked.value.branch })
-          tree.markSessionEventSeq(event.seq)
-          const selection = exec.agent.session.append('session-tree/selection', { nodeId: args.nodeId })
-          tree.markSessionEventSeq(selection.seq)
+          const event = appendSessionTreeEvent(exec.agent.session, 'session-tree/branch', { nodeId: args.nodeId, branch: forked.value.branch })
+          if (event !== undefined) tree.markSessionEventSeq(event.seq)
+          const selection = appendSessionTreeEvent(exec.agent.session, 'session-tree/selection', { nodeId: args.nodeId })
+          if (selection !== undefined) tree.markSessionEventSeq(selection.seq)
           applyTreeCursorToSession(exec.agent, tree)
         } catch (error) {
           tree.rollback(checkpoint)
@@ -250,10 +250,10 @@ async function runToolOperation(ctx: Context, args: SessionTreeToolArgs, exec: T
         try {
           const selected = tree.select(args.nodeId)
           if (!selected.ok) throw new Error(`${selected.error.code}: ${selected.error.message}`)
-          const event = exec.agent.session.append('session-tree/branch', { nodeId: args.nodeId, branch: args.branch })
-          tree.markSessionEventSeq(event.seq)
-          const selection = exec.agent.session.append('session-tree/selection', { nodeId: args.nodeId })
-          tree.markSessionEventSeq(selection.seq)
+          const event = appendSessionTreeEvent(exec.agent.session, 'session-tree/branch', { nodeId: args.nodeId, branch: args.branch })
+          if (event !== undefined) tree.markSessionEventSeq(event.seq)
+          const selection = appendSessionTreeEvent(exec.agent.session, 'session-tree/selection', { nodeId: args.nodeId })
+          if (selection !== undefined) tree.markSessionEventSeq(selection.seq)
           applyTreeCursorToSession(exec.agent, tree)
         } catch (error) {
           tree.rollback(checkpoint)
@@ -270,8 +270,8 @@ async function runToolOperation(ctx: Context, args: SessionTreeToolArgs, exec: T
       const summarized = tree.branchWithSummary(args.nodeId, args.summary)
       if (summarized.ok && sessionId === exec.agent.session.id) {
         try {
-          const event = exec.agent.session.append('session-tree/node', { node: summarized.value })
-          tree.markSessionEventSeq(event.seq)
+          const event = appendSessionTreeEvent(exec.agent.session, 'session-tree/node', { node: summarized.value })
+          if (event !== undefined) tree.markSessionEventSeq(event.seq)
         } catch (error) {
           tree.rollback(checkpoint)
           throw error
@@ -296,10 +296,10 @@ function runForkCommand(invocation: CommandInvocation): CommandResult {
   try {
     const selected = tree.select(forked.value.cursor)
     if (!selected.ok) throw new Error(`${selected.error.code}: ${selected.error.message}`)
-    const event = invocation.agent.session.append('session-tree/branch', { nodeId: forked.value.cursor, branch: forked.value.branch })
-    tree.markSessionEventSeq(event.seq)
-    const selection = invocation.agent.session.append('session-tree/selection', { nodeId: forked.value.cursor })
-    tree.markSessionEventSeq(selection.seq)
+    const event = appendSessionTreeEvent(invocation.agent.session, 'session-tree/branch', { nodeId: forked.value.cursor, branch: forked.value.branch })
+    if (event !== undefined) tree.markSessionEventSeq(event.seq)
+    const selection = appendSessionTreeEvent(invocation.agent.session, 'session-tree/selection', { nodeId: forked.value.cursor })
+    if (selection !== undefined) tree.markSessionEventSeq(selection.seq)
     applyTreeCursorToSession(invocation.agent, tree)
   } catch (error) {
     tree.rollback(checkpoint)
@@ -325,19 +325,21 @@ async function cloneActiveSession(ctx: Context, agent: NonNullable<ToolRunContex
     return record
   })
   const seedTime = Date.now()
-  seed.push({
-    type: 'session-tree/cursor',
-    seq: seed.length,
-    time: seedTime + seed.length,
-    data: { nodeId: focusId },
-  })
-  if (focusId !== null) {
+  if (supportsDurableSessionTreeEvents(agent.session)) {
     seed.push({
-      type: 'session-tree/selection',
+      type: 'session-tree/cursor',
       seq: seed.length,
       time: seedTime + seed.length,
       data: { nodeId: focusId },
     })
+    if (focusId !== null) {
+      seed.push({
+        type: 'session-tree/selection',
+        seq: seed.length,
+        time: seedTime + seed.length,
+        data: { nodeId: focusId },
+      })
+    }
   }
 
   seedCloneTree(toSessionId(target), tree, focusId, seed.length - 1)
@@ -442,10 +444,10 @@ async function runTreeCommand(ctx: Context, invocation: CommandInvocation): Prom
         try {
           const selected = tree.select(result.value.cursor)
           if (!selected.ok) throw new Error(`${selected.error.code}: ${selected.error.message}`)
-          const event = invocation.agent.session.append('session-tree/branch', { nodeId: result.value.cursor, branch: result.value.branch })
-          tree.markSessionEventSeq(event.seq)
-          const selection = invocation.agent.session.append('session-tree/selection', { nodeId: result.value.cursor })
-          tree.markSessionEventSeq(selection.seq)
+          const event = appendSessionTreeEvent(invocation.agent.session, 'session-tree/branch', { nodeId: result.value.cursor, branch: result.value.branch })
+          if (event !== undefined) tree.markSessionEventSeq(event.seq)
+          const selection = appendSessionTreeEvent(invocation.agent.session, 'session-tree/selection', { nodeId: result.value.cursor })
+          if (selection !== undefined) tree.markSessionEventSeq(selection.seq)
           applyTreeCursorToSession(invocation.agent, tree)
         } catch (error) { tree.rollback(checkpoint); throw error }
       }
@@ -465,12 +467,12 @@ async function runTreeCommand(ctx: Context, invocation: CommandInvocation): Prom
       const result = tree.jump(nodeId)
       if (result.ok) {
         try {
-          const event = invocation.agent.session.append('session-tree/cursor', { nodeId })
-          tree.markSessionEventSeq(event.seq)
+          const event = appendSessionTreeEvent(invocation.agent.session, 'session-tree/cursor', { nodeId })
+          if (event !== undefined) tree.markSessionEventSeq(event.seq)
           const selected = tree.select(nodeId)
           if (!selected.ok) throw new Error(`${selected.error.code}: ${selected.error.message}`)
-          const selection = invocation.agent.session.append('session-tree/selection', { nodeId })
-          tree.markSessionEventSeq(selection.seq)
+          const selection = appendSessionTreeEvent(invocation.agent.session, 'session-tree/selection', { nodeId })
+          if (selection !== undefined) tree.markSessionEventSeq(selection.seq)
           applyTreeCursorToSession(invocation.agent, tree)
         } catch (error) { tree.rollback(checkpoint); throw error }
       }
@@ -485,10 +487,10 @@ async function runTreeCommand(ctx: Context, invocation: CommandInvocation): Prom
         try {
           const selected = tree.select(nodeId)
           if (!selected.ok) throw new Error(`${selected.error.code}: ${selected.error.message}`)
-          const event = invocation.agent.session.append('session-tree/branch', { nodeId, branch })
-          tree.markSessionEventSeq(event.seq)
-          const selection = invocation.agent.session.append('session-tree/selection', { nodeId })
-          tree.markSessionEventSeq(selection.seq)
+          const event = appendSessionTreeEvent(invocation.agent.session, 'session-tree/branch', { nodeId, branch })
+          if (event !== undefined) tree.markSessionEventSeq(event.seq)
+          const selection = appendSessionTreeEvent(invocation.agent.session, 'session-tree/selection', { nodeId })
+          if (selection !== undefined) tree.markSessionEventSeq(selection.seq)
           applyTreeCursorToSession(invocation.agent, tree)
         } catch (error) { tree.rollback(checkpoint); throw error }
       }
@@ -510,8 +512,8 @@ async function runTreeCommand(ctx: Context, invocation: CommandInvocation): Prom
         }
         const candidate = new SessionTree(sessionId, snapshot)
         try {
-          const event = invocation.agent.session.append('session-tree/snapshot', { snapshot })
-          candidate.markSessionEventSeq(event.seq)
+          const event = appendSessionTreeEvent(invocation.agent.session, 'session-tree/snapshot', { snapshot })
+          if (event !== undefined) candidate.markSessionEventSeq(event.seq)
           sessionTreeStore.replace(sessionId, candidate)
           return json({ ok: true, value: { sessionId } })
         } catch (error) {

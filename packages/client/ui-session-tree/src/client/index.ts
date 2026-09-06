@@ -18,9 +18,16 @@ declare module '@deepseek-ai/cordis' {
 import type { SessionTreeView } from '@deepseek-ai/dsh-pi-agent-session-tree/client'
 import type { SessionTreePanelActions } from './slots.ts'
 import { SessionTreeDock } from './SessionTreePanel.tsx'
+import {
+  SessionTreeOverlay,
+  SessionTreeOverlayController,
+  type SessionTreeRemoteActions,
+} from './SessionTreeOverlay.tsx'
 import { en, zh, type SessionTreeKey } from './locales.ts'
 
 export { SessionTreePanel, SessionTreeDock } from './SessionTreePanel.tsx'
+export { SessionTreeOverlay, SessionTreeOverlayController } from './SessionTreeOverlay.tsx'
+export type { SessionTreeOverlayProps, SessionTreeOverlayState } from './SessionTreeOverlay.tsx'
 export type { SessionTreePanelActions, SessionTreeViewProps } from './slots.ts'
 export type { SessionTreeKey } from './locales.ts'
 
@@ -36,35 +43,67 @@ function registerSessionTreeUi(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-session-tree: dictionaries')
   const refreshers = new Map<SessionId, Set<() => void>>()
   ctx.effect(() => () => { refreshers.clear() }, 'ui-session-tree: refreshers')
+  const overlay = new SessionTreeOverlayController()
+  ctx.effect(() => () => { overlay.dispose() }, 'ui-session-tree: overlay state')
 
-  ctx.slots.inject('conversation.details.panel', () => ctx.slots.register({
-    name: 'conversation.details.panel', id: 'session-tree', order: 10, locale: NS,
-    inject: (sessionId: SessionId): SessionTreePanelActions => ({
-      load: async () => {
-        const answered = await ctx.remote.sessionTree.list(sessionId)
-        if (!answered.ok) throw new Error(`${answered.error.code}: ${answered.error.message}`)
-        return answered.value
-      },
-      jump: async (nodeId: string | null) => {
-        const answered = await ctx.remote.sessionTree.jump(sessionId, nodeId)
-        if (!answered.ok) throw new Error(`${answered.error.code}: ${answered.error.message}`)
-        return answered.value
-      },
-      fork: async (nodeId: string, branch: string) => {
-        const answered = await ctx.remote.sessionTree.fork(sessionId, nodeId, branch)
-        if (!answered.ok) throw new Error(`${answered.error.code}: ${answered.error.message}`)
-        return answered.value
-      },
-      onRefresh: callback => {
-        const set = refreshers.get(sessionId) ?? new Set<() => void>()
-        set.add(callback); refreshers.set(sessionId, set)
-        return () => { set.delete(callback); if (set.size === 0) refreshers.delete(sessionId) }
-      },
-    }),
-  } as never, SessionTreeDock as never))
+  const remoteActions: SessionTreeRemoteActions = {
+    load: async (sessionId) => {
+      const answered = await ctx.remote.sessionTree.list(sessionId)
+      if (!answered.ok) throw new Error(`${answered.error.code}: ${answered.error.message}`)
+      return answered.value
+    },
+    jump: async (sessionId, nodeId) => {
+      const answered = await ctx.remote.sessionTree.jump(sessionId, nodeId)
+      if (!answered.ok) throw new Error(`${answered.error.code}: ${answered.error.message}`)
+      return answered.value
+    },
+    fork: async (sessionId, nodeId, branch) => {
+      const answered = await ctx.remote.sessionTree.fork(sessionId, nodeId, branch)
+      if (!answered.ok) throw new Error(`${answered.error.code}: ${answered.error.message}`)
+      return answered.value
+    },
+    onRefresh: (sessionId, callback) => {
+      const set = refreshers.get(sessionId) ?? new Set<() => void>()
+      set.add(callback); refreshers.set(sessionId, set)
+      return () => { set.delete(callback); if (set.size === 0) refreshers.delete(sessionId) }
+    },
+  }
+
+  // Every supported official Web profile declares this additive root slot.
+  // It remains a dormant fallback when the legacy source patch supplies the
+  // richer named details-panel slot below.
+  ctx.slots.inject('shell.overlay', () => ctx.slots.register({
+    name: 'shell.overlay', id: 'session-tree', order: 10, locale: NS,
+    inject: () => ({ controller: overlay, remoteActions }),
+  }, SessionTreeOverlay))
+
+  // The legacy source patch owns this optional slot. Mirror its exact
+  // declaration lifetime so HMR never shows both surfaces at once.
+  ctx.slots.inject('conversation.details.panel' as never, () => {
+    const disposePanel = ctx.slots.register({
+      name: 'conversation.details.panel', id: 'session-tree', order: 10, locale: NS,
+      inject: (sessionId: SessionId): SessionTreePanelActions => ({
+        load: remoteActions.load,
+        jump: nodeId => remoteActions.jump(sessionId, nodeId),
+        fork: (nodeId, branch) => remoteActions.fork(sessionId, nodeId, branch),
+        onRefresh: callback => remoteActions.onRefresh(sessionId, callback),
+      }),
+    } as never, SessionTreeDock as never)
+    overlay.setNativePanel(true)
+    return () => {
+      disposePanel()
+      overlay.setNativePanel(false)
+    }
+  })
 
   ctx.on('command/executed', (sessionId: SessionId, name: string, result: CommandResult) => {
-    if (name === 'tree') ctx.layout.openDetails('session-tree')
+    if (name === 'tree') {
+      if (overlay.getSnapshot().nativePanel) {
+        (ctx.layout.openDetails as (panel?: string) => void)('session-tree')
+      } else {
+        overlay.open()
+      }
+    }
     if (name === 'clone' && result.kind === 'success' && result.text !== undefined) {
       try {
         const payload = JSON.parse(result.text) as { value?: { sessionId?: string } }
