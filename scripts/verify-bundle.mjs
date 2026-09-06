@@ -47,11 +47,15 @@ if (!patch.includes('id: session-tree') || !patch.includes(`name: '${packageName
 const host = readFileSync(resolve(root, 'lib/index.js'), 'utf8')
 for (const marker of [
   'SessionTreeService',
+  'SessionTreeSidecar',
   'name: "session_tree"',
   'name: "tree"',
   'name: "fork"',
   'name: "clone"',
   'name: "session"',
+  'treeRestore',
+  'storages',
+  'session-tree',
 ]) {
   if (!host.includes(marker)) throw new Error(`Host artifact is missing ${marker}`)
 }

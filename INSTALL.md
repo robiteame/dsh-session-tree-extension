@@ -127,19 +127,24 @@ or source update.
 ### Behaviour on an unmodified official Harness
 
 Official `0.1.2-alpha.3` has neither the selected-message-surface API nor the
-durable `session-tree/*` event vocabulary that this repository's
-`harness.patch` adds. The standalone Bundle detects that at runtime and
-degrades cleanly instead of failing: the tree remains visible and browsable,
-and jump/fork/clone/snapshot operations work inside the live process. Two
-stock-mode limits follow from that design:
+durable `session-tree/*` event vocabulary that `harness.patch` adds. The
+standalone Bundle still provides real historical navigation by using Harness'
+official surface mechanism:
 
-- The next model turn cannot be rewritten to a historical node in place,
-  because `Session.selectMessageSurface()` does not exist; applying
-  `harness.patch` in a source checkout restores that switch.
-- Branch/cursor/selection markers and explicit snapshots are not appended to
-  the Session log, because stock persistence would reject the unknown event
-  types. Restart-safe branch persistence therefore requires a patched Harness
-  checkout or a kept-alive profile process.
+- A jump/fork/branch appends an empty official `assistant/message` with a
+  `replace` `surfaceOp` and rewrites the live surface nodes to the selected
+  path. The empty message does not enter the model transcript, but it changes
+  what `Session.deriveMessages()` returns for the next turn.
+- Branch names, cursor, selection, and explicit snapshots are stored in a
+  sidecar under `$DSH_HOME/storages/session-tree/<sessionId>.json` and restored
+  before the next agent pre-step. Restart-safe branching therefore works
+  without `harness.patch`.
+
+The sidecar is a separate artifact from `session.jsonl.zstd`: when moving only
+the raw session log between machines, also move the matching sidecar file, or
+use `/tree snapshot save/load` to carry the projection explicitly. A patched
+Harness source checkout continues to use the native selected-surface API and
+durable event vocabulary.
 
 ## Legacy source-checkout integration
 

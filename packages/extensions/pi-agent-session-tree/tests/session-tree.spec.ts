@@ -5,7 +5,10 @@
  * system-prompt section.
  */
 
-import { describe, expect, it } from 'vitest'
+import { afterAll, beforeEach, describe, expect, it } from 'vitest'
+import { mkdtempSync, mkdirSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
@@ -19,7 +22,11 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import SessionTreeService, {
   appendSessionTreeEvent,
   applyTreeCursorToSession,
+  getSessionTreeSidecar,
+  persistSessionTree,
+  setSessionTreeSidecar,
   SessionTree,
+  SessionTreeSidecar,
   sessionTreeStore,
   supportsDurableSessionTreeEvents,
   supportsSelectedMessageSurface,
@@ -30,6 +37,17 @@ import { sessionEventsToTreeNodes } from '@deepseek-ai/dsh-pi-agent-session-tree
 import * as toolSessionTree from '@deepseek-ai/dsh-tool-session-tree'
 
 const testToolSignal = new AbortController().signal
+const testSidecarRoot = mkdtempSync(join(tmpdir(), 'dsh-session-tree-sidecar-'))
+
+beforeEach(() => {
+  rmSync(testSidecarRoot, { recursive: true, force: true })
+  mkdirSync(testSidecarRoot, { recursive: true })
+  setSessionTreeSidecar(new SessionTreeSidecar(testSidecarRoot))
+})
+
+afterAll(() => {
+  rmSync(testSidecarRoot, { recursive: true, force: true })
+})
 const sessionTreeStoreForTest = (id: string) => sessionTreeStore.get(SessionId(id))
 
 /** One registry-compatible live agent whose session id keys its tree. */
@@ -610,7 +628,11 @@ describe('stock Harness Session compatibility (no harness.patch)', () => {
   it('detects the missing selected-surface API and skips in-place surface switches', () => {
     const agent = stubAgent('tree-stock-compat')
     // A stock Session has no selectMessageSurface/messageSurfaceNodes members.
-    const stockLike = { id: SessionId('tree-stock-compat') } as unknown as Session
+    const stockLike = {
+      id: SessionId('tree-stock-compat'),
+      events: [] as SessionEvent[],
+      surface: { nodes: [] as number[] },
+    } as unknown as Session
     agent.session = stockLike
     expect(supportsSelectedMessageSurface(agent.session)).toBe(false)
     expect(supportsDurableSessionTreeEvents(agent.session)).toBe(false)
@@ -623,7 +645,11 @@ describe('stock Harness Session compatibility (no harness.patch)', () => {
     const { service } = await harness()
     const agent = stubAgent('tree-stock-mutation')
     const original = agent.session
-    agent.session = { id: original.id, events: [...original.events] } as unknown as Session
+    agent.session = {
+      id: original.id,
+      events: [...original.events],
+      surface: { nodes: [] as number[] },
+    } as unknown as Session
     expect(supportsSelectedMessageSurface(agent.session)).toBe(false)
     // Reading the projection must not throw even though the surface cannot be
     // re-pointed at the selected path.
@@ -631,5 +657,69 @@ describe('stock Harness Session compatibility (no harness.patch)', () => {
     expect(view.nodes).toEqual([])
     expect(() => service.jump(agent, null)).not.toThrow()
     expect(service.list(agent).cursor).toBeNull()
+  })
+
+  it('rewrites the stock message surface with an official replace event and persists a sidecar', () => {
+    const sessionId = SessionId('tree-stock-rewrite')
+    const events = [
+      { type: 'user/message', seq: 0, time: 1, data: { role: 'user', content: 'one', source: { kind: 'user' } }, surfaceOp: 'append' },
+      { type: 'user/message', seq: 1, time: 2, data: { role: 'user', content: 'two', source: { kind: 'user' } }, surfaceOp: 'append' },
+    ] as SessionEvent[]
+    // Older/merged surfaces can occasionally carry nested seq payloads;
+    // stock rewriting must flatten them before they become durable provenance.
+    const surfaceNodes = [0, [1]] as unknown as number[]
+    const stockSession = {
+      id: sessionId,
+      events,
+      surface: { nodes: surfaceNodes },
+      requestContext: () => ({ provider: 'mock', model: 'mock' }),
+      append: ((type: string, data: Record<string, unknown>, opts?: { surfaceOp?: unknown; sourceEventSeqs?: number[] }) => {
+        const event = {
+          type,
+          seq: events.length,
+          time: Date.now(),
+          data,
+          ...(opts?.surfaceOp === undefined ? {} : { surfaceOp: opts.surfaceOp }),
+          ...(opts?.sourceEventSeqs === undefined ? {} : { sourceEventSeqs: opts.sourceEventSeqs }),
+        } as SessionEvent
+        events.push(event)
+        return event
+      }) as Session['append'],
+    } as unknown as Session
+
+    const agent = stubAgent(sessionId)
+    agent.session = stockSession
+    const tree = new SessionTree(sessionId)
+    const root = expectOk(tree.append({ role: 'user', content: 'one' }, { metadata: { sessionEventSeq: 0 } })) as TreeNode
+    const second = expectOk(tree.append({ role: 'user', content: 'two' }, { metadata: { sessionEventSeq: 1 } })) as TreeNode
+    tree.jump(root.nodeId)
+
+    applyTreeCursorToSession(agent, tree)
+
+    expect(surfaceNodes).toEqual([0])
+    const cursorEvent = events[2]
+    expect(cursorEvent?.type).toBe('assistant/message')
+    expect(cursorEvent?.surfaceOp).toEqual({ op: 'replace', start: 0, end: 1 })
+    expect(cursorEvent?.sourceEventSeqs).toEqual([0, 1])
+    expect((cursorEvent?.data as Record<string, unknown>).treeRestore).toEqual({ kind: 'cursor', nodeId: root.nodeId })
+
+    tree.jump(second.nodeId)
+    applyTreeCursorToSession(agent, tree)
+    expect(surfaceNodes).toEqual([0, 1])
+    expect(events).toHaveLength(4)
+
+    const restored = getSessionTreeSidecar().load(sessionId)
+    expect(restored?.cursor).toBe(second.nodeId)
+    expect(restored?.lastSessionEventSeq()).toBe(3)
+    expect(restored?.list().map(node => node.nodeId)).toEqual([root.nodeId, second.nodeId])
+  })
+
+  it('keeps synthetic cursor events out of the tree projection', () => {
+    const nodes = sessionEventsToTreeNodes([
+      { type: 'user/message', seq: 0, time: 1, data: { role: 'user', content: 'one', source: { kind: 'user' } }, surfaceOp: 'append' },
+      { type: 'assistant/message', seq: 1, time: 2, data: { turn: 0, step: 0, message: { role: 'assistant', content: [], id: 'cursor', source: { kind: 'model', provider: 'mock', model: 'mock' } }, treeRestore: { kind: 'cursor', nodeId: 'n1' } }, surfaceOp: { op: 'replace', start: 0, end: 0 }, sourceEventSeqs: [0] },
+    ] as never[])
+    expect(nodes).toHaveLength(1)
+    expect(nodes[0]?.type).toBe('message')
   })
 })

@@ -131,27 +131,31 @@ Typert, command, or WebUI contracts and are not guaranteed to work. Rebuild the
 Bundle after deliberately upgrading the Harness revision and re-run the profile
 checks.
 
-### Stock official Harness limitations
+### Stock official Harness behaviour
 
-The `dsh plugin` flow installs against an unmodified official Harness, which
-does not include the two extension points shipped by this repository's
-`harness.patch`:
+The `dsh plugin` flow runs against an unmodified official Harness, so the
+Bundle uses only Harness' public surface and persistence contracts:
 
-- **No selected-message-surface API.** Stock `0.1.2-alpha.3` lacks
-  `Session.selectMessageSurface()` / `messageSurfaceNodes()`. The Bundle
-  detects that at runtime and never throws or mutates the model-visible
-  surface. `/tree`, `/session`, node selection, and in-process
-  jump/fork/clone/snapshot operations still work; the next model turn,
-  however, continues from Harness' canonical surface instead of being
-  rewritten to the clicked historical leaf. In a patched Harness source
-  checkout this in-place switch is restored.
-- **No durable `session-tree/*` event vocabulary.** Stock persistence rejects
-  unknown append types, so the Bundle skips `session-tree/*` log appends when
-  that API is absent. The tree is then a per-process projection derived from
-  the canonical Session log: normal message history is visible and browsable,
-  but branch/cursor/selection state and explicit `session-tree/snapshot`
-  records are not written to the Session file. Keep the process live or use a
-  patched Harness checkout when restart-safe branch persistence is required.
+- **Historical node switches.** Stock `0.1.2-alpha.3` has no
+  `Session.selectMessageSurface()`. On jump/fork/branch, the Bundle appends an
+  official empty-content `assistant/message` event carrying a `replace`
+  `surfaceOp`, then rewrites the live surface nodes to the selected path. The
+  empty assistant event projects to no transcript message but invalidates
+  Harness' derived-history cache, so the next model turn starts from the
+  clicked historical leaf. The event remains append-only and uses only known
+  official types.
+- **Durable tree metadata.** Stock persistence does not recognize
+  `session-tree/*` events. Branch names, cursor, selection, and explicit
+  snapshots are stored in a plugin-owned sidecar at
+  `$DSH_HOME/storages/session-tree/<sessionId>.json`. It is written
+  atomically during sync/flush and restored before the next pre-step, which
+  keeps branches alive across a profile restart.
+
+The sidecar is separate from Harness' own session artifact: when a raw
+`session.jsonl.zstd` is exported or copied between machines, copy the matching
+sidecar file too, or restore the tree with `/tree snapshot save/load`. A
+patched Harness source checkout still uses the native selected-surface API and
+durable `session-tree/*` events instead.
 
 ## Semantics
 

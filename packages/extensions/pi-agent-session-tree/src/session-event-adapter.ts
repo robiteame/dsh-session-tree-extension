@@ -6,6 +6,7 @@
  */
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type { ContentPart, JsonValue, LlmMessage, TreeNode } from './types.ts'
+import { isSessionTreeRestoreEvent } from './session-tree-marker.ts'
 
 /** Project the message-producing Harness events into an append-only tree. */
 export function sessionEventsToTreeNodes(events: readonly SessionEvent[], initialParentId: string | null = null): TreeNode[] {
@@ -21,6 +22,9 @@ export function sessionEventsToTreeNodes(events: readonly SessionEvent[], initia
 }
 
 function projectEvent(event: SessionEvent, parentId: string | null): TreeNode | undefined {
+  // Stock-mode cursor rewrites are official surface events but carry no
+  // conversation content; the sidecar owns the tree projection they imply.
+  if (isSessionTreeRestoreEvent(event)) return undefined
   let message: LlmMessage | undefined
   let content: ContentPart[] | undefined
   let type: TreeNode['type'] = 'custom'

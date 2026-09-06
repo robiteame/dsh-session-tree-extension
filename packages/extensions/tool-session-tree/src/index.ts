@@ -22,7 +22,7 @@ import type {} from '@deepseek-ai/dsh-agent'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
-import { appendSessionTreeEvent, applyTreeCursorToSession, SessionTree, sessionTreeStore, supportsDurableSessionTreeEvents, syncSessionTree } from '@deepseek-ai/dsh-pi-agent-session-tree'
+import { appendSessionTreeEvent, applyTreeCursorToSession, persistSessionTree, SessionTree, sessionTreeStore, supportsDurableSessionTreeEvents, syncSessionTree } from '@deepseek-ai/dsh-pi-agent-session-tree'
 import type { JsonValue } from '@deepseek-ai/dsh-pi-agent-session-tree'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 import type {} from '@deepseek-ai/dsh-system-prompt'
@@ -142,6 +142,8 @@ async function runToolOperation(ctx: Context, args: SessionTreeToolArgs, exec: T
       const event = appendSessionTreeEvent(exec.agent.session, 'session-tree/snapshot', { snapshot })
       if (event !== undefined) candidate.value.markSessionEventSeq(event.seq)
       sessionTreeStore.replace(sessionId, candidate.value)
+      applyTreeCursorToSession(exec.agent, candidate.value)
+      persistSessionTree(candidate.value)
       return { ok: true, value: { sessionId } }
     }
     default:
@@ -182,6 +184,7 @@ async function runToolOperation(ctx: Context, args: SessionTreeToolArgs, exec: T
         try {
           const event = appendSessionTreeEvent(exec.agent.session, 'session-tree/node', { node: appended.value })
           if (event !== undefined) tree.markSessionEventSeq(event.seq)
+          persistSessionTree(tree)
         } catch (error) {
           tree.rollback(checkpoint)
           throw error
@@ -272,6 +275,8 @@ async function runToolOperation(ctx: Context, args: SessionTreeToolArgs, exec: T
         try {
           const event = appendSessionTreeEvent(exec.agent.session, 'session-tree/node', { node: summarized.value })
           if (event !== undefined) tree.markSessionEventSeq(event.seq)
+          applyTreeCursorToSession(exec.agent, tree)
+          persistSessionTree(tree)
         } catch (error) {
           tree.rollback(checkpoint)
           throw error
@@ -367,7 +372,7 @@ function seedCloneTree(targetId: SessionId, source: SessionTree, focusId: string
   const activeBranch = focusNode?.branch ?? snapshot.activeBranch
   const branchHeads = { ...snapshot.branchHeads }
   if (focusNode !== undefined) branchHeads[focusNode.branch] = focusNode.nodeId
-  sessionTreeStore.replace(targetId, new SessionTree(targetId, {
+  const clonedTree = new SessionTree(targetId, {
     version: 1,
     sessionId: targetId,
     cursor: focusId,
@@ -376,7 +381,9 @@ function seedCloneTree(targetId: SessionId, source: SessionTree, focusId: string
     selectedNodeId: focusId,
     nativeEventSeq,
     nodes: snapshot.nodes,
-  }))
+  })
+  sessionTreeStore.replace(targetId, clonedTree)
+  persistSessionTree(clonedTree)
 }
 
 /** Validate and construct a restored tree without throwing. */
@@ -515,6 +522,8 @@ async function runTreeCommand(ctx: Context, invocation: CommandInvocation): Prom
           const event = appendSessionTreeEvent(invocation.agent.session, 'session-tree/snapshot', { snapshot })
           if (event !== undefined) candidate.markSessionEventSeq(event.seq)
           sessionTreeStore.replace(sessionId, candidate)
+          applyTreeCursorToSession(invocation.agent, candidate)
+          persistSessionTree(candidate)
           return json({ ok: true, value: { sessionId } })
         } catch (error) {
           throw error

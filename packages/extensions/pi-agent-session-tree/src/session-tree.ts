@@ -377,6 +377,11 @@ export class SessionTree {
     if (Number.isSafeInteger(seq) && seq > this.syncedSessionEventSeq) this.syncedSessionEventSeq = seq
   }
 
+  /** Rewind the watermark when a persisted native tail is shorter than the sidecar expected. */
+  limitSessionEventSeq(seq: number): void {
+    if (Number.isSafeInteger(seq) && seq < this.syncedSessionEventSeq) this.syncedSessionEventSeq = seq
+  }
+
   /** @returns true when a node with this id exists. */
   has(nodeId: string): boolean {
     return this.nodesById.has(nodeId)

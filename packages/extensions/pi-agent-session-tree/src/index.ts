@@ -25,11 +25,14 @@ import type { SessionEvent, SessionEventMap } from '@deepseek-ai/dsh-session/typ
 import { TypertRemoteService, Remote } from '@deepseek-ai/dsh-typert-protocol'
 import { SessionTree, sessionTreeStore } from './session-tree.ts'
 import { sessionEventsToTreeNodes } from './session-event-adapter.ts'
+import { getSessionTreeSidecar, persistSessionTree } from './session-tree-sidecar.ts'
 import type { JumpView, SessionTreeSessionInfo, SessionTreeView } from './types.ts'
 
 export { SessionTree, SessionTreeStore, sessionTreeStore } from './session-tree.ts'
 export type * from './types.ts'
 export { sessionEventsToTreeNodes } from './session-event-adapter.ts'
+export { getSessionTreeSidecar, persistSessionTree, setSessionTreeSidecar, SessionTreeSidecar } from './session-tree-sidecar.ts'
+export { isSessionTreeRestoreEvent, sessionTreeMarkerOf, type SessionTreeRestoreMarker } from './session-tree-marker.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -95,8 +98,13 @@ export function appendSessionTreeEvent(
 export function syncSessionTree(agent: Agent): SessionTree {
   const sessionId = agent.session.id
   const existing = sessionTreeStore.get(sessionId)
-  let tree = existing === undefined ? new SessionTree(sessionId) : new SessionTree(sessionId, existing.snapshot())
-  const lastSeq = existing?.lastSessionEventSeq() ?? -1
+  const restored = existing === undefined ? getSessionTreeSidecar().load(sessionId) : undefined
+  let tree = existing === undefined
+    ? restored ?? new SessionTree(sessionId)
+    : new SessionTree(sessionId, existing.snapshot())
+  const actualLatestSeq = agent.session.events.at(-1)?.seq ?? -1
+  tree.limitSessionEventSeq(actualLatestSeq)
+  const lastSeq = tree.lastSessionEventSeq()
   const freshEvents = agent.session.events.filter(event => event.seq > lastSeq)
   let nativeParentId = tree.cursor
   for (const event of freshEvents) {
@@ -149,20 +157,99 @@ export function syncSessionTree(agent: Agent): SessionTree {
   if (newestSeq !== undefined) tree.markSessionEventSeq(newestSeq)
   sessionTreeStore.replace(sessionId, tree)
   applyTreeCursorToSession(agent, tree)
+  persistSessionTree(tree)
   return tree
 }
 
-/** Apply the selected tree path to Harness' actual model-visible Session surface. */
-export function applyTreeCursorToSession(agent: Agent, tree: SessionTree): void {
-  if (!supportsSelectedMessageSurface(agent.session)) return
+/** Surface event seqs making up the tree's current root-to-cursor path. */
+function selectedSurfaceSeqs(tree: SessionTree, session: Session): number[] {
   const seqs: number[] = []
   for (const node of tree.currentPath()) {
     const seq = node.metadata?.sessionEventSeq
     if (typeof seq !== 'number') continue
-    const event = agent.session.events[seq]
+    const event = session.events[seq]
     if (event !== undefined && isSurfaceEvent(event)) seqs.push(seq)
   }
-  agent.session.selectMessageSurface(seqs)
+  return seqs
+}
+
+/** Append the official replacement event that invalidates the stock deriveMessages cache. */
+function appendStockCursorEvent(
+  session: Session,
+  tree: SessionTree,
+  currentNodes: readonly number[],
+): SessionEvent<'assistant/message'> | undefined {
+  if (currentNodes.length === 0) return undefined
+  const context = session.requestContext()
+  const marker = { kind: 'cursor' as const, nodeId: tree.cursor }
+  const data = {
+    turn: 0,
+    step: 0,
+    message: {
+      role: 'assistant' as const,
+      content: [],
+      id: `session-tree-cursor-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      source: {
+        kind: 'model' as const,
+        provider: context?.provider ?? 'session-tree',
+        model: context?.model ?? 'cursor',
+      },
+    },
+    treeRestore: marker,
+  } as unknown as SessionEventMap['assistant/message']
+  return session.append('assistant/message', data, {
+    surfaceOp: { op: 'replace', start: currentNodes[0]!, end: currentNodes[currentNodes.length - 1]! },
+    sourceEventSeqs: [...currentNodes],
+  })
+}
+
+/** Rewrite the live stock surface nodes after the replacement generation bump. */
+function setStockSurfaceNodes(session: Session, seqs: readonly number[]): void {
+  const nodes = session.surface.nodes as unknown as number[]
+  if (!Array.isArray(nodes) || Object.isFrozen(nodes)) {
+    throw new Error('stock Harness message surface is not writable in this revision')
+  }
+  nodes.splice(0, nodes.length, ...seqs)
+}
+
+/** True when the two ordered seq lists are identical. */
+function sameSurfaceNodes(left: readonly number[], right: readonly number[]): boolean {
+  return left.length === right.length && left.every((seq, index) => seq === right[index])
+}
+
+/** Defensively flatten any nested seq payloads produced by older Harness surfaces. */
+function normalizeSurfaceNodeSeqs(values: readonly unknown[]): number[] {
+  const seqs: number[] = []
+  for (const value of values) {
+    if (Array.isArray(value)) {
+      for (const child of value) {
+        if (Number.isSafeInteger(child)) seqs.push(child as number)
+      }
+    } else if (Number.isSafeInteger(value)) {
+      seqs.push(value as number)
+    }
+  }
+  return seqs
+}
+
+/** Apply the selected tree path to Harness' actual model-visible Session surface. */
+export function applyTreeCursorToSession(agent: Agent, tree: SessionTree): void {
+  const session = agent.session
+  const seqs = selectedSurfaceSeqs(tree, session)
+  if (supportsSelectedMessageSurface(session)) {
+    session.selectMessageSurface(seqs)
+    return
+  }
+  const stockSession = session as Session
+  const currentNodes = normalizeSurfaceNodeSeqs(stockSession.surface.nodes)
+  if (sameSurfaceNodes(currentNodes, seqs)) return
+  if (process.env.DSH_SESSION_TREE_DEBUG === '1') {
+    console.error('[session-tree] stock surface rewrite', { sessionId: stockSession.id, currentNodes, seqs, cursor: tree.cursor })
+  }
+  const event = appendStockCursorEvent(stockSession, tree, currentNodes)
+  if (event !== undefined) tree.markSessionEventSeq(event.seq)
+  setStockSurfaceNodes(stockSession, seqs)
+  persistSessionTree(tree)
 }
 
 /** Remote-only service backing the browser tree panel. */
@@ -178,6 +265,10 @@ export class SessionTreeService extends TypertRemoteService {
     ctx.on('agent/pre-step', ({ agent }, next) => {
       syncSessionTree(agent)
       return next()
+    })
+    ctx.on('session/flush', (session) => {
+      const tree = sessionTreeStore.get(session.id)
+      if (tree !== undefined) persistSessionTree(tree)
     })
   }
 
