@@ -4,6 +4,11 @@
   "private": true,
   "description": "Development workspace for the dsh-session-tree plugin packages (not published)",
   "type": "module",
+  "dsh": {
+    "bundle": {
+      "patch": "./packages/bundle/session-tree/cordis.patch.yml"
+    }
+  },
   "scripts": {
     "build": "node scripts/build.mjs",
     "test": "vitest run",
