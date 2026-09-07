@@ -192,6 +192,13 @@
   text-align: left;
   cursor: pointer;
 }
+/* Tool interactions are quiet gray: no business-primary highlight on the role
+   chip or the summary. Only a failed call is highlighted, in error red. */
+.nodeTool .role,
+.nodeTool .summary { color: var(--dsw-alias-label-tertiary); }
+.nodeError .role,
+.nodeError .summary { color: var(--dsw-alias-state-error-primary); }
+
 .nodeTopline {
   display: flex;
   align-items: center;
@@ -232,6 +239,18 @@
   line-height: 17px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* Keep rows compact normally, but never discard the underlying message text.
+   Hovering the row or keyboard-focusing its select button reveals the complete
+   content inside a bounded scroll area, avoiding native-tooltip length limits. */
+.node:hover .summary,
+.select:focus-visible .summary {
+  overflow-x: hidden;
+  overflow-y: auto;
+  max-height: min(60vh, 560px);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
 }
 .forkAction {
   align-self: center;

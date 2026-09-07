@@ -22,7 +22,7 @@ import type {} from '@deepseek-ai/dsh-agent'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
-import { appendSessionTreeEvent, applyTreeCursorToSession, persistSessionTree, SessionTree, sessionTreeStore, supportsDurableSessionTreeEvents, syncSessionTree } from '@deepseek-ai/dsh-pi-agent-session-tree'
+import { appendSessionTreeEvent, applyTreeCursorToSession, isSessionTreeRestoreEvent, persistSessionTree, SessionTree, sessionTreeStore, supportsDurableSessionTreeEvents, syncSessionTree } from '@deepseek-ai/dsh-pi-agent-session-tree'
 import type { JsonValue } from '@deepseek-ai/dsh-pi-agent-session-tree'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 import type {} from '@deepseek-ai/dsh-system-prompt'
@@ -321,14 +321,16 @@ async function cloneActiveSession(ctx: Context, agent: NonNullable<ToolRunContex
   // durable event log verbatim; the shared store then projects the identical
   // tree. Snapshot events are rewritten so their embedded sessionId matches the
   // target (otherwise a resumed clone would reject the seed as foreign).
-  const seed: SessionEvent[] = agent.session.events.map((event, index) => {
-    const record = JSON.parse(JSON.stringify(event)) as unknown as SessionEvent
-    if (record.type === 'session-tree/snapshot') {
-      record.data = { ...record.data, snapshot: { ...record.data.snapshot, sessionId: toSessionId(target) } }
-    }
-    record.seq = index
-    return record
-  })
+  const seed: SessionEvent[] = agent.session.events
+    .filter(event => !isSessionTreeRestoreEvent(event))
+    .map((event, index) => {
+      const record = JSON.parse(JSON.stringify(event)) as unknown as SessionEvent
+      if (record.type === 'session-tree/snapshot') {
+        record.data = { ...record.data, snapshot: { ...record.data.snapshot, sessionId: toSessionId(target) } }
+      }
+      record.seq = index
+      return record
+    })
   const seedTime = Date.now()
   if (supportsDurableSessionTreeEvents(agent.session)) {
     seed.push({
@@ -379,7 +381,7 @@ function seedCloneTree(targetId: SessionId, source: SessionTree, focusId: string
     activeBranch,
     ...(focusId === null && Object.keys(branchHeads).length === 0 ? {} : { branchHeads }),
     selectedNodeId: focusId,
-    nativeEventSeq,
+    ...(nativeEventSeq < 0 ? {} : { nativeEventSeq }),
     nodes: snapshot.nodes,
   })
   sessionTreeStore.replace(targetId, clonedTree)

@@ -317,6 +317,43 @@ describe('session_tree tool: append-only history', () => {
     expect(nodes[3]?.model).toBe('deepseek-chat')
   })
 
+  it('folds a tool call and its result into one tree entry', () => {
+    const nodes = sessionEventsToTreeNodes([
+      { type: 'assistant/message', seq: 0, time: 1000, data: { turn: 1, step: 1, message: { role: 'assistant', content: [{ type: 'text', text: 'checking' }] } }, surfaceOp: 'append' },
+      { type: 'tool/call', seq: 1, time: 2000, data: { turn: 1, step: 1, callId: 'call-1', name: 'bash', arguments: '{"cmd":"ls"}' } },
+      { type: 'tool/result', seq: 2, time: 3000, data: { turn: 1, step: 1, message: { role: 'user', content: [{ type: 'tool-result', toolCallId: 'call-1', content: [{ type: 'text', text: 'a b c' }] }] } }, surfaceOp: 'append' },
+    ] as never[])
+    expect(nodes).toHaveLength(2)
+    const merged = nodes[1]
+    expect(merged?.type).toBe('tool_call')
+    expect(merged?.message).toMatchObject({ role: 'tool', content: 'a b c', toolCallId: 'call-1' })
+    expect(merged?.content).toEqual([
+      { type: 'tool_call', id: 'call-1', name: 'bash', arguments: { cmd: 'ls' } },
+      { type: 'tool_result', toolCallId: 'call-1', content: 'a b c' },
+    ])
+    expect(merged?.metadata).toMatchObject({ toolResultEventSeq: 2 })
+    expect(merged?.summary).toContain('→ a b c')
+  })
+
+  it('marks a failed tool call on the merged entry', () => {
+    const nodes = sessionEventsToTreeNodes([
+      { type: 'tool/call', seq: 0, time: 1000, data: { turn: 1, step: 1, callId: 'call-e', name: 'pwsh', arguments: '{}' } },
+      { type: 'tool/result', seq: 1, time: 2000, data: { turn: 1, step: 1, message: { role: 'user', content: [{ type: 'tool-result', toolCallId: 'call-e', content: [{ type: 'text', text: 'denied' }], isError: true }] }, error: { name: 'Sandbox', code: 'EPERM' } }, surfaceOp: 'append' },
+    ] as never[])
+    expect(nodes).toHaveLength(1)
+    expect(nodes[0]?.error).toBe('Sandbox: EPERM')
+    expect(nodes[0]?.content?.some(part => part.type === 'tool_result' && part.isError === true)).toBe(true)
+  })
+
+  it('keeps a standalone result only when no matching call was projected', () => {
+    const nodes = sessionEventsToTreeNodes([
+      { type: 'tool/result', seq: 0, time: 1000, data: { turn: 1, step: 1, message: { role: 'user', content: [{ type: 'tool-result', toolCallId: 'orphan', content: [{ type: 'text', text: 'late result' }] }] } }, surfaceOp: 'append' },
+    ] as never[])
+    expect(nodes).toHaveLength(1)
+    expect(nodes[0]?.type).toBe('tool_result')
+    expect(nodes[0]?.message?.content).toBe('late result')
+  })
+
   it('preserves compaction replacements as append-only tree nodes', () => {
     const nodes = sessionEventsToTreeNodes([
       { type: 'user/message', seq: 4, time: 1000, data: { role: 'user', content: 'old' }, surfaceOp: 'append' },
@@ -606,6 +643,68 @@ describe('session_tree plugin surfaces', () => {
       (message.content as Array<{ type?: string; text?: string }>).map(block => block.text ?? '').join(''),
     )
     expect(texts).toEqual(['root', 'answer'])
+  })
+
+  it('merges a tool result that arrives after its call was already synced', async () => {
+    const { service } = await harness()
+    const agent = stubAgent('tree-tool-merge')
+    agent.session.append('user/message', { role: 'user', content: 'run it', source: 'human' } as never, { surfaceOp: 'append' })
+    agent.session.append('tool/call', { turn: 1, step: 1, callId: 'call-9', name: 'bash', arguments: '{"cmd":"ls"}' } as never)
+    const before = service.list(agent)
+    expect(before.nodes).toHaveLength(2)
+
+    // The call was already committed by the sync above; its result lands in a
+    // later event batch and must fold into the same entry, not add a new one.
+    agent.session.append('tool/result', {
+      turn: 1,
+      step: 1,
+      message: { role: 'user', content: [{ type: 'tool-result', toolCallId: 'call-9', content: [{ type: 'text', text: 'ok output' }] }] },
+    } as never, { surfaceOp: 'append', sourceEventSeqs: [1] })
+    const after = service.list(agent)
+    expect(after.nodes).toHaveLength(2)
+    const merged = after.nodes.find(node => node.type === 'tool_call')
+    expect(merged?.content?.some(part => part.type === 'tool_result' && part.content === 'ok output')).toBe(true)
+    expect(merged?.message?.role).toBe('tool')
+    expect(merged?.metadata).toMatchObject({ toolResultEventSeq: 2 })
+    // The model-visible surface keeps the result event next to its call on both
+    // patched Harness (selected-surface API) and stock Harness (mutable surface).
+    if (supportsSelectedMessageSurface(agent.session)) {
+      expect(agent.session.messageSurfaceNodes()).toEqual([0, 2])
+    } else {
+      expect(agent.session.surface.nodes).toEqual([0, 2])
+    }
+  })
+
+  it('folds legacy split tool pairs when restoring a snapshot', async () => {
+    const { ctx } = await harness()
+    const agent = stubAgent('tree-legacy-fold')
+    await runTool(ctx, agent, { operation: 'create' })
+    const restored = await runTool(ctx, agent, {
+      operation: 'snapshot.load',
+      snapshot: {
+        version: 1,
+        sessionId: agent.session.id,
+        cursor: 'n3',
+        selectedNodeId: 'n3',
+        activeBranch: 'main',
+        branchHeads: { main: 'n3' },
+        nodes: [
+          { nodeId: 'n1', parentId: null, type: 'message', branch: 'main', summary: 'q', createdAt: '2026-01-01T00:00:00.000Z', message: { role: 'user', content: 'q' } },
+          { nodeId: 'n2', parentId: 'n1', type: 'tool_call', branch: 'main', summary: 'ls()', createdAt: '2026-01-01T00:00:01.000Z', content: [{ type: 'tool_call', id: 'c1', name: 'ls', arguments: {} }] },
+          { nodeId: 'n3', parentId: 'n2', type: 'tool_result', branch: 'main', summary: 'out', createdAt: '2026-01-01T00:00:02.000Z', message: { role: 'tool', content: 'out', toolCallId: 'c1' }, content: [{ type: 'tool_result', toolCallId: 'c1', content: 'out' }] },
+        ],
+      },
+    })
+    expectOk(restored)
+    const list = expectOk(await runTool(ctx, agent, { operation: 'list' })) as TreeNode[]
+    expect(list).toHaveLength(2)
+    expect(list[1]?.type).toBe('tool_call')
+    expect(list[1]?.content?.some(part => part.type === 'tool_result' && part.content === 'out')).toBe(true)
+    // The cursor and branch head move from the removed result node to the merged entry.
+    const tree = sessionTreeStore.get(agent.session.id)
+    expect(tree?.cursor).toBe('n2')
+    expect(tree?.selectedNode).toBe('n2')
+    expect(tree?.branches().find(branch => branch.name === 'main')?.headId).toBe('n2')
   })
 
   it('registers the tool, the /tree command, and the system-prompt section', async () => {

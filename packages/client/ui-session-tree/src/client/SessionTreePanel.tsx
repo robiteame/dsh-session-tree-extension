@@ -58,6 +58,48 @@ function Graph({ row, active }: { row: GraphRow; active: boolean }) {
   )
 }
 
+/** The node's complete message text: structured content parts beat the capped summary. */
+function nodeFullText(node: TreeNode): string {
+  const parts = node.content
+  if (parts === undefined || parts.length === 0) return node.message?.content ?? node.summary
+  const lines: string[] = []
+  for (const part of parts) {
+    if (part.type === 'text' || part.type === 'reasoning') {
+      const text = part.text.trim()
+      if (text !== '') lines.push(text)
+    } else if (part.type === 'tool_call') {
+      lines.push(`${part.name}(${typeof part.arguments === 'string' ? part.arguments : JSON.stringify(part.arguments)})`)
+    } else if (part.type === 'tool_result') {
+      const text = part.content.trim()
+      if (text !== '') lines.push(text)
+    }
+  }
+  const text = lines.join('\n')
+  return text === '' ? node.message?.content ?? node.summary : text
+}
+
+/** The tool name carried by a tool-call node, used as the role label before its result lands. */
+function toolNameOf(node: TreeNode): string | undefined {
+  for (const part of node.content ?? []) {
+    if (part.type === 'tool_call') return part.name
+  }
+  return undefined
+}
+
+/** Whether one node is a tool interaction entry (call, result, or merged pair). */
+function isToolNode(node: TreeNode): boolean {
+  return node.type === 'tool_call' || node.type === 'tool_result' || node.message?.role === 'tool'
+}
+
+/** Whether a node records a failed call — the row is marked red. */
+function nodeHasError(node: TreeNode): boolean {
+  return node.error !== undefined || node.content?.some(part => part.type === 'tool_result' && part.isError === true) === true
+}
+
+/** One node row in the right details sidebar: graph dot, role, branch chip,
+ *  head chip, and a compact one-line preview. Tool interactions render as quiet
+ *  gray rows; only a failed call is highlighted, in error red. Hover/focus
+ *  expands the preview into a scrollable view of the complete node content. */
 function NodeRow({ row, selected, pending, branchHeads, onSelect, onFork, t }: {
   row: GraphRow
   selected: boolean
@@ -69,9 +111,13 @@ function NodeRow({ row, selected, pending, branchHeads, onSelect, onFork, t }: {
 }) {
   const { node } = row
   const heads = Object.entries(branchHeads ?? {}).filter(([, id]) => id === node.nodeId).map(([name]) => name)
-  const role = node.message === undefined ? t('node.noMessage') : t(ROLE_LABELS[node.message.role])
+  const failed = nodeHasError(node)
+  const kindClass = failed ? css.nodeError : isToolNode(node) ? css.nodeTool : undefined
+  const classes = [css.node, selected ? css.nodeSelected : undefined, kindClass].filter(Boolean).join(' ')
+  const role = node.message === undefined ? toolNameOf(node) ?? t('node.noMessage') : t(ROLE_LABELS[node.message.role])
+  const fullText = nodeFullText(node)
   return (
-    <div className={selected ? `${css.node} ${css.nodeSelected}` : css.node} data-node-id={node.nodeId}>
+    <div className={classes} data-node-id={node.nodeId}>
       <Graph row={row} active={selected} />
       <button
         type="button" className={css.select} disabled={pending}
@@ -84,7 +130,7 @@ function NodeRow({ row, selected, pending, branchHeads, onSelect, onFork, t }: {
           <span className={css.branch}>{node.branch}</span>
           {heads.length > 0 ? <span className={css.head}>{heads.join(', ')}</span> : null}
         </span>
-        <span className={css.summary}>{node.summary}</span>
+        <span className={css.summary} title={fullText}>{fullText}</span>
       </button>
       <button
         type="button" className={css.forkAction} disabled={pending}
