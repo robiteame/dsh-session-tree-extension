@@ -24,13 +24,13 @@ import { isSurfaceEvent } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionEventMap } from '@deepseek-ai/dsh-session/types'
 import { TypertRemoteService, Remote } from '@deepseek-ai/dsh-typert-protocol'
 import { SessionTree, sessionTreeStore } from './session-tree.ts'
-import { sessionEventsToTreeNodes } from './session-event-adapter.ts'
+import { attachToolResult, sessionEventsToTreeNodes, toolResultOf } from './session-event-adapter.ts'
 import { getSessionTreeSidecar, persistSessionTree } from './session-tree-sidecar.ts'
 import type { JumpView, SessionTreeSessionInfo, SessionTreeView } from './types.ts'
 
 export { SessionTree, SessionTreeStore, sessionTreeStore } from './session-tree.ts'
 export type * from './types.ts'
-export { sessionEventsToTreeNodes } from './session-event-adapter.ts'
+export { attachToolResult, sessionEventsToTreeNodes, toolResultOf, type ProjectedToolResult } from './session-event-adapter.ts'
 export { getSessionTreeSidecar, persistSessionTree, setSessionTreeSidecar, SessionTreeSidecar } from './session-tree-sidecar.ts'
 export { isSessionTreeRestoreEvent, sessionTreeMarkerOf, type SessionTreeRestoreMarker } from './session-tree-marker.ts'
 
@@ -203,6 +203,19 @@ export function syncSessionTree(agent: Agent): SessionTree {
     // shadowed by compaction. Pi's tree is the immutable history graph, not the
     // current flattened model surface.
     if (!isExplicitTreeNode && !isTreeMetadataEvent && !isSurfaceEvent(event)) continue
+    // A tool call and its result are one interaction: fold the result into the
+    // already-projected tool-call node instead of appending a second entry.
+    // This covers results that arrive in a later sync batch than their call.
+    if (event.type === 'tool/result') {
+      const result = toolResultOf(event)
+      const callNode = result === undefined ? undefined : tree.findToolCallNode(result.callId)
+      if (callNode !== undefined && result !== undefined) {
+        const merged = attachToolResult(callNode, result, event.seq)
+        const attached = tree.attachToolResult(result.callId, merged)
+        if (!attached.ok) throw new Error(`${attached.error.code}: ${attached.error.message}`)
+        continue
+      }
+    }
     const nodes = sessionEventsToTreeNodes([event], nativeParentId)
     if (nodes.length === 0) continue
     const first = nodes[0]
@@ -224,10 +237,18 @@ export function syncSessionTree(agent: Agent): SessionTree {
 function selectedSurfaceSeqs(tree: SessionTree, session: Session): number[] {
   const seqs: number[] = []
   for (const node of tree.currentPath()) {
-    const seq = node.metadata?.sessionEventSeq
-    if (typeof seq !== 'number') continue
-    const event = session.events[seq]
-    if (event !== undefined && isSurfaceEvent(event)) seqs.push(seq)
+    // A merged tool node carries two native seqs: the call (metadata-only, not
+    // a surface event) and the result (a real surface event that must stay on
+    // the model-visible path together with its call).
+    const nativeSeqs: number[] = []
+    const primary = node.metadata?.sessionEventSeq
+    if (typeof primary === 'number') nativeSeqs.push(primary)
+    const resultSeq = node.metadata?.toolResultEventSeq
+    if (typeof resultSeq === 'number') nativeSeqs.push(resultSeq)
+    for (const seq of nativeSeqs) {
+      const event = session.events[seq]
+      if (event !== undefined && isSurfaceEvent(event)) seqs.push(seq)
+    }
   }
   return seqs
 }

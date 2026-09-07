@@ -9,6 +9,7 @@
  */
 
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import { attachToolResult } from './session-event-adapter.ts'
 import type {
   BranchView,
   JsonValue,
@@ -56,13 +57,14 @@ export class SessionTree {
   constructor(readonly sessionId: SessionId, snapshot?: unknown) {
     if (snapshot === undefined) return
     if (!isSnapshot(snapshot, sessionId)) throw new Error('invalid session tree snapshot')
-    for (const node of snapshot.nodes) this.nodesById.set(node.nodeId, clone(node))
-    this.cursorId = snapshot.cursor
-    this.selectedNodeId = snapshot.selectedNodeId ?? null
-    if (typeof snapshot.nativeEventSeq === 'number') this.syncedSessionEventSeq = snapshot.nativeEventSeq
-    if (typeof snapshot.activeBranch === 'string') this.activeBranchName = snapshot.activeBranch
-    if (snapshot.branchHeads !== undefined) {
-      for (const [name, head] of Object.entries(snapshot.branchHeads)) {
+    const migrated = foldLegacyToolResultPairs(snapshot)
+    for (const node of migrated.nodes) this.nodesById.set(node.nodeId, clone(node))
+    this.cursorId = migrated.cursor
+    this.selectedNodeId = migrated.selectedNodeId ?? null
+    if (typeof migrated.nativeEventSeq === 'number') this.syncedSessionEventSeq = migrated.nativeEventSeq
+    if (typeof migrated.activeBranch === 'string') this.activeBranchName = migrated.activeBranch
+    if (migrated.branchHeads !== undefined) {
+      for (const [name, head] of Object.entries(migrated.branchHeads)) {
         if (this.nodesById.has(head)) this.branchHeads.set(name, head)
       }
     }
@@ -387,6 +389,35 @@ export class SessionTree {
     return this.nodesById.has(nodeId)
   }
 
+  /**
+   * Find the dedicated tool-call node carrying this call id. Assistant
+   * message nodes may echo the same tool-call block in their content, but a
+   * tool result must never fold into them: only `type === 'tool_call'` nodes
+   * represent the interaction entry the panel renders.
+   */
+  findToolCallNode(callId: string): TreeNode | undefined {
+    for (const node of this.nodesById.values()) {
+      if (node.type !== 'tool_call') continue
+      if (node.content?.some(part => part.type === 'tool_call' && part.id === callId) === true) return node
+    }
+    return undefined
+  }
+
+  /**
+   * Replace a projected tool-call node with its result-merged form, so one
+   * call and its result stay one tree entry even when the result arrives in a
+   * later sync batch than the call. The tree is a deterministic projection of
+   * the durable Session log, so this derived update never rewrites history in
+   * the log itself and replays identically from scratch.
+   */
+  attachToolResult(callId: string, merged: TreeNode): TreeResult<TreeNode> {
+    const existing = this.findToolCallNode(callId)
+    if (existing === undefined) return fail('NODE_NOT_FOUND', `no tool-call node for call '${callId}'`)
+    if (merged.nodeId !== existing.nodeId) return fail('INVALID_ARGUMENT', 'merged tool node does not match the stored tool-call node')
+    this.nodesById.set(existing.nodeId, clone(merged))
+    return { ok: true, value: clone(merged) }
+  }
+
   /** @returns direct child ids, used to expose the derived fork count. */
   private directChildren(parentId: string): string[] {
     return [...this.nodesById.values()].filter(node => node.parentId === parentId).map(node => node.nodeId)
@@ -582,10 +613,58 @@ function hasValidTopology(nodes: readonly TreeNode[]): boolean {
   return true
 }
 
+/**
+ * One-time upgrade of legacy snapshots: earlier projections stored one
+ * `tool/call` and its `tool/result` as two adjacent nodes. Fold each result
+ * into its tool-call parent (identical rules to the current event projection)
+ * so existing trees read the pair as a single interaction after restore.
+ * Idempotent: snapshots already written by the merged projection contain no
+ * foldable pairs and come back unchanged.
+ */
+function foldLegacyToolResultPairs(snapshot: SessionTreeSnapshot): SessionTreeSnapshot {
+  const byId = new Map(snapshot.nodes.map(node => [node.nodeId, node]))
+  const mergedByParent = new Map<string, TreeNode>()
+  const removedToParent = new Map<string, string>()
+  for (const node of snapshot.nodes) {
+    if (node.type !== 'tool_result' || node.parentId === null) continue
+    const parent = byId.get(node.parentId)
+    if (parent === undefined || parent.type !== 'tool_call' || mergedByParent.has(parent.nodeId)) continue
+    const resultPart = node.content?.find(part => part.type === 'tool_result')
+    if (resultPart === undefined) continue
+    const matchesCall = parent.content?.some(part => part.type === 'tool_call' && part.id === resultPart.toolCallId) === true
+    if (!matchesCall) continue
+    const resultSeq = typeof node.metadata?.sessionEventSeq === 'number' ? node.metadata.sessionEventSeq : undefined
+    mergedByParent.set(parent.nodeId, attachToolResult(parent, {
+      callId: resultPart.toolCallId,
+      text: resultPart.content,
+      isError: resultPart.isError === true || node.error !== undefined,
+      ...(node.error === undefined ? {} : { error: node.error }),
+    }, resultSeq))
+    removedToParent.set(node.nodeId, parent.nodeId)
+  }
+  if (mergedByParent.size === 0) return snapshot
+  const reparent = (id: string | null): string | null => (id === null ? null : removedToParent.get(id) ?? id)
+  const nodes = snapshot.nodes
+    .filter(node => !removedToParent.has(node.nodeId))
+    .map(node => {
+      const merged = mergedByParent.get(node.nodeId)
+      return merged === undefined ? { ...node, parentId: reparent(node.parentId) } : { ...merged, parentId: reparent(merged.parentId) }
+    })
+  return {
+    ...snapshot,
+    cursor: reparent(snapshot.cursor),
+    selectedNodeId: snapshot.selectedNodeId === undefined ? undefined : reparent(snapshot.selectedNodeId),
+    ...(snapshot.branchHeads === undefined
+      ? {}
+      : { branchHeads: Object.fromEntries(Object.entries(snapshot.branchHeads).map(([name, head]) => [name, reparent(head) ?? head])) }),
+    nodes,
+  }
+}
+
 /** Human-readable preview for a node without an explicit summary. */
 function summarize(content: string): string {
   const flat = content.replace(/\s+/gu, ' ').trim()
-  return flat.length <= 120 ? flat : `${flat.slice(0, 117)}...`
+  return flat.length <= 300 ? flat : `${flat.slice(0, 297)}...`
 }
 
 export type { BranchView, ContentPart, JumpView, LlmMessage, SessionTreeLogEntry, SessionTreeSessionInfo, SessionTreeSnapshot, SessionTreeView, TreeEntryType, TreeNode, TreeResult }

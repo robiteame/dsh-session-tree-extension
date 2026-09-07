@@ -8,15 +8,86 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type { ContentPart, JsonValue, LlmMessage, TreeNode } from './types.ts'
 import { isSessionTreeRestoreEvent } from './session-tree-marker.ts'
 
+/**
+ * Compact result payload of one `tool/result` event: the call correlation,
+ * the flattened result text, and the failure identity when the call errored.
+ */
+export interface ProjectedToolResult {
+  callId: string
+  text: string
+  isError: boolean
+  error?: string
+}
+
+/** Extract the call correlation and outcome of one `tool/result` event. */
+export function toolResultOf(event: SessionEvent): ProjectedToolResult | undefined {
+  if (event.type !== 'tool/result') return undefined
+  const block = event.data.message.content.find(part => part.type === 'tool-result')
+  if (block?.type !== 'tool-result') return undefined
+  const failure = event.data.error
+  const isError = block.isError === true || failure !== undefined
+  return {
+    callId: String(block.toolCallId),
+    text: textOf(block.content),
+    isError,
+    ...(isError ? { error: failure !== undefined ? `${failure.name}: ${failure.code}` : 'tool call failed' } : {}),
+  }
+}
+
+/**
+ * Fold one projected tool result into its tool-call node so the call and its
+ * result read as a single tree entry (matching the model-visible pair). The
+ * function is pure and idempotent: an already-merged node is returned as-is.
+ */
+export function attachToolResult(node: TreeNode, result: ProjectedToolResult, resultEventSeq: number | undefined): TreeNode {
+  const alreadyMerged = node.content?.some(part => part.type === 'tool_result' && part.toolCallId === result.callId) === true
+  if (alreadyMerged) return node
+  const resultPart: ContentPart = {
+    type: 'tool_result',
+    toolCallId: result.callId,
+    content: result.text,
+    ...(result.isError ? { isError: true } : {}),
+  }
+  const base = node.summary.replace(/\.{3}$/u, '').trim()
+  const suffix = result.text.trim() === '' ? (result.error ?? '') : result.text
+  return {
+    ...node,
+    summary: summarize(suffix === '' ? base : `${base} → ${suffix}`),
+    message: { role: 'tool', content: result.text, toolCallId: result.callId },
+    content: [...(node.content ?? []), resultPart],
+    ...(result.error === undefined ? {} : { error: result.error }),
+    metadata: {
+      ...node.metadata,
+      ...(resultEventSeq === undefined ? {} : { toolResultEventSeq: resultEventSeq }),
+    },
+  }
+}
+
 /** Project the message-producing Harness events into an append-only tree. */
 export function sessionEventsToTreeNodes(events: readonly SessionEvent[], initialParentId: string | null = null): TreeNode[] {
   const nodes: TreeNode[] = []
   let parentId: string | null = initialParentId
+  // Tool calls pending their result inside this batch: the result folds into
+  // the call node instead of becoming a second history entry.
+  const pendingToolCalls = new Map<string, TreeNode>()
   for (const event of events) {
+    if (event.type === 'tool/result') {
+      const result = toolResultOf(event)
+      if (result !== undefined) {
+        const pending = pendingToolCalls.get(result.callId)
+        if (pending !== undefined) {
+          const index = nodes.indexOf(pending)
+          if (index >= 0) nodes[index] = attachToolResult(pending, result, event.seq)
+          pendingToolCalls.delete(result.callId)
+          continue
+        }
+      }
+    }
     const projected = projectEvent(event, parentId)
     if (projected === undefined) continue
     nodes.push(projected)
     parentId = projected.nodeId
+    if (event.type === 'tool/call') pendingToolCalls.set(String(event.data.callId), projected)
   }
   return nodes
 }
@@ -31,6 +102,7 @@ function projectEvent(event: SessionEvent, parentId: string | null): TreeNode | 
   let summary: string = event.type
   let usage: Record<string, JsonValue> | undefined
   let model: string | undefined
+  let error: string | undefined
   let metadata: Record<string, JsonValue> = {
     sessionEventType: event.type,
     sessionEventSeq: event.seq,
@@ -64,11 +136,16 @@ function projectEvent(event: SessionEvent, parentId: string | null): TreeNode | 
     summary = `model: ${event.data.provider}/${event.data.model}`
     content = [{ type: 'text', text: summary }]
   } else if (event.type === 'tool/result') {
-    const toolBlock = event.data.message.content[0]
+    // Orphan fallback: results normally fold into their tool/call node (see
+    // sessionEventsToTreeNodes / syncSessionTree); this branch keeps a
+    // standalone entry when no matching call was projected.
+    const result = toolResultOf(event)
+    if (result === undefined) return undefined
     type = 'tool_result'
-    message = { role: 'tool', content: textOf(event.data.message.content), toolCallId: String(toolBlock.toolCallId) }
-    content = [{ type: 'tool_result', toolCallId: String(toolBlock.toolCallId), content: message.content }]
-    summary = message.content
+    message = { role: 'tool', content: result.text, toolCallId: result.callId }
+    content = [{ type: 'tool_result', toolCallId: result.callId, content: result.text, ...(result.isError ? { isError: true } : {}) }]
+    summary = result.text
+    error = result.error
   } else {
     return undefined
   }
@@ -103,6 +180,7 @@ function projectEvent(event: SessionEvent, parentId: string | null): TreeNode | 
     ...(content === undefined ? {} : { content }),
     ...(model === undefined ? {} : { model }),
     ...(usage === undefined ? {} : { usage }),
+    ...(error === undefined ? {} : { error }),
     metadata,
   }
 }
@@ -133,5 +211,5 @@ function parseJson(raw: string): JsonValue {
 
 function summarize(value: string): string {
   const flat = value.replace(/\s+/gu, ' ').trim()
-  return flat.length <= 120 ? flat : `${flat.slice(0, 117)}...`
+  return flat.length <= 300 ? flat : `${flat.slice(0, 297)}...`
 }

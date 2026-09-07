@@ -3,7 +3,6 @@ import { Context, Service } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ComponentType } from 'react'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SessionTreeView, TreeNode } from '@robiteame/dsh-pi-agent-session-tree/client'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
@@ -27,8 +26,51 @@ function view(cursor: string | null, nodes: TreeNode[], selectedNodeId: string |
   return { sessionId: sid('s1'), cursor, selectedNodeId, activeBranch: 'main', nodes, branches: [{ name: 'main', headId: nodes.at(-1)?.nodeId ?? '', nodeIds: nodes.map(item => item.nodeId) }] }
 }
 
+interface TestSlotEntry {
+  component: unknown
+  options: Record<string, unknown>
+  inject?: (...args: never[]) => unknown
+}
+
+/** Standalone-repo substitute for Harness' browser-only SlotRegistry bundle. */
+function installTestSlots(ctx: Context) {
+  const declared = new Set<string>()
+  const entriesByName = new Map<string, TestSlotEntry[]>()
+  const slots = {
+    register(options: { name: string; children?: Record<string, unknown>; inject?: (...args: never[]) => unknown; [key: string]: unknown }, component: unknown) {
+      declared.add(options.name)
+      for (const name of Object.keys(options.children ?? {})) declared.add(name)
+      const entry: TestSlotEntry = {
+        component,
+        options,
+        ...(options.inject === undefined ? {} : { inject: options.inject }),
+      }
+      const entries = entriesByName.get(options.name) ?? []
+      entries.push(entry)
+      entriesByName.set(options.name, entries)
+      return () => {
+        const current = entriesByName.get(options.name)
+        if (current === undefined) return
+        const index = current.indexOf(entry)
+        if (index >= 0) current.splice(index, 1)
+      }
+    },
+    entries(name: string) {
+      return entriesByName.get(name) ?? []
+    },
+    inject(name: string, mount: () => void | (() => void)) {
+      if (!declared.has(name)) return () => {}
+      const dispose = mount()
+      return typeof dispose === 'function' ? dispose : () => {}
+    },
+  }
+  ctx.provide('slots', slots as never)
+  return slots
+}
+
 async function bench(tree = view(null, []), nativePanel = true) {
   const ctx = new Context()
+  const slots = installTestSlots(ctx)
   const calls: Array<{ method: string; args: unknown[] }> = []
   const opened: string[] = []
   const openedSessions: string[] = []
@@ -46,16 +88,15 @@ async function bench(tree = view(null, []), nativePanel = true) {
   }
   new RemoteService(ctx)
   ctx.provide('layout', { openDetails: (panel?: string) => { opened.push(panel ?? 'tool') }, closeDetails: () => {}, toggleSidebar: () => {} })
-  await ctx.plugin(SlotRegistry).await()
   const children = {
     'details': { kind: 'single', scope: 'session' },
     'shell.overlay': { kind: 'list', scope: 'root' },
     ...(nativePanel ? { 'conversation.details.panel': { kind: 'list', scope: 'session' } } : {}),
   }
-  ctx.slots.register({ name: 'root', children } as never, (() => null) as never)
+  slots.register({ name: 'root', children } as never, (() => null) as never)
   const toolDetails = (() => null) as never
-  ctx.slots.register({ name: 'details' } as never, toolDetails)
-  ctx.provide('locale', new LocaleRuntime(ctx))
+  slots.register({ name: 'details' } as never, toolDetails)
+  ctx.provide('locale', { register: () => () => {} } as never)
   ctx.provide('sessions', { binding: () => undefined, open: (id: SessionId) => { openedSessions.push(id) } })
   const fiber = ctx.plugin({ inject: [...inject], apply })
   return {
@@ -124,7 +165,7 @@ describe('session tree browser plugin', () => {
     const rows = [...container.querySelectorAll('[data-node-id]')]
     expect(rows).toHaveLength(3)
     expect(rows.every(row => (row as HTMLElement).style.marginLeft === '')).toBe(true)
-    expect(container.querySelectorAll('svg[viewBox="0 0 44 38"]')).toHaveLength(3)
+    expect([...container.querySelectorAll('svg')].filter(svg => svg.getAttribute('viewBox') === '0 0 44 38')).toHaveLength(3)
   })
 
   it('keeps a deeply nested tree horizontally bounded', async () => {
@@ -142,7 +183,7 @@ describe('session tree browser plugin', () => {
     const rows = [...container.querySelectorAll('[data-node-id]')]
     expect(rows).toHaveLength(64)
     expect(rows.every(row => (row as HTMLElement).style.marginLeft === '' && (row as HTMLElement).style.paddingLeft === '')).toBe(true)
-    expect(container.querySelectorAll('svg[viewBox="0 0 44 38"]')).toHaveLength(64)
+    expect([...container.querySelectorAll('svg')].filter(svg => svg.getAttribute('viewBox') === '0 0 44 38')).toHaveLength(64)
   })
 
   it('renders and closes the official overlay drawer for the current non-blank session', async () => {
@@ -198,6 +239,54 @@ describe('session tree browser plugin', () => {
     current.value = sid('s2')
     rendered.rerender(<Overlay controller={controller} remoteActions={remoteActions} useSessions={useSessions} t={t} />)
     await waitFor(() => { expect(controller.getSnapshot().open).toBe(false) })
+  })
+
+  it('renders tool interactions quietly and marks failed calls as errors', async () => {
+    const toolNode: TreeNode = {
+      nodeId: 'tool-ok', parentId: null, type: 'tool_call', branch: 'main', summary: 'bash({}) → ok output',
+      createdAt: '2026-01-01T00:00:01.000Z', message: { role: 'tool', content: 'ok output', toolCallId: 'call-ok' },
+      content: [
+        { type: 'tool_call', id: 'call-ok', name: 'bash', arguments: {} },
+        { type: 'tool_result', toolCallId: 'call-ok', content: 'ok output' },
+      ],
+    }
+    const failedNode: TreeNode = {
+      nodeId: 'tool-failed', parentId: 'tool-ok', type: 'tool_call', branch: 'main', summary: 'pwsh({}) → denied',
+      createdAt: '2026-01-01T00:00:02.000Z', error: 'Sandbox: EPERM',
+      message: { role: 'tool', content: 'denied', toolCallId: 'call-failed' },
+      content: [
+        { type: 'tool_call', id: 'call-failed', name: 'pwsh', arguments: {} },
+        { type: 'tool_result', toolCallId: 'call-failed', content: 'denied', isError: true },
+      ],
+    }
+    const Panel = SessionTreeDock as unknown as ComponentType<Record<string, unknown>>
+    const { container } = render(<Panel
+      sessionId={sid('tools')} panel="session-tree" closeDetails={vi.fn()} t={t}
+      load={async () => view('tool-failed', [toolNode, failedNode], 'tool-failed')}
+      jump={vi.fn()} fork={vi.fn()}
+    />)
+    await waitFor(() => { expect(container.querySelector('[data-node-id="tool-failed"]')).not.toBeNull() })
+    expect(container.querySelector('[data-node-id="tool-ok"]')?.getAttribute('class')).toContain('nodeTool')
+    expect(container.querySelector('[data-node-id="tool-failed"]')?.getAttribute('class')).toContain('nodeError')
+  })
+
+  it('keeps the complete long message in the row and hover title', async () => {
+    const full = `begin-${'x'.repeat(4200)}-end`
+    const longNode: TreeNode = {
+      nodeId: 'long', parentId: null, type: 'message', branch: 'main',
+      summary: `${full.slice(0, 297)}...`, createdAt: '2026-01-01T00:00:01.000Z',
+      message: { role: 'user', content: full },
+    }
+    const Panel = SessionTreeDock as unknown as ComponentType<Record<string, unknown>>
+    const { container } = render(<Panel
+      sessionId={sid('long')} panel="session-tree" closeDetails={vi.fn()} t={t}
+      load={async () => view('long', [longNode], 'long')}
+      jump={vi.fn()} fork={vi.fn()}
+    />)
+    await waitFor(() => { expect(container.querySelector('[data-node-id="long"]')).not.toBeNull() })
+    const fullText = container.querySelector('[data-node-id="long"] span[title]')
+    expect(fullText?.textContent).toBe(full)
+    expect(fullText?.getAttribute('title')).toBe(full)
   })
 
   it('shows the required friendly state when the host reports no selection', async () => {

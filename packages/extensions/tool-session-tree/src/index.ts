@@ -22,7 +22,7 @@ import type {} from '@deepseek-ai/dsh-agent'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
-import { appendSessionTreeEvent, applyTreeCursorToSession, persistSessionTree, SessionTree, sessionTreeStore, sessionTreeSurfaceMode, supportsDurableSessionTreeEvents, syncSessionTree } from '@robiteame/dsh-pi-agent-session-tree'
+import { appendSessionTreeEvent, applyTreeCursorToSession, isSessionTreeRestoreEvent, persistSessionTree, SessionTree, sessionTreeStore, sessionTreeSurfaceMode, supportsDurableSessionTreeEvents, syncSessionTree } from '@robiteame/dsh-pi-agent-session-tree'
 import type { JsonValue } from '@robiteame/dsh-pi-agent-session-tree'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 import type {} from '@deepseek-ai/dsh-system-prompt'
@@ -326,7 +326,7 @@ async function cloneActiveSession(ctx: Context, agent: NonNullable<ToolRunContex
     // session's deriveMessages cache; replayed inside a clone they would empty
     // its rebuilt surface. The clone's tree projection comes from the store
     // seed below, and its live surface is re-selected on the first pre-step.
-    .filter(event => (event.data as { treeRestore?: unknown } | undefined)?.treeRestore === undefined)
+    .filter(event => !isSessionTreeRestoreEvent(event))
     .map((event, index) => {
       const record = JSON.parse(JSON.stringify(event)) as unknown as SessionEvent
       if (record.type === 'session-tree/snapshot') {
@@ -385,7 +385,7 @@ function seedCloneTree(targetId: SessionId, source: SessionTree, focusId: string
     activeBranch,
     ...(focusId === null && Object.keys(branchHeads).length === 0 ? {} : { branchHeads }),
     selectedNodeId: focusId,
-    nativeEventSeq,
+    ...(nativeEventSeq < 0 ? {} : { nativeEventSeq }),
     nodes: snapshot.nodes,
   })
   sessionTreeStore.replace(targetId, clonedTree)

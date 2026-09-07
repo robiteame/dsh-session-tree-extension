@@ -78,12 +78,17 @@ with the matching sidecar file, or carry the projection explicitly with
 
 - **Append-only** — every node is immutable; branching and jumping only move
   the cursor. Old branches are never edited or deleted.
-- **Every entry is a node** — messages, tool calls, tool results, model
-  switches, compaction records, branch summaries, and custom entries become
-  typed nodes (`message`, `tool_call`, `tool_result`, `model_change`,
-  `compaction`, `branch_summary`, `custom`); each has a unique `nodeId` and a
-  `parentId` (root is `null`). A node may have multiple children — that is the
-  fork.
+- **Every entry is a node** — messages, tool calls, model switches, compaction
+  records, branch summaries, and custom entries all become typed nodes
+  (`message`, `tool_call`, `model_change`, `compaction`, `branch_summary`,
+  `custom`; `tool_result` survives only for orphan results with no matching
+  call); each has a unique `nodeId` and a `parentId` (root is `null`). A node
+  may have multiple children — that is the fork.
+- **One entry per tool interaction** — a `tool/call` and its `tool/result` fold
+  into a single `tool_call` node whose `content` carries both the call part and
+  the result part (`isError` plus the node's `error` mark failures), whether
+  the pair arrives in one event batch or across sync batches. Legacy snapshots
+  with split pairs fold on restore.
 - **Cursor navigation** — `jump(nodeId)` moves the active leaf to a historical
   node; the next append grows a new branch from there. Sibling branches stay
   intact. The durable Harness Session log remains the source of truth.
