@@ -45,7 +45,7 @@ const checks = [
       'lib/index.js', 'lib/invariant.js', 'lib/types/index.d.ts', 'lib/types/invariant.d.ts',
     ],
     markers: {
-      'lib/index.js': ['name: "session_tree"', 'name: "tree"', 'name: "fork"', 'name: "clone"', 'name: "session"', 'treeRestore', 'sessionTreeSurfaceMode'],
+      'lib/index.js': ['name: "session_tree"', 'name: "tree"', 'name: "fork"', 'name: "clone"', 'name: "session"', 'isSessionTreeRestoreEvent', 'sessionTreeSurfaceMode'],
     },
     manifest: {
       'dsh.bundle.patch': m => m.dsh?.bundle?.patch === undefined,
