@@ -40,15 +40,20 @@ directory install does not need a Git `prepare` allowlist entry.
 
 ### GitHub repository
 
-Install the published repository directly (pin a commit for reproducibility):
+Install the published repository directly. The latest `main` is:
+
+```sh
+dsh plugin --profile web add github:robiteame/dsh-session-tree-extension#main
+```
+
+Pin a revision for reproducibility:
 
 ```sh
 dsh plugin --profile web add github:robiteame/dsh-session-tree-extension#COMMIT_SHA
 ```
 
-The `#COMMIT_SHA` suffix is optional; replace `COMMIT_SHA` with the full or
-abbreviated revision you intend to trust. Git dependencies contain source
-rather than generated artifacts. pnpm runs this
+Replace `COMMIT_SHA` with the full or abbreviated revision you intend to trust.
+Git dependencies contain source rather than generated artifacts. pnpm runs this
 package's self-contained `prepare` script to produce `lib/` during installation.
 With pnpm 10 or newer, lifecycle scripts are blocked until the consumer grants
 permission. If the first command fails with pnpm's `allowBuilds` diagnostic,
@@ -57,12 +62,12 @@ copy the exact package key it prints into
 
 ```yaml
 allowBuilds:
-  '@deepseek-ai/dsh-session-tree@github:robiteame/dsh-session-tree-extension#RESOLVED_SHA': true
+  '@deepseek-ai/dsh-session-tree@https://codeload.github.com/robiteame/dsh-session-tree-extension/tar.gz/RESOLVED_SHA': true
 ```
 
-The value above shows the usual shape. The key must match pnpm's diagnostic
-exactly because its resolved Git specifier varies by pnpm version. This
-permission executes the Git checkout's build code on the local machine, so
+pnpm 11 resolves Git sources to a codeload URL in that key. The key must match
+pnpm's diagnostic exactly because its resolved specifier varies by pnpm version.
+This permission executes the Git checkout's build code on the local machine, so
 review and pin the source revision before allowing it.
 
 ### Prebuilt tarball

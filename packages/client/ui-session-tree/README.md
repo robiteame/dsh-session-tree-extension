@@ -6,8 +6,7 @@ Browser half of the session-tree plugin. In a patched source checkout it
 occupies the native `conversation.details.panel` seat in DeepSeek Harness'
 right details sidebar; in an official unmodified Web profile it uses the
 additive `shell.overlay` seat so the shipped Tool-details surface remains
-available.
-it never renders above the composer and creates no standalone page.
+available. It never renders above the composer and creates no standalone page.
 
 - `/tree` opens or refreshes the right sidebar.
 - Clicking a node binds that exact node as the active `/fork` and `/clone`
@@ -25,8 +24,10 @@ it never renders above the composer and creates no standalone page.
   name: '@deepseek-ai/dsh-client-ui-session-tree'
 ```
 
-The host packages and the `conversation.details.panel` Harness integration in
-`harness.patch` are required.
+The official standalone Bundle already supplies both Host services and this
+browser package. A patched source checkout additionally requires the two Host
+packages and the `conversation.details.panel` integration from
+`harness.patch`.
 
 ## Model Experience
 

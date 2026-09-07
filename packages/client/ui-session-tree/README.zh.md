@@ -19,8 +19,8 @@ DeepSeek Harness 原生右侧详情栏的 `conversation.details.panel` 槽位；
   name: '@deepseek-ai/dsh-client-ui-session-tree'
 ```
 
-同时需要 Host 端两个扩展包，以及 `harness.patch` 对
-`conversation.details.panel` 的 Harness 本体集成。
+官方独立 Bundle 已经同时提供 Host 端两个扩展包和本浏览器包。打补丁的源码
+集成还需 `harness.patch` 对 `conversation.details.panel` 的 Harness 本体集成。
 
 ## 模型体验
 

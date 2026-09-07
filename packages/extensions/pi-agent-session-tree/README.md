@@ -15,7 +15,7 @@ an embedded WebUI tree panel.
 | Command | `/tree` | `list`, `branches`, `tree`, `context`, `jump <nodeId>`, `branch <nodeId> <name>`, `snapshot save`, `snapshot load <json>` |
 | Commands | `/fork`, `/clone`, `/session` | fork in-tree, clone the active path to a separate session, inspect tree status |
 | Remote service | `sessionTree` | `list(agent)`, `jump(agent, nodeId)`, `fork(agent, nodeId, branch)`, `session(agent)` — drives the browser panel |
-| Browser slot | `conversation.input.dock` | collapsible tree panel above the composer; click a node to jump |
+| Browser slot | `conversation.details.panel` / `shell.overlay` | native details seat in a patched checkout, additive drawer in an official Bundle; click a node to jump |
 
 ## Tool operations
 
@@ -58,10 +58,10 @@ carries it):
   name: '@deepseek-ai/dsh-pi-agent-session-tree'
 ```
 
-The browser panel ships as `@deepseek-ai/dsh-client-ui-session-tree`
-(`conversation.input.dock`; it expands when the composer draft starts with
-`/tree` and jumps on node click). See `SYSTEM_PROMPT.md` for the system-prompt
-fragment this plugin installs.
+The browser panel ships as `@deepseek-ai/dsh-client-ui-session-tree`. A patched
+checkout mounts it as `conversation.details.panel`; an official Bundle mounts
+it as the additive `shell.overlay`. See `SYSTEM_PROMPT.md` for the
+system-prompt fragment this plugin installs.
 
 ## Implementation notes
 
@@ -69,11 +69,15 @@ fragment this plugin installs.
   Remote service, so model appends appear in the panel immediately.
 - Harness `Session` events are the durable source of truth; the tree is an
   incrementally synchronized projection. Explicit `snapshot.save`/`snapshot.load`
-  events remain available for export and full-tree restore. Native history is
-  never rewritten by this package.
-- Model-visible ⇔ logged: every model turn the agent commits through
-  `session_tree append` becomes a tree node; the tree does not synthesize
-  history that was never logged.
+  events remain available for export and full-tree restore.
+- A patched checkout persists tree markers as `session-tree/*` events. An
+  official Bundle appends an official empty-content `assistant/message` with a
+  `replace` surface operation when the cursor moves, and stores branch
+  metadata in the sidecar under
+  `$DSH_HOME/storages/session-tree/<sessionId>.json`. Earlier events are never
+  rewritten or deleted.
+- Model-visible ⇔ logged: native Harness message events always synchronize
+  into tree nodes; the tree does not synthesize history that was never logged.
 
 ## Model Experience
 

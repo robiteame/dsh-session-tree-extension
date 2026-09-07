@@ -87,5 +87,11 @@ Schemas are prefix-stable while their definitions and visibility are unchanged. 
 - **Native events are durable** — the tree is rebuilt from the Harness Session
   event log on live sync; explicit snapshots provide full-tree export and
   restore, while the native model surface follows the active leaf.
+- **Patched versus official Harness** — a patched checkout persists
+  `session-tree/*` markers and uses the selected-surface API. An official
+  Bundle appends an official `replace` surface event when the cursor moves and
+  persists branch metadata in the sidecar at
+  `$DSH_HOME/storages/session-tree/<sessionId>.json`.
 - **The store is process-wide** — a restarted process reconstructs trees from
-  persisted Session events when the owning agents are live.
+  persisted Session events, and on an official Bundle additionally restores
+  the sidecar before the owning agent's next pre-step.

@@ -69,9 +69,11 @@ interface JumpView {
 
 ## Durability
 
-Harness Session events are the durable source of truth; the SessionTree store is an incrementally synchronized projection. `snapshot.save` produces and
-`snapshot.load` restores the versioned snapshot below. Unknown versions are
-rejected as `INVALID_SNAPSHOT`.
+Harness Session events are the durable source of truth; the SessionTree store is an incrementally synchronized projection.
+
+In a source checkout using `harness.patch`, cursor/branch/selection markers are persisted as `session-tree/*` events and the native selected-message-surface API points the next model request at the active path. In the standalone official Bundle, the same navigation is implemented without those private APIs: a jump appends an official empty-content `assistant/message` with a `replace` surface operation, and branch/cursor/selection metadata is stored in the plugin sidecar at `$DSH_HOME/storages/session-tree/<sessionId>.json`. The sidecar is restored before the next agent pre-step, so trees survive a stock profile restart.
+
+`snapshot.save` produces and `snapshot.load` restores the versioned snapshot below. Unknown versions are rejected as `INVALID_SNAPSHOT`.
 
 ```ts type-equiv
 /**
@@ -119,11 +121,13 @@ type TreeResult<T> =
   `/fork [branch]` and `/clone` automatically use the selected sidebar node;
   without one they return `请先在右侧会话树选中目标节点`.
 - `sessionTree` Remote service (`@deepseek-ai/dsh-pi-agent-session-tree`):
-  `list(agent)` and `jump(agent, nodeId)` drive the browser panel.
-- `@deepseek-ai/dsh-client-ui-session-tree`: a native
-  `conversation.details.panel` occupant in the right details sidebar. `/tree`
-  opens or refreshes it; node clicks bind the selected command context. Its
-  fixed graph gutter never grows with tree depth.
+  `list(agent)`, `jump(agent, nodeId)`, `fork(agent, nodeId, branch)`, and
+  `session(agent)` drive the browser panel.
+- `@deepseek-ai/dsh-client-ui-session-tree`: in a patched source checkout it
+  occupies the native `conversation.details.panel` seat; in an official Web
+  profile it uses the additive `shell.overlay` seat. `/tree` opens or refreshes
+  the panel, and node clicks bind the selected command context. Its fixed
+  graph gutter never grows with tree depth.
 
 ## Cordis API
 

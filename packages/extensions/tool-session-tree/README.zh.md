@@ -73,4 +73,5 @@ SessionTree is the append-only projection of the durable Harness Session log. Na
 ## 已知限制与待办
 
 - **原生事件持久化**——每次实时同步都会从 Harness Session 事件日志重建树；显式快照用于整树导出与恢复，原生模型 surface 跟随活动叶子。
-- **存储是进程级**——进程重启后，会在所属 Agent 恢复为实时状态时从持久 Session 事件重建树。
+- **补丁集成与官方 Harness**——补丁集成持久化 `session-tree/*` 标记并使用 selected-surface API。官方 Bundle 在光标移动时追加官方 `replace` surface 事件，并把分支元数据保存到 `$DSH_HOME/storages/session-tree/<sessionId>.json`。
+- **存储是进程级**——进程重启后，会在所属 Agent 恢复为实时状态时从持久 Session 事件重建树；官方 Bundle 还会在所属 Agent 下一次 pre-step 前恢复 sidecar。

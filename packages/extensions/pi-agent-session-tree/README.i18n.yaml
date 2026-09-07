@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/extensions/pi-agent-session-tree/README.md
-README.md: a59c7f8830517a299731c6898cbdd6e21b2ce065
-README.zh.md: b4a9843580ac601508281f0d27e8d67ffcf14478
+README.md: d4b38e459890341097e48bb65874b6cab1667f61
+README.zh.md: a153e8a1bcf350c6e7db018fc229f8a3304e0c83

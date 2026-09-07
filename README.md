@@ -15,7 +15,7 @@ standalone page or manual ID entry).
 |---|---|
 | `packages/extensions/pi-agent-session-tree/` | Host domain service: `SessionTree`/`SessionTreeStore`, the Typert `sessionTree` Remote (`list`, `jump`), and pure payload types |
 | `packages/extensions/tool-session-tree/` | Model-facing surface: the `session_tree` tool, the `/tree`, `/fork`, `/clone`, `/session` commands, and the system-prompt section |
-| `packages/client/ui-session-tree/` | Browser half: the native right-details-sidebar tree panel (light/dark via `--dsw-alias-*` tokens) |
+| `packages/client/ui-session-tree/` | Browser half: the native right-details-sidebar panel on patched Harness, the additive right-side overlay on an official Bundle (light/dark via `--dsw-alias-*` tokens) |
 | `docs/subsystems/session-tree.md` | Subsystem reference (en/zh) |
 | `harness.patch` | Latest-Harness integration only (bundle composition/dependencies, tsconfig registrations, lockfile importers); package sources are copied separately |
 
@@ -76,31 +76,38 @@ partially built checkout cannot be selected by the profile.
 
 ### GitHub checkout
 
-The repository can be installed directly from GitHub:
+The repository can be installed directly from GitHub. To follow the latest
+`main`:
+
+```sh
+dsh plugin --profile web add github:robiteame/dsh-session-tree-extension#main
+```
+
+Pin a revision when a profile must be repeatable:
 
 ```sh
 dsh plugin --profile web add github:robiteame/dsh-session-tree-extension#COMMIT_SHA
 ```
 
-The `#COMMIT_SHA` suffix is optional, but pinning a commit is recommended for a
-repeatable profile. Replace `COMMIT_SHA` with the full or abbreviated Git
-revision you intend to trust. Git installs fetch source and run this package's
-self-contained `prepare` script to generate `lib/` before the Bundle is loaded.
+Replace `COMMIT_SHA` with the full or abbreviated Git revision you intend to
+trust. Git installs fetch source and run this package's self-contained
+`prepare` script to generate `lib/` before the Bundle is loaded.
 
 With pnpm 10 or newer, the first Git install may be rejected because lifecycle
-scripts are disabled by default. Copy the exact package key printed by pnpm into
-the profile workspace file (normally
+scripts are disabled by default. Copy the exact package key printed by pnpm
+into the profile workspace file (normally
 `$DSH_HOME/profiles/web/pnpm-workspace.yaml`), then rerun the same command:
 
 ```yaml
 allowBuilds:
-  '@deepseek-ai/dsh-session-tree@github:robiteame/dsh-session-tree-extension#RESOLVED_SHA': true
+  '@deepseek-ai/dsh-session-tree@https://codeload.github.com/robiteame/dsh-session-tree-extension/tar.gz/RESOLVED_SHA': true
 ```
 
-The value above shows the usual shape; copy the exact key from pnpm's
-diagnostic because its resolved Git specifier varies by pnpm version. This
-setting permits the package's source build to execute on the machine during
-installation; only allow a revision you trust.
+pnpm 11 resolves Git sources to a codeload URL in that key; older pnpm versions
+may print a different resolved specifier. Always copy the key from pnpm's own
+diagnostic rather than editing the example. This permission executes the
+package's source build on the local machine, so only allow a revision you
+trust.
 
 ### Tarball (no install-time build)
 

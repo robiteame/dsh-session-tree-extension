@@ -59,7 +59,11 @@ interface JumpView {
 
 ## 持久化
 
-树在进程生命周期内驻留内存；`snapshot.save` 产出、`snapshot.load` 恢复下面的版本化快照。Remote 首次读取时会把 Harness 原生 `Session.events` 中的消息、工具和模型路由事件投影为树节点，再由树光标继续追加；适配器保留原生事件 seq，便于后续接入原生持久化。未知版本被拒绝为 `INVALID_SNAPSHOT`。
+Harness Session 事件是持久化真源，树存储是增量同步的投影。
+
+使用 `harness.patch` 的源码集成会把 cursor/branch/selection 标记持久化为 `session-tree/*` 事件，并通过原生 selected-message-surface API 把下一次模型请求指向活动路径。独立官方 Bundle 使用不同的实现：跳转会追加一条官方空内容 `assistant/message`，携带 `replace` surface 操作；branch/cursor/selection 元数据保存到插件 sidecar（`$DSH_HOME/storages/session-tree/<sessionId>.json`），并在下一次 agent pre-step 前恢复，因此官方 profile 重启后树仍然完整。
+
+`snapshot.save` 产出、`snapshot.load` 恢复下面的版本化快照。Remote 首次读取时会把 Harness 原生 `Session.events` 中的消息、工具和模型路由事件投影为树节点，再由树光标继续追加；适配器保留原生事件 seq，便于后续接入原生持久化。未知版本被拒绝为 `INVALID_SNAPSHOT`。
 
 ```ts type-equiv
 /**
@@ -99,8 +103,8 @@ type TreeResult<T> =
 
 - `session_tree` 工具（`@deepseek-ai/dsh-tool-session-tree`）：`create`、`append`、`list`、`branches`、`tree`、`jump`、`context`、`branch`、`branch.summary`、`snapshot.save`、`snapshot.load`、`sessions`。
 - `/tree` 命令族：`list`、`branches`、`tree`、`context`、`jump <nodeId>`、`branch <nodeId> <name>`、`snapshot save`、`snapshot load <json>`。`/fork [branch]` 与 `/clone` 自动读取右侧会话树选中节点；未选中时返回“请先在右侧会话树选中目标节点”。
-- `sessionTree` Remote 服务（`@deepseek-ai/dsh-pi-agent-session-tree`）：`list(agent)` 与 `jump(agent, nodeId)` 驱动浏览器面板。
-- `@deepseek-ai/dsh-client-ui-session-tree`：占用原生右侧详情栏的 `conversation.details.panel`。`/tree` 打开或刷新视图，节点点击绑定命令上下文；固定图形栏不会随树深度横向增长。
+- `sessionTree` Remote 服务（`@deepseek-ai/dsh-pi-agent-session-tree`）：`list(agent)`、`jump(agent, nodeId)`、`fork(agent, nodeId, branch)` 与 `session(agent)` 驱动浏览器面板。
+- `@deepseek-ai/dsh-client-ui-session-tree`：在打补丁的源码集成中占用原生右侧详情栏的 `conversation.details.panel`；在官方 Web profile 中使用叠加式 `shell.overlay`。`/tree` 打开或刷新视图，节点点击绑定命令上下文；固定图形栏不会随树深度横向增长。
 
 ## Cordis API
 
