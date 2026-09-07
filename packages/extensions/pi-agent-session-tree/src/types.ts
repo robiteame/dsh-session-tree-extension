@@ -5,7 +5,7 @@
  * host consumers. Everything here is lossless-JSON serializable (acceptance:
  * tool and Remote results are plain JSON with a stable error envelope).
  *
- * @module @deepseek-ai/dsh-pi-agent-session-tree/types
+ * @module @robiteame/dsh-pi-agent-session-tree/types
  */
 
 import type { SessionId } from '@deepseek-ai/dsh-session/types'

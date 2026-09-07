@@ -1,14 +1,17 @@
 {
-  "name": "@deepseek-ai/dsh-tool-session-tree",
+  "name": "@robiteame/dsh-tool-session-tree",
   "description": "session_tree tool, /tree command family, and system-prompt section over the shared append-only session-tree store",
-  "version": "0.1.2-alpha.3",
+  "version": "0.1.0",
   "publishConfig": {
     "access": "public"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
+    "url": "git+https://github.com/robiteame/dsh-session-tree-extension.git",
     "directory": "packages/extensions/tool-session-tree"
+  },
+  "bugs": {
+    "url": "https://github.com/robiteame/dsh-session-tree-extension/issues"
   },
   "type": "module",
   "main": "lib/index.js",
@@ -22,35 +25,32 @@
       "types": "./lib/types/invariant.d.ts",
       "default": "./lib/invariant.js"
     },
-    "./src/*": "./src/*",
     "./package.json": "./package.json"
   },
-  "scripts": {
-    "bundle": "tsdown",
-    "watch": "tsdown --watch"
-  },
-  "license": "MIT",
   "files": [
     "lib/index.js",
     "lib/invariant.js",
-    "lib/types/**/*.d.ts"
+    "lib/types/**/*.d.ts",
+    "README.md"
   ],
+  "scripts": {
+    "build": "node ../../../scripts/build.mjs tool",
+    "watch": "node ../../../scripts/build.mjs tool"
+  },
+  "license": "MIT",
   "peerDependencies": {
-    "@deepseek-ai/cordis": "workspace:^",
-    "@deepseek-ai/dsh-commands": "workspace:^",
-    "@deepseek-ai/dsh-pi-agent-session-tree": "workspace:^",
-    "@deepseek-ai/dsh-session": "workspace:^",
-    "@deepseek-ai/dsh-system-prompt": "workspace:^",
-    "@deepseek-ai/dsh-tools": "workspace:^",
-    "@deepseek-ai/dsh-invariants": "workspace:^"
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/dsh-commands": "^0.1.2-alpha.3",
+    "@deepseek-ai/dsh-invariants": "^0.1.2-alpha.3",
+    "@deepseek-ai/dsh-session": "^0.1.2-alpha.3",
+    "@deepseek-ai/dsh-system-prompt": "^0.1.2-alpha.3",
+    "@deepseek-ai/dsh-tools": "^0.1.2-alpha.3",
+    "@robiteame/dsh-pi-agent-session-tree": "^0.1.0"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "workspace:^",
-    "@deepseek-ai/dsh-commands": "workspace:^",
-    "@deepseek-ai/dsh-pi-agent-session-tree": "workspace:^",
-    "@deepseek-ai/dsh-session": "workspace:^",
-    "@deepseek-ai/dsh-system-prompt": "workspace:^",
-    "@deepseek-ai/dsh-tools": "workspace:^",
-    "@deepseek-ai/dsh-invariants": "workspace:^"
+    "@robiteame/dsh-pi-agent-session-tree": "^0.1.0"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

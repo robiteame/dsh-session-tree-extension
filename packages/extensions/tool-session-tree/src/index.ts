@@ -2,7 +2,7 @@
  * Model-facing tool and slash-command companion of the session-tree service:
  * the `session_tree` tool, the `/tree` command family, and a system-prompt
  * section. All state lives in the shared `sessionTreeStore` from
- * `@deepseek-ai/dsh-pi-agent-session-tree`, so the model, the command line,
+ * `@robiteame/dsh-pi-agent-session-tree`, so the model, the command line,
  * and the browser panel observe the same trees.
  *
  * Design notes
@@ -13,7 +13,7 @@
  *   envelope; a thrown body also settles as that envelope, so tool results
  *   are always lossless JSON.
  *
- * @module @deepseek-ai/dsh-tool-session-tree
+ * @module @robiteame/dsh-tool-session-tree
  */
 
 import type { Context } from '@deepseek-ai/cordis'
@@ -22,8 +22,8 @@ import type {} from '@deepseek-ai/dsh-agent'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
-import { appendSessionTreeEvent, applyTreeCursorToSession, persistSessionTree, SessionTree, sessionTreeStore, supportsDurableSessionTreeEvents, syncSessionTree } from '@deepseek-ai/dsh-pi-agent-session-tree'
-import type { JsonValue } from '@deepseek-ai/dsh-pi-agent-session-tree'
+import { appendSessionTreeEvent, applyTreeCursorToSession, persistSessionTree, SessionTree, sessionTreeStore, sessionTreeSurfaceMode, supportsDurableSessionTreeEvents, syncSessionTree } from '@robiteame/dsh-pi-agent-session-tree'
+import type { JsonValue } from '@robiteame/dsh-pi-agent-session-tree'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 
@@ -31,7 +31,7 @@ export const name = 'tool-session-tree'
 export const inject = ['tools', 'systemPrompt', 'commands', 'agents']
 
 /** System-prompt fragment steering the agent to the tree as its only history. */
-export const SESSION_TREE_PROMPT = 'SessionTree is the append-only projection of this agent\'s durable Harness Session log. Native user, assistant, tool, and model-context events are synchronized automatically: never duplicate ordinary turns with operation \'append\'. Before answering after navigation, call session_tree with operation \'context\' and treat its root-to-cursor messages as the active branch context. Use \'append\' only for an explicit custom tree entry not already recorded by Harness. To explore an alternative, call \'fork\' or \'branch\' with a historical nodeId and branch name (or \'branch.summary\' to record a summary); old nodes are never modified or deleted. Use \'branches\' and \'tree\' to inspect topology, and \'snapshot.save\'/\'snapshot.load\' for explicit export or full-tree restore. All operations report failures as {ok:false,error:{code,message}}.'
+export const SESSION_TREE_PROMPT = 'SessionTree is the append-only projection of this agent\'s durable Harness Session log. Native user, assistant, tool, and model-context events are synchronized automatically: never duplicate ordinary turns with operation \'append\'. Before answering after navigation, call session_tree with operation \'context\' and treat its root-to-cursor messages as the active branch context. Use \'append\' only for an explicit custom tree entry not already recorded by Harness. To explore an alternative, call \'fork\' or \'branch\' with a historical nodeId and branch name (or \'branch.summary\' to record a summary); old nodes are never modified or deleted. Use \'branches\' and \'tree\' to inspect topology, and \'snapshot.save\'/\'snapshot.load\' for explicit export or full-tree restore. All operations report failures as {ok:false,error:{code,message}}. Depending on the Harness build, jump/fork switch the model-visible history either through the native selected-surface API or through an official replace-surface emulation; when neither is available the tree is projection-only. The surface field reported by \'context\' and \'session\' states the active mode: native, stock, or projection.'
 
 /** Register the tool, the command family, and the prompt section. */
 export function apply(ctx: Context): void {
@@ -199,7 +199,7 @@ async function runToolOperation(ctx: Context, args: SessionTreeToolArgs, exec: T
     case 'tree':
       return { ok: true, value: tree.view() }
     case 'session':
-      return { ok: true, value: tree.info() }
+      return { ok: true, value: { ...tree.info(), surface: sessionTreeSurfaceMode(exec.agent.session) } }
     case 'jump': {
       const checkpoint = tree.checkpoint()
       const moved = tree.jump(args.nodeId ?? null)
@@ -242,7 +242,7 @@ async function runToolOperation(ctx: Context, args: SessionTreeToolArgs, exec: T
       return forked
     }
     case 'context':
-      return { ok: true, value: { cursor: tree.cursor, messages: tree.messages(args.nodeId ?? tree.cursor) } }
+      return { ok: true, value: { cursor: tree.cursor, surface: sessionTreeSurfaceMode(exec.agent.session), messages: tree.messages(args.nodeId ?? tree.cursor) } }
     case 'branch': {
       if (args.nodeId === undefined || args.branch === undefined) {
         return { ok: false, error: { code: 'INVALID_ARGUMENT', message: 'nodeId and branch are required' } }
@@ -321,14 +321,20 @@ async function cloneActiveSession(ctx: Context, agent: NonNullable<ToolRunContex
   // durable event log verbatim; the shared store then projects the identical
   // tree. Snapshot events are rewritten so their embedded sessionId matches the
   // target (otherwise a resumed clone would reject the seed as foreign).
-  const seed: SessionEvent[] = agent.session.events.map((event, index) => {
-    const record = JSON.parse(JSON.stringify(event)) as unknown as SessionEvent
-    if (record.type === 'session-tree/snapshot') {
-      record.data = { ...record.data, snapshot: { ...record.data.snapshot, sessionId: toSessionId(target) } }
-    }
-    record.seq = index
-    return record
-  })
+  const seed: SessionEvent[] = agent.session.events
+    // Synthetic stock-mode cursor events exist only to invalidate the SOURCE
+    // session's deriveMessages cache; replayed inside a clone they would empty
+    // its rebuilt surface. The clone's tree projection comes from the store
+    // seed below, and its live surface is re-selected on the first pre-step.
+    .filter(event => (event.data as { treeRestore?: unknown } | undefined)?.treeRestore === undefined)
+    .map((event, index) => {
+      const record = JSON.parse(JSON.stringify(event)) as unknown as SessionEvent
+      if (record.type === 'session-tree/snapshot') {
+        record.data = { ...record.data, snapshot: { ...record.data.snapshot, sessionId: toSessionId(target) } }
+      }
+      record.seq = index
+      return record
+    })
   const seedTime = Date.now()
   if (supportsDurableSessionTreeEvents(agent.session)) {
     seed.push({
@@ -347,7 +353,7 @@ async function cloneActiveSession(ctx: Context, agent: NonNullable<ToolRunContex
     }
   }
 
-  seedCloneTree(toSessionId(target), tree, focusId, seed.length - 1)
+  seedCloneTree(toSessionId(target), tree, focusId, Math.max(seed.length - 1, 0))
   try {
     await ctx.agents.create({
       sessionId: toSessionId(target),
@@ -410,12 +416,12 @@ async function runCloneCommand(ctx: Context, invocation: CommandInvocation): Pro
 }
 
 function runSessionCommand(invocation: CommandInvocation): CommandResult {
-  return jsonCommand({ ok: true, value: syncSessionTree(invocation.agent).info() })
+  return jsonCommand({ ok: true, value: { ...syncSessionTree(invocation.agent).info(), surface: sessionTreeSurfaceMode(invocation.agent.session) } })
 }
 
-function jsonCommand(value: unknown, map?: (tree: import('@deepseek-ai/dsh-pi-agent-session-tree').SessionTree) => unknown): CommandResult {
-  const result = map === undefined ? value : (value as { ok: boolean; value?: import('@deepseek-ai/dsh-pi-agent-session-tree').SessionTree }).ok
-    ? map((value as { value: import('@deepseek-ai/dsh-pi-agent-session-tree').SessionTree }).value)
+function jsonCommand(value: unknown, map?: (tree: import('@robiteame/dsh-pi-agent-session-tree').SessionTree) => unknown): CommandResult {
+  const result = map === undefined ? value : (value as { ok: boolean; value?: import('@robiteame/dsh-pi-agent-session-tree').SessionTree }).ok
+    ? map((value as { value: import('@robiteame/dsh-pi-agent-session-tree').SessionTree }).value)
     : value
   const failed = typeof result === 'object' && result !== null && (result as { ok?: unknown }).ok === false
   return { kind: failed ? 'error' : 'success', text: JSON.stringify(result) }
@@ -429,6 +435,7 @@ async function runTreeCommand(ctx: Context, invocation: CommandInvocation): Prom
   const parts = invocation.rawInput.trim().split(/\s+/u).filter(Boolean)
   const sessionId = invocation.agent.session.id
   const tree = syncSessionTree(invocation.agent)
+  const surface = sessionTreeSurfaceMode(invocation.agent.session)
   const [head, ...rest] = parts
   const action = head === 'snapshot' ? `snapshot.${rest[0] ?? ''}` : (head ?? 'list')
   // Surface domain failures (`{ok:false}`) as command errors, matching the
@@ -439,10 +446,10 @@ async function runTreeCommand(ctx: Context, invocation: CommandInvocation): Prom
     return { kind: failed ? 'error' : 'success', text: JSON.stringify(value) }
   }
   switch (action) {
-    case 'list': return json({ ok: true, value: tree.list() })
+    case 'list': return json({ ok: true, value: { ...tree.list(), surface } })
     case 'branches': return json({ ok: true, value: tree.branches() })
-    case 'tree': return json({ ok: true, value: tree.view() })
-    case 'session': return json({ ok: true, value: tree.info() })
+    case 'tree': return json({ ok: true, value: { ...tree.view(), surface } })
+    case 'session': return json({ ok: true, value: { ...tree.info(), surface } })
     case 'fork': {
       if (tree.selectedNode === null) return json({ ok: false, error: { code: 'INVALID_ARGUMENT', message: '请先在右侧会话树选中目标节点' } })
       const checkpoint = tree.checkpoint()
@@ -466,7 +473,7 @@ async function runTreeCommand(ctx: Context, invocation: CommandInvocation): Prom
       try { return json(await cloneActiveSession(ctx, invocation.agent, target, tree.selectedNode)) }
       catch (error) { return json({ ok: false, error: { code: 'INVALID_ARGUMENT', message: error instanceof Error ? error.message : 'clone failed' } }) }
     }
-    case 'context': return json({ ok: true, value: { cursor: tree.cursor, selectedNodeId: tree.selectedNode, messages: tree.messages(tree.selectedNode ?? tree.cursor) } })
+    case 'context': return json({ ok: true, value: { cursor: tree.cursor, selectedNodeId: tree.selectedNode, surface, messages: tree.messages(tree.selectedNode ?? tree.cursor) } })
     case 'jump': {
       const nodeId = rest[0] ?? tree.selectedNode
       if (nodeId === null) return json({ ok: false, error: { code: 'INVALID_ARGUMENT', message: '请先在右侧会话树选中目标节点' } })

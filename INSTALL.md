@@ -1,215 +1,76 @@
 # Installation
 
-The repository root is an independently installable DeepSeek-Harness Bundle.
-It has its own `package.json`, root `cordis.patch.yml`, generated Host and
-browser artifacts under `lib/`, and a `prepare` script that can build a fresh
-Git checkout. Install this root package for normal profile use; the three
-directories under `packages/` are source modules used by the legacy Harness
-workspace integration.
+## Users — install the published Bundle
 
-## Official `dsh plugin` installation
-
-The standard command adds the Bundle to the Web profile and activates both its
-Host and WebUI faces:
+The supported install is one command against your profile:
 
 ```sh
-dsh plugin --profile web add file:/absolute/path/to/dsh-session-tree-extension
+dsh plugin --profile <profile> add @robiteame/dsh-session-tree
 ```
 
-The package can be supplied as a local path, a GitHub checkout, or a tarball.
-After `dsh plugin` succeeds, the profile manifest should contain
-`@deepseek-ai/dsh-session-tree` in `dsh.profile.bundles`.
-
-### Local path
-
-Build a local checkout before linking it into the profile:
+or, fully offline, with the prebuilt tarball (no install scripts, no build
+step):
 
 ```sh
-cd /path/to/dsh-session-tree-extension
+dsh plugin --profile <profile> add robiteame-dsh-session-tree-0.1.0.tgz
+```
+
+The carrier package pulls its three implementation packages
+(`@robiteame/dsh-pi-agent-session-tree`, `@robiteame/dsh-tool-session-tree`,
+`@robiteame/dsh-client-ui-session-tree`) as dependencies and mounts them
+through its `cordis.patch.yml` composition layer. After the install, restart
+the profile and check the composition:
+
+```sh
+dsh --profile <profile> --dump-config
+```
+
+The dump should contain the `pi-agent-session-tree`, `tool-session-tree`, and
+`ui-session-tree` rows. In the WebUI, `/tree` opens the panel, clicking a node
+binds it as the active context, and `/fork` `/clone` `/session` operate on the
+tree. `session_tree`'s `context`/`session` operations report the active
+`surface` mode.
+
+### Requirements
+
+- DeepSeek-Harness `0.1.2-alpha.3` or a compatible `0.1.2` build (provides the
+  `@deepseek-ai/*` peers) and Cordis `^4.0.2`.
+- Node.js 22 or newer.
+- No `allowBuilds` entries: the packages declare no lifecycle scripts and ship
+  prebuilt artifacts.
+
+### Uninstall
+
+```sh
+dsh plugin --profile <profile> remove @robiteame/dsh-session-tree
+```
+
+The composition rows disappear with the bundle entry; nothing else in the
+Harness installation is touched — the plugin never modifies Harness files.
+
+## Contributors — source integration
+
+Building and testing the packages standalone happens in this repository
+without a Harness checkout:
+
+```sh
 pnpm install
-pnpm build
-dsh plugin --profile web add file:/path/to/dsh-session-tree-extension
+pnpm verify     # build + typecheck + pack dry-run + vitest (stock packages)
 ```
 
-Use the explicit `file:` form for a reliable standalone install: pnpm copies
-the package into the profile, allowing Harness' module fallback to provide its
-host peers. A bare absolute directory is a pnpm link and is intended only for
-development with a complete compatible runtime closure; Node's realpath rules
-can otherwise select a second Cordis copy or miss peers. A local `file:`
-directory install does not need a Git `prepare` allowlist entry.
-
-### GitHub repository
-
-Install the published repository directly. The latest `main` is:
+To run inside a DeepSeek-Harness source checkout (native branch switching via
+`Session.selectMessageSurface()`, native details dock):
 
 ```sh
-dsh plugin --profile web add github:robiteame/dsh-session-tree-extension#main
-```
-
-Pin a revision for reproducibility:
-
-```sh
-dsh plugin --profile web add github:robiteame/dsh-session-tree-extension#COMMIT_SHA
-```
-
-Replace `COMMIT_SHA` with the full or abbreviated revision you intend to trust.
-Git dependencies contain source rather than generated artifacts. pnpm runs this
-package's self-contained `prepare` script to produce `lib/` during installation.
-With pnpm 10 or newer, lifecycle scripts are blocked until the consumer grants
-permission. If the first command fails with pnpm's `allowBuilds` diagnostic,
-copy the exact package key it prints into
-`$DSH_HOME/profiles/web/pnpm-workspace.yaml` and rerun the command:
-
-```yaml
-allowBuilds:
-  '@deepseek-ai/dsh-session-tree@https://codeload.github.com/robiteame/dsh-session-tree-extension/tar.gz/RESOLVED_SHA': true
-```
-
-pnpm 11 resolves Git sources to a codeload URL in that key. The key must match
-pnpm's diagnostic exactly because its resolved specifier varies by pnpm version.
-This permission executes the Git checkout's build code on the local machine, so
-review and pin the source revision before allowing it.
-
-### Prebuilt tarball
-
-Building a tarball moves the build step out of profile installation and avoids
-the Git lifecycle permission. `pnpm pack` itself runs this package's `prepare`
-script; the explicit `pnpm build` below provides a separate build check:
-
-```sh
-cd /path/to/dsh-session-tree-extension
-pnpm install
-pnpm build
-pnpm pack
-dsh plugin --profile web add /path/to/dsh-session-tree-extension/deepseek-ai-dsh-session-tree-0.1.2-alpha.3.tgz
-```
-
-Check the generated archive before distributing it:
-
-```sh
-pnpm pack --dry-run
-pnpm pack:check
-```
-
-The archive must include `package.json`, `cordis.patch.yml`, `lib/index.js`,
-`lib/client.js`, and the Typert artifacts (`lib/typert.host.js` and
-`lib/typert.remote-client.js`). A tarball install has no source `prepare` step
-in the target profile and therefore needs no `allowBuilds` entry.
-
-## Verify a profile install
-
-Inspect the composed configuration without starting the server:
-
-```sh
-dsh --profile web --dump-config
-```
-
-The output should include a `session-tree` row whose package name is
-`@deepseek-ai/dsh-session-tree`. Then start the Web profile:
-
-```sh
-dsh --profile web
-```
-
-The running profile should expose the `session_tree` tool, `/tree`, `/fork`,
-`/clone`, and `/session` commands, plus the session-tree panel. On an unmodified
-official Harness the panel is an additive right-side overlay that leaves Tool
-details intact; the legacy patched Harness uses the named native details panel.
-Restart the profile after adding, removing, or updating a Bundle so the Bundle
-membership and module graph are rebuilt.
-
-## Compatibility
-
-The standalone Bundle is built and tested with DeepSeek-Harness
-`0.1.2-alpha.3`, Cordis `4.0.2`, and Node.js 22 or newer. It follows the pnpm
-10+ build-script policy described above; the Git flow was verified with pnpm
-11. Its Host artifact keeps Harness modules external so the profile can share
-one Cordis and one set of Harness services; the target installation must
-provide compatible published versions. Harness revisions that change Loader,
-Typert, command, or WebUI contracts may require a corresponding Bundle rebuild
-or source update.
-
-### Behaviour on an unmodified official Harness
-
-Official `0.1.2-alpha.3` has neither the selected-message-surface API nor the
-durable `session-tree/*` event vocabulary that `harness.patch` adds. The
-standalone Bundle still provides real historical navigation by using Harness'
-official surface mechanism:
-
-- A jump/fork/branch appends an empty official `assistant/message` with a
-  `replace` `surfaceOp` and rewrites the live surface nodes to the selected
-  path. The empty message does not enter the model transcript, but it changes
-  what `Session.deriveMessages()` returns for the next turn.
-- Branch names, cursor, selection, and explicit snapshots are stored in a
-  sidecar under `$DSH_HOME/storages/session-tree/<sessionId>.json` and restored
-  before the next agent pre-step. Restart-safe branching therefore works
-  without `harness.patch`.
-
-The sidecar is a separate artifact from `session.jsonl.zstd`: when moving only
-the raw session log between machines, also move the matching sidecar file, or
-use `/tree snapshot save/load` to carry the projection explicitly. A patched
-Harness source checkout continues to use the native selected-surface API and
-durable event vocabulary.
-
-## Legacy source-checkout integration
-
-`install.sh` remains available for development inside a DeepSeek-Harness source
-checkout and is intentionally separate from the official Bundle install:
-
-```sh
-./install.sh /path/to/deepseek-harness
-```
-
-The script applies `harness.patch`, copies the three source packages into the
-Harness workspace, copies the session-tree documentation, and refreshes the
-Harness lockfile. It preserves the original workspace-based flow and should be
-used when you need to edit or debug the extension alongside Harness source.
-
-The source integration and standalone Bundle are alternative deployment modes.
-Do not enable the root `session-tree` row in a composition that still has the
-legacy `pi-agent-session-tree`, `tool-session-tree`, and `ui-session-tree` rows:
-they own the same service, tool, commands, Remote, and panel. Disable the three
-legacy rows through a later profile patch before migrating, or leave the
-standalone Bundle uninstalled in that checkout.
-
-### Manual legacy steps
-
-Apply the Harness integration patch **before** copying the extension packages,
-then install dependencies:
-
-```sh
-HARNESS=/path/to/deepseek-harness
-cd "$HARNESS"
-git apply /path/to/dsh-session-tree-extension/harness.patch
-
-cp -R /path/to/dsh-session-tree-extension/packages/extensions/pi-agent-session-tree packages/extensions/
-cp -R /path/to/dsh-session-tree-extension/packages/extensions/tool-session-tree      packages/extensions/
-cp -R /path/to/dsh-session-tree-extension/packages/client/ui-session-tree            packages/client/
-cp /path/to/dsh-session-tree-extension/docs/subsystems/session-tree.md              docs/subsystems/
-cp /path/to/dsh-session-tree-extension/docs/subsystems/session-tree.zh.md            docs/subsystems/
-cp /path/to/dsh-session-tree-extension/docs/subsystems/session-tree.i18n.yaml        docs/subsystems/
-cp /path/to/dsh-session-tree-extension/docs/tool-catalog.md                          docs/
-cp /path/to/dsh-session-tree-extension/docs/tool-catalog.zh.md                       docs/
-cp /path/to/dsh-session-tree-extension/docs/tool-catalog.i18n.yaml                   docs/
-
+dev/install.sh /path/to/deepseek-harness
+cd /path/to/deepseek-harness
 pnpm install
 pnpm run build
 ```
 
-Applying the patch first is required because it contains only changes to
-upstream Harness integration files; extension package sources are copied as new
-paths and intentionally do not appear in `harness.patch`.
-
-The patch registers:
-
-- Host rows `pi-agent-session-tree` + `tool-session-tree` in the `dsh-base`
-  bundle composition and package dependencies.
-- The `ui-session-tree` browser row in the `dsh-web-app` bundle composition and
-  package dependencies.
-- The three packages in `tsconfig.base.json` paths and the host/client
-  aggregate project references.
-- Workspace lockfile importers for all three packages. The browser package
-  mounts the generated `sessionTree` Remote contribution directly, so the
-  central `api-remotes` assembly does not need a fragile source edit.
-- The Cordis/tool catalog generator manifests and generated catalog source, so
-  `verify-cordis-catalog` and `verify-tool-catalog` remain exhaustive.
+The script applies `dev/session-branch-surface.patch` (optional engine
+capability; skip with `ST_NO_SURFACE=1`) and `dev/harness.patch` (composition,
+tsconfig, lockfile), then copies the three packages and docs. See
+[`dev/README.md`](./dev/README.md). If the harness translation-pairing check
+flags `docs/tool-catalog.md` after installation, rerun
+`pnpm run verify-translation-pairing --write docs/tool-catalog.md`.

@@ -2,7 +2,7 @@
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
-import sessionTreeRemote from '@deepseek-ai/dsh-pi-agent-session-tree/remote'
+import sessionTreeRemote from '@robiteame/dsh-pi-agent-session-tree/remote'
 import type {} from '@deepseek-ai/dsh-client-ui-chat/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
@@ -15,7 +15,7 @@ declare module '@deepseek-ai/cordis' {
     'command/executed'(sessionId: SessionId, name: string, result: CommandResult): void
   }
 }
-import type { SessionTreeView } from '@deepseek-ai/dsh-pi-agent-session-tree/client'
+import type { SessionTreeView } from '@robiteame/dsh-pi-agent-session-tree/client'
 import type { SessionTreePanelActions } from './slots.ts'
 import { SessionTreeDock } from './SessionTreePanel.tsx'
 import {

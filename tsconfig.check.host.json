@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "paths": {
+      "@robiteame/dsh-pi-agent-session-tree": ["./packages/extensions/pi-agent-session-tree/src/index.ts"],
+      "@robiteame/dsh-pi-agent-session-tree/client": ["./packages/extensions/pi-agent-session-tree/src/client.ts"],
+      "@robiteame/dsh-pi-agent-session-tree/invariant": ["./packages/extensions/pi-agent-session-tree/src/invariant.ts"],
+      "@robiteame/dsh-tool-session-tree": ["./packages/extensions/tool-session-tree/src/index.ts"],
+      "@robiteame/dsh-tool-session-tree/invariant": ["./packages/extensions/tool-session-tree/src/invariant.ts"]
+    }
+  },
+  "include": [
+    "packages/extensions/*/src/**/*.ts"
+  ]
+}

@@ -5,7 +5,7 @@
  *
  * Design notes
  * - A process-wide store keeps every session's tree; the companion
- *   `@deepseek-ai/dsh-tool-session-tree` plugin shares the same store, so
+ *   `@robiteame/dsh-tool-session-tree` plugin shares the same store, so
  *   anything the model appends is immediately visible to the browser panel
  *   and vice versa.
  * - Harness Session events are the durable source of truth; the process-wide
@@ -14,7 +14,7 @@
  * - Every operation answers `{ok, value}|{ok:false,error}` from the domain
  *   layer; the Remote boundary adds its own transport envelope.
  *
- * @module @deepseek-ai/dsh-pi-agent-session-tree
+ * @module @robiteame/dsh-pi-agent-session-tree
  */
 
 import type { Context } from '@deepseek-ai/cordis'
@@ -40,7 +40,7 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
-/** Selected-message-surface API added by the repository's optional harness.patch. */
+/** Selected-message-surface API added by the repository's optional dev/session-branch-surface.patch. */
 interface SelectedMessageSurfaceSession {
   selectMessageSurface(nodes: readonly number[] | null): void
   messageSurfaceNodes(): readonly number[]
@@ -48,12 +48,13 @@ interface SelectedMessageSurfaceSession {
 
 /**
  * Whether a live Session exposes the selected-message-surface API shipped by
- * this repository's `harness.patch`. A stock DeepSeek-Harness install (the
- * target of `dsh plugin add`) has no such API: `deriveMessages()` always walks
- * the canonical surface, and unknown `session-tree/*` events cannot be marked
- * `ignorable` through the public append API, so a profile cannot persist them.
- * The tree remains fully browsable and branchable inside the process store in
- * that mode; only the in-place model-surface switch is unavailable.
+ * this repository's `dev/session-branch-surface.patch`. A stock DeepSeek-Harness
+ * install (the target of `dsh plugin add`) has no such API: `deriveMessages()`
+ * always walks the canonical surface, and unknown `session-tree/*` events
+ * cannot be marked `ignorable` through the public append API, so a profile
+ * cannot persist them. The tree remains fully browsable and branchable inside
+ * the process store in that mode; only the in-place model-surface switch is
+ * unavailable.
  */
 export function supportsSelectedMessageSurface(
   session: Session,
@@ -63,11 +64,69 @@ export function supportsSelectedMessageSurface(
     && typeof candidate.messageSurfaceNodes === 'function'
 }
 
+/** How cursor movements reach the model-visible Session surface on this build. */
+export type SessionTreeSurfaceMode = 'native' | 'stock' | 'projection'
+
+/**
+ * Sessions whose live surface could not be rewritten even through the official
+ * replace event. They fall back to projection-only navigation: the tree and
+ * panel cursor move, but the next model turn keeps the canonical history.
+ */
+const projectionFallbackSessions = new WeakSet<object>()
+/** Sessions already announced in the Host log, so each notice fires once. */
+const surfaceNoticesSent = new WeakMap<object, Set<SessionTreeSurfaceMode>>()
+
+/**
+ * The active surface mode for one session:
+ * - `native` — `dev/session-branch-surface.patch` (or an upstream merge)
+ *   provides `Session.selectMessageSurface()`; jump/fork switch the model
+ *   history directly.
+ * - `stock` — official Harness: the plugin emulates the switch with an official
+ *   empty `replace` surface event plus the durable sidecar.
+ * - `projection` — the live surface is not writable in this revision;
+ *   navigation updates the tree projection and panel only.
+ */
+export function sessionTreeSurfaceMode(session: Session): SessionTreeSurfaceMode {
+  if (supportsSelectedMessageSurface(session)) return 'native'
+  return projectionFallbackSessions.has(session) ? 'projection' : 'stock'
+}
+
+/** Announce a non-native mode once per session in the Host log. */
+function noticeSurfaceMode(
+  session: Session,
+  mode: Exclude<SessionTreeSurfaceMode, 'native'>,
+  detail: string,
+): void {
+  let sent = surfaceNoticesSent.get(session)
+  if (sent === undefined) {
+    sent = new Set()
+    surfaceNoticesSent.set(session, sent)
+  }
+  if (sent.has(mode)) return
+  sent.add(mode)
+  console.warn(`[session-tree] ${String(session.id)}: ${detail}`)
+}
+
+/** Mark a session as projection-only after its stock surface rewrite failed. */
+function markProjectionFallback(session: Session, cause: unknown): void {
+  if (projectionFallbackSessions.has(session)) return
+  projectionFallbackSessions.add(session)
+  const reason = cause instanceof Error ? cause.message : String(cause)
+  noticeSurfaceMode(
+    session,
+    'projection',
+    'projection mode: the live message surface is not writable here '
+      + `(${reason}); jump/fork move the tree cursor and panel only, and the next model turn keeps the canonical history. `
+      + 'Apply dev/session-branch-surface.patch (or upgrade Harness) for native branch switching.',
+  )
+}
+
 /**
  * Whether the running Harness recognizes the durable `session-tree/*` event
  * vocabulary. The event names are registered in the session known-event-types
- * table by `harness.patch`; on stock packages an appended unknown event would
- * make a resumed persisted log unreadable, so callers must skip those appends.
+ * table by `dev/session-branch-surface.patch`; on stock packages an appended
+ * unknown event would make a resumed persisted log unreadable, so callers must
+ * skip those appends.
  */
 export function supportsDurableSessionTreeEvents(session: Session): boolean {
   return supportsSelectedMessageSurface(session)
@@ -177,9 +236,9 @@ function selectedSurfaceSeqs(tree: SessionTree, session: Session): number[] {
 function appendStockCursorEvent(
   session: Session,
   tree: SessionTree,
-  currentNodes: readonly number[],
+  logSurfaceNodes: readonly number[],
 ): SessionEvent<'assistant/message'> | undefined {
-  if (currentNodes.length === 0) return undefined
+  if (logSurfaceNodes.length === 0) return undefined
   const context = session.requestContext()
   const marker = { kind: 'cursor' as const, nodeId: tree.cursor }
   const data = {
@@ -197,10 +256,54 @@ function appendStockCursorEvent(
     },
     treeRestore: marker,
   } as unknown as SessionEventMap['assistant/message']
+  // The replace range must be expressed against the surface a fresh replay of
+  // the log would build: the live node list was rewritten in place by earlier
+  // navigations, so ranges taken from it reference seqs the replayed surface
+  // no longer contains and make the stored session fail resume validation.
   return session.append('assistant/message', data, {
-    surfaceOp: { op: 'replace', start: currentNodes[0]!, end: currentNodes[currentNodes.length - 1]! },
-    sourceEventSeqs: [...currentNodes],
+    surfaceOp: { op: 'replace', start: logSurfaceNodes[0]!, end: logSurfaceNodes[logSurfaceNodes.length - 1]! },
+    sourceEventSeqs: [...logSurfaceNodes],
   })
+}
+
+/**
+ * The surface node list a fresh replay of the Session log would produce. The
+ * in-memory list is spliced by {@link setStockSurfaceNodes} and therefore
+ * diverges from the log after the first navigation; this walk reconstructs the
+ * replayed truth so every emitted replace event stays resume-valid.
+ */
+function canonicalSurfaceNodes(session: Session): number[] {
+  const nodes: number[] = []
+  for (const event of session.events) {
+    if (!isSurfaceEvent(event)) continue
+    if (event.surfaceOp === 'append') {
+      nodes.push(event.seq)
+      continue
+    }
+    if (event.surfaceOp !== undefined && event.surfaceOp.op === 'replace') {
+      const start = nodes.indexOf(event.surfaceOp.start)
+      const end = nodes.indexOf(event.surfaceOp.end)
+      if (start < 0 || end < start) continue
+      nodes.splice(start, end - start + 1, event.seq)
+    }
+  }
+  return nodes
+}
+
+/** Announce the stock emulation once per session in the Host log. */
+function noticeStockMode(session: Session): void {
+  noticeSurfaceMode(
+    session,
+    'stock',
+    'stock-surface mode: this Harness lacks Session.selectMessageSurface(); '
+      + 'branch switches use the official replace-surface emulation and the session-tree sidecar for durability',
+  )
+}
+
+/** Whether the live stock surface node list can be rewritten in place. */
+function stockSurfaceIsWritable(session: Session): boolean {
+  const nodes: unknown = session.surface.nodes
+  return Array.isArray(nodes) && !Object.isFrozen(nodes)
 }
 
 /** Rewrite the live stock surface nodes after the replacement generation bump. */
@@ -246,9 +349,30 @@ export function applyTreeCursorToSession(agent: Agent, tree: SessionTree): void 
   if (process.env.DSH_SESSION_TREE_DEBUG === '1') {
     console.error('[session-tree] stock surface rewrite', { sessionId: stockSession.id, currentNodes, seqs, cursor: tree.cursor })
   }
-  const event = appendStockCursorEvent(stockSession, tree, currentNodes)
-  if (event !== undefined) tree.markSessionEventSeq(event.seq)
-  setStockSurfaceNodes(stockSession, seqs)
+  // An unwritable surface must be detected before appending: a replace event
+  // without the follow-up node rewrite would leave a truncated live path, so
+  // such builds degrade to projection-only navigation instead.
+  if (!stockSurfaceIsWritable(stockSession)) {
+    markProjectionFallback(stockSession, new Error('surface nodes are not a writable array'))
+    persistSessionTree(tree)
+    return
+  }
+  try {
+    noticeStockMode(stockSession)
+    const logSurfaceNodes = canonicalSurfaceNodes(stockSession)
+    // Restore the live surface to the log's replayed truth first: the live
+    // array was spliced by earlier navigations, and the append-time
+    // provenance check would otherwise accept a replace the resume replay
+    // rejects (and vice versa). With live == replayed, both agree forever.
+    if (!sameSurfaceNodes(currentNodes, logSurfaceNodes)) {
+      setStockSurfaceNodes(stockSession, logSurfaceNodes)
+    }
+    const event = appendStockCursorEvent(stockSession, tree, logSurfaceNodes)
+    if (event !== undefined) tree.markSessionEventSeq(event.seq)
+    setStockSurfaceNodes(stockSession, seqs)
+  } catch (error) {
+    markProjectionFallback(stockSession, error)
+  }
   persistSessionTree(tree)
 }
 

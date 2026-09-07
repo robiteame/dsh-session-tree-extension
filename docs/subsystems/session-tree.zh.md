@@ -6,7 +6,7 @@
 
 ## 节点模型
 
-一棵树把每一轮对话存为一个不可变节点。`TreeNode` 是持久化单元；entry 可通过 `type` 区分 `message`、`tool_call`、`model_change`、`compaction`、`branch_summary` 和 `custom`，并可携带结构化 `content` parts、model、usage、cost、error 元数据：
+一棵树把每一轮对话存为一个不可变节点。`TreeNode` 是持久化单元；entry 可通过 `type` 区分 `message`、`tool_call`、`tool_result`、`model_change`、`compaction`、`branch_summary` 和 `custom`，并可携带结构化 `content` parts、model、usage、cost、error 元数据：
 
 ```ts type-equiv
 /**
@@ -19,14 +19,29 @@ interface TreeNode {
   readonly nodeId: string
   /** Parent node id, or null for a root. */
   readonly parentId: string | null
+  /** Number of direct forks created from this entry (derived, never mutated). */
+  readonly forkCount?: number
+  /** PI-Agent-style entry discriminator; defaults to `message` for legacy nodes. */
+  readonly type?: TreeEntryType
   /** Branch label this node belongs to (defaults to the active branch). */
   readonly branch: string
   /** Human-readable preview shown in tree views. */
   readonly summary: string
   /** ISO-8601 creation time. */
   readonly createdAt: string
-  /** The carried message; nodes without one (e.g. branch summaries) omit it. */
+  /**
+   * Detached compatibility DTO for display/context responses; this is not the
+   * Harness `Message` union and must not be passed to model APIs as-is.
+   */
   readonly message?: LlmMessage
+  /** Pi-style structured content; message is retained as the derived compatibility DTO. */
+  readonly content?: readonly ContentPart[]
+  /** Optional model/provider metadata. */
+  readonly model?: string
+  /** Optional usage/cost/error metadata from the model turn. */
+  readonly usage?: Record<string, JsonValue>
+  readonly cost?: number
+  readonly error?: string
   /** Optional lossless-JSON extras. */
   readonly metadata?: Record<string, JsonValue>
 }
@@ -42,6 +57,10 @@ interface SessionTreeView {
   readonly sessionId: SessionId
   readonly cursor: string | null
   readonly activeBranch: string
+  /** Explicit UI-selected node; unlike cursor, it is only set by node selection. */
+  readonly selectedNodeId?: string | null
+  /** Session-level branch heads, matching Pi's named branch pointers. */
+  readonly branchHeads?: Record<string, string>
   readonly nodes: readonly TreeNode[]
   readonly branches: readonly BranchView[]
 }
@@ -50,7 +69,7 @@ interface SessionTreeView {
 重建出的上下文是根→光标路径的标准 LLM messages 数组——光标不在的分支不会进入 `messages`，因此上下文绝不混入并行的备选路径。
 
 ```ts type-equiv
-/** Result of a cursor jump: the new cursor plus the reconstructed path. */
+/** Result of tree cursor navigation: the new cursor plus the projected path. */
 interface JumpView {
   readonly cursor: string | null
   readonly messages: readonly LlmMessage[]
@@ -63,7 +82,7 @@ Harness Session 事件是持久化真源，树存储是增量同步的投影。
 
 使用 `harness.patch` 的源码集成会把 cursor/branch/selection 标记持久化为 `session-tree/*` 事件，并通过原生 selected-message-surface API 把下一次模型请求指向活动路径。独立官方 Bundle 使用不同的实现：跳转会追加一条官方空内容 `assistant/message`，携带 `replace` surface 操作；branch/cursor/selection 元数据保存到插件 sidecar（`$DSH_HOME/storages/session-tree/<sessionId>.json`），并在下一次 agent pre-step 前恢复，因此官方 profile 重启后树仍然完整。
 
-`snapshot.save` 产出、`snapshot.load` 恢复下面的版本化快照。Remote 首次读取时会把 Harness 原生 `Session.events` 中的消息、工具和模型路由事件投影为树节点，再由树光标继续追加；适配器保留原生事件 seq，便于后续接入原生持久化。未知版本被拒绝为 `INVALID_SNAPSHOT`。
+`snapshot.save` 产出、`snapshot.load` 恢复下面的版本化快照。每次 Remote 读取与 agent pre-step 都会把 Harness 原生 `Session.events` 中的消息、工具和模型路由事件增量投影为树节点，再由树光标继续追加；适配器保留原生事件 seq。未知版本被拒绝为 `INVALID_SNAPSHOT`。
 
 ```ts type-equiv
 /**
@@ -76,6 +95,12 @@ interface SessionTreeSnapshot {
   readonly sessionId: string
   readonly cursor: string | null
   readonly activeBranch: string
+  /** Highest native Session event seq represented by this snapshot, when known. */
+  readonly nativeEventSeq?: number
+  /** Session-level branch heads, matching Pi's named branch pointers. */
+  readonly branchHeads?: Record<string, string>
+  /** Explicit UI-selected node used as the context for /fork and /clone. */
+  readonly selectedNodeId?: string | null
   readonly nodes: readonly TreeNode[]
 }
 ```
@@ -89,6 +114,7 @@ interface SessionTreeSnapshot {
 type TreeErrorCode =
   | 'INVALID_ARGUMENT'
   | 'SESSION_NOT_FOUND'
+  | 'SESSION_ALREADY_EXISTS'
   | 'NODE_NOT_FOUND'
   | 'INVALID_SNAPSHOT'
   | 'NOT_FOUND'
@@ -101,10 +127,10 @@ type TreeResult<T> =
 
 ## 表面
 
-- `session_tree` 工具（`@deepseek-ai/dsh-tool-session-tree`）：`create`、`append`、`list`、`branches`、`tree`、`jump`、`context`、`branch`、`branch.summary`、`snapshot.save`、`snapshot.load`、`sessions`。
+- `session_tree` 工具（`@robiteame/dsh-tool-session-tree`）：`create`、`append`、`list`、`branches`、`tree`、`jump`、`fork`、`clone`、`context`、`session`、`branch`、`branch.summary`、`snapshot.save`、`snapshot.load`、`sessions`。
 - `/tree` 命令族：`list`、`branches`、`tree`、`context`、`jump <nodeId>`、`branch <nodeId> <name>`、`snapshot save`、`snapshot load <json>`。`/fork [branch]` 与 `/clone` 自动读取右侧会话树选中节点；未选中时返回“请先在右侧会话树选中目标节点”。
-- `sessionTree` Remote 服务（`@deepseek-ai/dsh-pi-agent-session-tree`）：`list(agent)`、`jump(agent, nodeId)`、`fork(agent, nodeId, branch)` 与 `session(agent)` 驱动浏览器面板。
-- `@deepseek-ai/dsh-client-ui-session-tree`：在打补丁的源码集成中占用原生右侧详情栏的 `conversation.details.panel`；在官方 Web profile 中使用叠加式 `shell.overlay`。`/tree` 打开或刷新视图，节点点击绑定命令上下文；固定图形栏不会随树深度横向增长。
+- `sessionTree` Remote 服务（`@robiteame/dsh-pi-agent-session-tree`）：`list(agent)`、`jump(agent, nodeId)`、`fork(agent, nodeId, branch)` 与 `session(agent)` 驱动浏览器面板。
+- `@robiteame/dsh-client-ui-session-tree`：在打补丁的源码集成中占用原生右侧详情栏的 `conversation.details.panel`；在官方 Web profile 中使用叠加式 `shell.overlay`。`/tree` 打开或刷新视图，节点点击绑定命令上下文；固定图形栏不会随树深度横向增长。
 
 ## Cordis API
 

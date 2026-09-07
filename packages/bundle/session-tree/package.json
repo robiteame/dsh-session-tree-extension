@@ -1,0 +1,35 @@
+{
+  "name": "@robiteame/dsh-session-tree",
+  "description": "Pi-style append-only multi-branch session trees for DeepSeek-Harness: one carrier Bundle row mounts the Host service, the session_tree tool and commands, and the WebUI tree panel",
+  "version": "0.1.0",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/robiteame/dsh-session-tree-extension.git",
+    "directory": "packages/bundle/session-tree"
+  },
+  "bugs": {
+    "url": "https://github.com/robiteame/dsh-session-tree-extension/issues"
+  },
+  "type": "module",
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "dependencies": {
+    "@robiteame/dsh-pi-agent-session-tree": "^0.1.0",
+    "@robiteame/dsh-tool-session-tree": "^0.1.0",
+    "@robiteame/dsh-client-ui-session-tree": "^0.1.0"
+  },
+  "files": [
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  }
+}

@@ -1,14 +1,17 @@
 {
-  "name": "@deepseek-ai/dsh-pi-agent-session-tree",
+  "name": "@robiteame/dsh-pi-agent-session-tree",
   "description": "Append-only multi-branch session trees: the SessionTree/SessionTreeStore domain model, JSON snapshots, and the sessionTree Remote service",
-  "version": "0.1.2-alpha.3",
+  "version": "0.1.0",
   "publishConfig": {
     "access": "public"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
+    "url": "git+https://github.com/robiteame/dsh-session-tree-extension.git",
     "directory": "packages/extensions/pi-agent-session-tree"
+  },
+  "bugs": {
+    "url": "https://github.com/robiteame/dsh-session-tree-extension/issues"
   },
   "type": "module",
   "main": "lib/index.js",
@@ -24,11 +27,11 @@
     },
     "./types": {
       "types": "./lib/types/types.d.ts",
-      "default": "./lib/types/types.js"
+      "default": "./lib/index.js"
     },
     "./client": {
       "types": "./lib/types/client.d.ts",
-      "default": "./lib/types/client.js"
+      "default": "./lib/index.js"
     },
     "./typert": {
       "types": "./lib/typert.host.d.ts",
@@ -38,45 +41,37 @@
       "types": "./lib/typert.remote-client.d.ts",
       "default": "./lib/typert.remote-client.js"
     },
-    "./src/*": "./src/*",
     "./package.json": "./package.json"
   },
   "files": [
     "lib/index.js",
     "lib/invariant.js",
-    "lib/types/**/*.js",
     "lib/types/**/*.d.ts",
     "lib/typert.host.js",
     "lib/typert.host.d.ts",
     "lib/typert.remote-client.js",
-    "lib/typert.remote-client.d.ts"
+    "lib/typert.remote-client.d.ts",
+    "README.md"
   ],
   "scripts": {
-    "bundle": "tsdown",
-    "watch": "tsdown --watch"
+    "build": "node ../../../scripts/build.mjs pi",
+    "watch": "node ../../../scripts/build.mjs pi"
   },
   "license": "MIT",
   "peerDependencies": {
-    "@deepseek-ai/cordis": "workspace:^",
-    "@deepseek-ai/dsh-agent": "workspace:^",
-    "@deepseek-ai/dsh-commands": "workspace:^",
-    "@deepseek-ai/dsh-session": "workspace:^",
-    "@deepseek-ai/dsh-system-prompt": "workspace:^",
-    "@deepseek-ai/dsh-tools": "workspace:^",
-    "@deepseek-ai/dsh-typert-protocol": "workspace:^",
-    "@deepseek-ai/dsh-invariants": "workspace:^"
-  },
-  "devDependencies": {
-    "@deepseek-ai/cordis": "workspace:^",
-    "@deepseek-ai/dsh-agent": "workspace:^",
-    "@deepseek-ai/dsh-commands": "workspace:^",
-    "@deepseek-ai/dsh-session": "workspace:^",
-    "@deepseek-ai/dsh-system-prompt": "workspace:^",
-    "@deepseek-ai/dsh-tools": "workspace:^",
-    "@deepseek-ai/dsh-typert-protocol": "workspace:^",
-    "@deepseek-ai/dsh-invariants": "workspace:^"
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/dsh-agent": "^0.1.2-alpha.3",
+    "@deepseek-ai/dsh-commands": "^0.1.2-alpha.3",
+    "@deepseek-ai/dsh-invariants": "^0.1.2-alpha.3",
+    "@deepseek-ai/dsh-session": "^0.1.2-alpha.3",
+    "@deepseek-ai/dsh-system-prompt": "^0.1.2-alpha.3",
+    "@deepseek-ai/dsh-tools": "^0.1.2-alpha.3",
+    "@deepseek-ai/dsh-typert-protocol": "^0.1.2-alpha.3"
   },
   "dependencies": {
     "zod": "^4.4.3"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

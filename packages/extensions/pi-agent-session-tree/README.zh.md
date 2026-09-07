@@ -16,13 +16,13 @@
 
 ## 工具操作
 
-`create`、`append`、`list`、`branches`、`tree`、`jump`、`context`、`branch`、`branch.summary`、`snapshot.save`、`snapshot.load`、`sessions`。
+`create`、`append`、`list`、`branches`、`tree`、`jump`、`fork`、`clone`、`context`、`session`、`branch`、`branch.summary`、`snapshot.save`、`snapshot.load`、`sessions`。
 
 - `context` 返回 `{cursor, messages}`，其中 `messages` 是根→光标路径的标准 LLM messages 数组。
 - `branch` 把光标停在已有节点并命名下一次 append 的分支；`branch.summary` 额外追加一个摘要节点。历史节点永不被修改或删除。
-- `snapshot.save` 返回版本化树快照；`snapshot.load` 在同一 sessionId 下恢复（`version: 1`）。
+- `snapshot.save` 返回版本化树快照；`snapshot.load` 在同一 sessionId 下恢复（`SNAPSHOT_VERSION` 版本化：`version: 1`）。
 
-每次操作都返回 `{ok: true, value}` 或 `{ok: false, error: {code, message}}`，错误码为 `INVALID_ARGUMENT` | `SESSION_NOT_FOUND` | `NODE_NOT_FOUND` | `INVALID_SNAPSHOT`，因此工具与 Remote 结果始终是无损 JSON。
+每次操作都返回 `{ok: true, value}` 或 `{ok: false, error: {code, message}}`，错误码为 `INVALID_ARGUMENT` | `SESSION_NOT_FOUND` | `SESSION_ALREADY_EXISTS` | `NODE_NOT_FOUND` | `INVALID_SNAPSHOT` | `NOT_FOUND`，因此工具与 Remote 结果始终是无损 JSON。
 
 ## 工具示例
 
@@ -39,14 +39,14 @@
 
 ## 组合
 
-把主机行加入当前 Cordis 组合（web-app 补丁已携带）：
+把主机行加入当前 Cordis 组合（独立 Bundle 的 `cordis.patch.yml` 已携带）：
 
 ```yaml
 - id: pi-agent-session-tree
-  name: '@deepseek-ai/dsh-pi-agent-session-tree'
+  name: '@robiteame/dsh-pi-agent-session-tree'
 ```
 
-浏览器面板以 `@deepseek-ai/dsh-client-ui-session-tree` 提供。补丁集成把它挂载为 `conversation.details.panel`，官方 Bundle 把它挂载为叠加式 `shell.overlay`。本插件安装的 system-prompt 片段见 `SYSTEM_PROMPT.md`。
+浏览器面板以 `@robiteame/dsh-client-ui-session-tree` 提供。补丁集成把它挂载为 `conversation.details.panel`，官方 Bundle 把它挂载为叠加式 `shell.overlay`。本插件安装的 system-prompt 片段见 `SYSTEM_PROMPT.md`。
 
 ## 实现说明
 
@@ -61,7 +61,7 @@
 
 #### 模型看到什么
 
-领域服务本身不注册任何提示、schema 或结果：模型面完全由 `@deepseek-ai/dsh-tool-session-tree`（工具、`/tree` 命令、system-prompt 片段）承担。本包暴露的 Remote 方法只服务浏览器面板，绝不进入模型上下文。
+领域服务本身不注册任何提示、schema 或结果：模型面完全由 `@robiteame/dsh-tool-session-tree`（工具、`/tree` 命令、system-prompt 片段）承担。本包暴露的 Remote 方法只服务浏览器面板，绝不进入模型上下文。
 
 #### Token 影响
 

@@ -1,45 +1,9 @@
 {
   "extends": "../../../tsconfig.base.client.json",
   "compilerOptions": {
-    "rootDir": "src",
-    "outDir": "lib/types"
+    "noEmit": true
   },
   "include": [
     "src"
-  ],
-  "references": [
-    {
-      "path": "../../api/remotes/tsconfig.client.json"
-    },
-    {
-      "path": "../../../vendor/cordis"
-    },
-    {
-      "path": "../locale"
-    },
-    {
-      "path": "../ui-renderer"
-    },
-    {
-      "path": "../ui-session"
-    },
-    {
-      "path": "../ui-chat"
-    },
-    {
-      "path": "../ui-layout"
-    },
-    {
-      "path": "../ui-slots"
-    },
-    {
-      "path": "../ui-primitives"
-    },
-    {
-      "path": "../../extensions/pi-agent-session-tree"
-    },
-    {
-      "path": "../../core/session"
-    }
   ]
 }

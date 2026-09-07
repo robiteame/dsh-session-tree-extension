@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-会话树服务的模型面配套：`session_tree` 工具、`/tree` 命令族，以及共享只追加会话树存储之上的 system-prompt 片段。所有状态都在 `sessionTreeStore`（`@deepseek-ai/dsh-pi-agent-session-tree`）中，因此模型、命令行与浏览器面板观察到同一批树。
+会话树服务的模型面配套：`session_tree` 工具、`/tree` 命令族，以及共享只追加会话树存储之上的 system-prompt 片段。所有状态都在 `sessionTreeStore`（`@robiteame/dsh-pi-agent-session-tree`）中，因此模型、命令行与浏览器面板观察到同一批树。
 
 ## 表面
 
@@ -14,7 +14,7 @@
 
 ## 工具操作
 
-`create`、`append`、`list`、`branches`、`tree`、`jump`、`context`、`branch`、`branch.summary`、`snapshot.save`、`snapshot.load`、`sessions`。
+`create`、`append`、`list`、`branches`、`tree`、`jump`、`fork`、`clone`、`context`、`session`、`branch`、`branch.summary`、`snapshot.save`、`snapshot.load`、`sessions`。
 
 - `context` 返回 `{cursor, messages}`——根→光标路径的标准 LLM messages 数组。
 - `branch` 把光标停在已有节点并命名下一次 append 的分支；`branch.summary` 额外追加摘要节点。历史节点永不被修改或删除。
@@ -41,11 +41,11 @@
 
 #### 模型看到什么
 
-一段固定文本告诉模型：树是 Harness 持久化 Session 日志的只追加投影——原生 user/assistant/tool/model 事件会自动同步；导航后先读 `context`，不要重复 append 普通轮次；仅用 `append` 记录明确的自定义 entry，从历史节点分叉且不修改旧节点。
+一段固定文本告诉模型：树是 Harness 持久化 Session 日志的只追加投影——原生 user/assistant/tool/model 事件会自动同步；导航后先读 `context`，不要重复 append 普通轮次；仅用 `append` 记录明确的自定义 entry，从历史节点分叉且不修改旧节点。`context` 与 `session` 返回的 `surface` 字段报告当前表面模式（`native`、`stock` 或 `projection`）。
 ##### SessionTree 指引
 
 ```markdown
-SessionTree is the append-only projection of the durable Harness Session log. Native user, assistant, tool, and model-context events synchronize automatically; never duplicate ordinary turns with operation 'append'. After navigation, use 'context' for the root-to-cursor active branch. Use 'append' only for an explicit custom entry, and use 'fork' or 'branch' to explore alternatives without modifying old nodes. Use snapshots for explicit export or full-tree restore. All operations report failures as {ok:false,error:{code,message}}.
+SessionTree is the append-only projection of this agent's durable Harness Session log. Native user, assistant, tool, and model-context events are synchronized automatically: never duplicate ordinary turns with operation 'append'. Before answering after navigation, call session_tree with operation 'context' and treat its root-to-cursor messages as the active branch context. Use 'append' only for an explicit custom tree entry not already recorded by Harness. To explore an alternative, call 'fork' or 'branch' with a historical nodeId and branch name (or 'branch.summary' to record a summary); old nodes are never modified or deleted. Use 'branches' and 'tree' to inspect topology, and 'snapshot.save'/'snapshot.load' for explicit export or full-tree restore. All operations report failures as {ok:false,error:{code,message}}. Depending on the Harness build, jump/fork switch the model-visible history either through the native selected-surface API or through an official replace-surface emulation; when neither is available the tree is projection-only. The surface field reported by 'context' and 'session' states the active mode: native, stock, or projection.
 ```
 
 #### Token 影响

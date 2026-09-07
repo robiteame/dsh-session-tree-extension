@@ -1,12 +1,12 @@
 /**
- * Package-owned invariant companion for `@deepseek-ai/dsh-pi-agent-session-tree`.
- * @module @deepseek-ai/dsh-pi-agent-session-tree/invariant
+ * Package-owned invariant companion for `@robiteame/dsh-pi-agent-session-tree`.
+ * @module @robiteame/dsh-pi-agent-session-tree/invariant
  */
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
-const PACKAGE_NAME = '@deepseek-ai/dsh-pi-agent-session-tree'
+const PACKAGE_NAME = '@robiteame/dsh-pi-agent-session-tree'
 
 /** Cordis companion plugin name. */
 export const name = 'pi-agent-session-tree-invariant'

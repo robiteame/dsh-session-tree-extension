@@ -1,11 +1,16 @@
 packages:
-  - .
+  - packages/extensions/pi-agent-session-tree
+  - packages/extensions/tool-session-tree
+  - packages/client/ui-session-tree
+  - packages/bundle/session-tree
 
 nodeLinker: hoisted
 autoInstallPeers: false
+# Link the sibling packages through their semver ranges so the workspace
+# installs without the packages being published first.
+linkWorkspacePackages: true
 
 # pnpm >= 10 requires explicit permission for native lifecycle scripts. This
-# root allowlist covers esbuild during local development; a consuming Harness
-# profile must instead allowlist the exact Git package key printed by pnpm.
+# root allowlist covers esbuild during local development.
 allowBuilds:
   esbuild: true

@@ -1,14 +1,17 @@
 {
-  "name": "@deepseek-ai/dsh-client-ui-session-tree",
-  "description": "Session-tree WebUI panel in the native right details sidebar with click selection and a bounded IDEA-style branch graph",
-  "version": "0.1.2-alpha.3",
+  "name": "@robiteame/dsh-client-ui-session-tree",
+  "description": "Session-tree WebUI panel: a native right-details-sidebar dock on patched Harness and an additive right-side overlay on official builds",
+  "version": "0.1.0",
   "publishConfig": {
     "access": "public"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
+    "url": "git+https://github.com/robiteame/dsh-session-tree-extension.git",
     "directory": "packages/client/ui-session-tree"
+  },
+  "bugs": {
+    "url": "https://github.com/robiteame/dsh-session-tree-extension/issues"
   },
   "type": "module",
   "main": "lib/index.js",
@@ -26,7 +29,6 @@
       "types": "./lib/types/client/index.d.ts",
       "default": "./lib/client.js"
     },
-    "./src/*": "./src/*",
     "./package.json": "./package.json"
   },
   "dsh": {
@@ -41,36 +43,29 @@
     }
   },
   "scripts": {
-    "bundle": "tsdown",
-    "watch": "tsdown --watch"
+    "build": "node ../../../scripts/build.mjs ui",
+    "watch": "node ../../../scripts/build.mjs ui"
   },
   "license": "MIT",
   "peerDependencies": {
-    "@deepseek-ai/cordis": "workspace:^"
+    "@deepseek-ai/cordis": "^4.0.2"
   },
   "devDependencies": {
-    "@deepseek-ai/dsh-client-locale": "workspace:^",
-    "@deepseek-ai/dsh-api-remotes": "workspace:^",
-    "@deepseek-ai/dsh-client-ui-chat": "workspace:^",
-    "@deepseek-ai/dsh-client-ui-layout": "workspace:^",
-    "@deepseek-ai/dsh-commands": "workspace:^",
-    "@deepseek-ai/dsh-client-ui-renderer": "workspace:^",
-    "@deepseek-ai/dsh-session": "workspace:^",
-    "@deepseek-ai/dsh-client-ui-primitives": "workspace:^",
-    "@deepseek-ai/dsh-client-ui-slots": "workspace:^",
-    "@deepseek-ai/dsh-pi-agent-session-tree": "workspace:^",
-    "@deepseek-ai/dsh-invariants": "workspace:^",
-    "@types/react": "~18.3.1",
-    "@deepseek-ai/cordis": "workspace:^",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
+    "@robiteame/dsh-pi-agent-session-tree": "^0.1.0",
+    "@testing-library/dom": "^10.0.0",
     "@testing-library/react": "^16.1.0",
-    "@deepseek-ai/dsh-client-test-runtime": "workspace:^"
+    "@types/react": "~18.3.1",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
   },
   "files": [
     "lib/index.js",
     "lib/invariant.js",
     "lib/client.js",
-    "lib/types/**/*.d.ts"
-  ]
+    "lib/types/**/*.d.ts",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  }
 }

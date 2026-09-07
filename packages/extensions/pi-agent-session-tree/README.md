@@ -19,8 +19,9 @@ an embedded WebUI tree panel.
 
 ## Tool operations
 
-`create`, `append`, `list`, `branches`, `tree`, `jump`, `context`, `branch`,
-`branch.summary`, `snapshot.save`, `snapshot.load`, `sessions`.
+`create`, `append`, `list`, `branches`, `tree`, `jump`, `fork`, `clone`,
+`context`, `session`, `branch`, `branch.summary`, `snapshot.save`,
+`snapshot.load`, `sessions`.
 
 - `context` returns `{cursor, messages}` where `messages` is the standard LLM
   messages array for the root→cursor path.
@@ -28,12 +29,13 @@ an embedded WebUI tree panel.
   branch; `branch.summary` additionally appends a summary node. Historical
   nodes are never modified or deleted.
 - `snapshot.save` returns the versioned tree snapshot; `snapshot.load` restores
-  it under the same sessionId (see `SESSION_FORMAT_VERSION`-style versioning:
+  it under the same sessionId (see `SNAPSHOT_VERSION` versioning:
   `version: 1`).
 
 Every operation answers `{ok: true, value}` or `{ok: false, error: {code, message}}`
-with codes `INVALID_ARGUMENT` | `SESSION_NOT_FOUND` | `NODE_NOT_FOUND` |
-`INVALID_SNAPSHOT`, so tool and Remote results are always lossless JSON.
+with codes `INVALID_ARGUMENT` | `SESSION_NOT_FOUND` | `SESSION_ALREADY_EXISTS` |
+`NODE_NOT_FOUND` | `INVALID_SNAPSHOT` | `NOT_FOUND`,
+so tool and Remote results are always lossless JSON.
 
 ## Tool examples
 
@@ -50,15 +52,15 @@ with codes `INVALID_ARGUMENT` | `SESSION_NOT_FOUND` | `NODE_NOT_FOUND` |
 
 ## Composition
 
-Add the host row to the active Cordis composition (the web-app patch already
-carries it):
+Add the host row to the active Cordis composition (the standalone Bundle's
+`cordis.patch.yml` already carries it):
 
 ```yaml
 - id: pi-agent-session-tree
-  name: '@deepseek-ai/dsh-pi-agent-session-tree'
+  name: '@robiteame/dsh-pi-agent-session-tree'
 ```
 
-The browser panel ships as `@deepseek-ai/dsh-client-ui-session-tree`. A patched
+The browser panel ships as `@robiteame/dsh-client-ui-session-tree`. A patched
 checkout mounts it as `conversation.details.panel`; an official Bundle mounts
 it as the additive `shell.overlay`. See `SYSTEM_PROMPT.md` for the
 system-prompt fragment this plugin installs.
@@ -85,7 +87,7 @@ system-prompt fragment this plugin installs.
 
 #### What the model sees
 
-The domain service registers no prompt, schema, or result of its own: the model-facing surface is entirely owned by `@deepseek-ai/dsh-tool-session-tree` (tool, `/tree` command, system-prompt section). The Remote methods this package exposes serve the browser panel only and never enter model context.
+The domain service registers no prompt, schema, or result of its own: the model-facing surface is entirely owned by `@robiteame/dsh-tool-session-tree` (tool, `/tree` command, system-prompt section). The Remote methods this package exposes serve the browser panel only and never enter model context.
 
 #### Token effect
 

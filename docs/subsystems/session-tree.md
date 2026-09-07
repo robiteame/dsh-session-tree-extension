@@ -10,7 +10,10 @@ never modified or deleted, and navigation only moves a cursor.
 
 ## Node model
 
-A tree stores every turn as one immutable node. `TreeNode` is the durable unit:
+A tree stores every turn as one immutable node. `TreeNode` is the durable unit;
+entries are discriminated by `type` (`message`, `tool_call`, `tool_result`,
+`model_change`, `compaction`, `branch_summary`, `custom`) and can carry
+structured `content` parts plus model, usage, cost, and error metadata:
 
 ```ts type-equiv
 /**
@@ -23,14 +26,29 @@ interface TreeNode {
   readonly nodeId: string
   /** Parent node id, or null for a root. */
   readonly parentId: string | null
+  /** Number of direct forks created from this entry (derived, never mutated). */
+  readonly forkCount?: number
+  /** PI-Agent-style entry discriminator; defaults to `message` for legacy nodes. */
+  readonly type?: TreeEntryType
   /** Branch label this node belongs to (defaults to the active branch). */
   readonly branch: string
   /** Human-readable preview shown in tree views. */
   readonly summary: string
   /** ISO-8601 creation time. */
   readonly createdAt: string
-  /** The carried message; nodes without one (e.g. branch summaries) omit it. */
+  /**
+   * Detached compatibility DTO for display/context responses; this is not the
+   * Harness `Message` union and must not be passed to model APIs as-is.
+   */
   readonly message?: LlmMessage
+  /** Pi-style structured content; message is retained as the derived compatibility DTO. */
+  readonly content?: readonly ContentPart[]
+  /** Optional model/provider metadata. */
+  readonly model?: string
+  /** Optional usage/cost/error metadata from the model turn. */
+  readonly usage?: Record<string, JsonValue>
+  readonly cost?: number
+  readonly error?: string
   /** Optional lossless-JSON extras. */
   readonly metadata?: Record<string, JsonValue>
 }
@@ -50,6 +68,10 @@ interface SessionTreeView {
   readonly sessionId: SessionId
   readonly cursor: string | null
   readonly activeBranch: string
+  /** Explicit UI-selected node; unlike cursor, it is only set by node selection. */
+  readonly selectedNodeId?: string | null
+  /** Session-level branch heads, matching Pi's named branch pointers. */
+  readonly branchHeads?: Record<string, string>
   readonly nodes: readonly TreeNode[]
   readonly branches: readonly BranchView[]
 }
@@ -60,7 +82,7 @@ root→cursor path only — branches the cursor does not sit on stay out of
 `messages`, so context never mixes parallel alternatives.
 
 ```ts type-equiv
-/** Result of a cursor jump: the new cursor plus the reconstructed path. */
+/** Result of tree cursor navigation: the new cursor plus the projected path. */
 interface JumpView {
   readonly cursor: string | null
   readonly messages: readonly LlmMessage[]
@@ -86,6 +108,12 @@ interface SessionTreeSnapshot {
   readonly sessionId: string
   readonly cursor: string | null
   readonly activeBranch: string
+  /** Highest native Session event seq represented by this snapshot, when known. */
+  readonly nativeEventSeq?: number
+  /** Session-level branch heads, matching Pi's named branch pointers. */
+  readonly branchHeads?: Record<string, string>
+  /** Explicit UI-selected node used as the context for /fork and /clone. */
+  readonly selectedNodeId?: string | null
   readonly nodes: readonly TreeNode[]
 }
 ```
@@ -101,6 +129,7 @@ lossless JSON with a stable failure vocabulary.
 type TreeErrorCode =
   | 'INVALID_ARGUMENT'
   | 'SESSION_NOT_FOUND'
+  | 'SESSION_ALREADY_EXISTS'
   | 'NODE_NOT_FOUND'
   | 'INVALID_SNAPSHOT'
   | 'NOT_FOUND'
@@ -113,17 +142,18 @@ type TreeResult<T> =
 
 ## Surfaces
 
-- `session_tree` tool (`@deepseek-ai/dsh-tool-session-tree`): `create`,
-  `append`, `list`, `branches`, `tree`, `jump`, `context`, `branch`,
-  `branch.summary`, `snapshot.save`, `snapshot.load`, `sessions`.
+- `session_tree` tool (`@robiteame/dsh-tool-session-tree`): `create`,
+  `append`, `list`, `branches`, `tree`, `jump`, `fork`, `clone`, `context`,
+  `session`, `branch`, `branch.summary`, `snapshot.save`, `snapshot.load`,
+  `sessions`.
 - `/tree` command family: `list`, `branches`, `tree`, `context`, `jump
   <nodeId>`, `branch <nodeId> <name>`, `snapshot save`, `snapshot load <json>`.
   `/fork [branch]` and `/clone` automatically use the selected sidebar node;
   without one they return `请先在右侧会话树选中目标节点`.
-- `sessionTree` Remote service (`@deepseek-ai/dsh-pi-agent-session-tree`):
+- `sessionTree` Remote service (`@robiteame/dsh-pi-agent-session-tree`):
   `list(agent)`, `jump(agent, nodeId)`, `fork(agent, nodeId, branch)`, and
   `session(agent)` drive the browser panel.
-- `@deepseek-ai/dsh-client-ui-session-tree`: in a patched source checkout it
+- `@robiteame/dsh-client-ui-session-tree`: in a patched source checkout it
   occupies the native `conversation.details.panel` seat; in an official Web
   profile it uses the additive `shell.overlay` seat. `/tree` opens or refreshes
   the panel, and node clicks bind the selected command context. Its fixed

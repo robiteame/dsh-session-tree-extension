@@ -1,0 +1,12 @@
+# Carrier bundle patch: mounts the three session-tree implementation
+# packages as composition rows. Each `name:` resolves inside the profile
+# workspace, where this package's dependencies are installed.
+- insert:
+    - id: pi-agent-session-tree
+      name: '@robiteame/dsh-pi-agent-session-tree'
+
+    - id: tool-session-tree
+      name: '@robiteame/dsh-tool-session-tree'
+
+    - id: ui-session-tree
+      name: '@robiteame/dsh-client-ui-session-tree'

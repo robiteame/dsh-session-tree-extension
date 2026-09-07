@@ -5,7 +5,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
-import type { LlmRole, TreeNode, SessionTreeView } from '@deepseek-ai/dsh-pi-agent-session-tree/client'
+import type { LlmRole, TreeNode, SessionTreeView } from '@robiteame/dsh-pi-agent-session-tree/client'
 import type { SessionTreeViewProps } from './slots.ts'
 import type { SessionTreeKey } from './locales.ts'
 import css from './SessionTreePanel.module.css'
@@ -141,7 +141,7 @@ export function SessionTreePanel({ closeDetails = () => {}, sessionId, load, jum
       <div className={css.body} aria-busy={pending}>
         {error !== null ? <p className={css.error}>{t('panel.error')}: {error}</p> : null}
         {view !== null && rows.length === 0 ? <p className={css.empty}>{t('panel.empty')}</p> : null}
-        {rows.map(row => (
+        {rows.map((row: GraphRow) => (
           <NodeRow key={row.node.nodeId} row={row} selected={row.node.nodeId === view?.selectedNodeId} pending={pending}
             branchHeads={view?.branchHeads} onSelect={node => { void handleSelect(node) }}
             onFork={nodeId => { void handleFork(nodeId) }} t={t} />

@@ -5,7 +5,7 @@ English | [中文](README.zh.md)
 Model-facing companion of the session-tree service: the `session_tree` tool,
 the `/tree` command family, and a system-prompt section over the shared
 append-only session-tree store. All state lives in
-`sessionTreeStore` (`@deepseek-ai/dsh-pi-agent-session-tree`), so the model,
+`sessionTreeStore` (`@robiteame/dsh-pi-agent-session-tree`), so the model,
 the command line, and the browser panel observe the same trees.
 
 ## Surfaces
@@ -18,8 +18,9 @@ the command line, and the browser panel observe the same trees.
 
 ## Tool operations
 
-`create`, `append`, `list`, `branches`, `tree`, `jump`, `context`, `branch`,
-`branch.summary`, `snapshot.save`, `snapshot.load`, `sessions`.
+`create`, `append`, `list`, `branches`, `tree`, `jump`, `fork`, `clone`,
+`context`, `session`, `branch`, `branch.summary`, `snapshot.save`,
+`snapshot.load`, `sessions`.
 
 - `context` returns `{cursor, messages}` — the standard LLM messages array for
   the root→cursor path.
@@ -53,11 +54,11 @@ require a sidebar selection and otherwise return `请先在右侧会话树选中
 
 #### What the model sees
 
-A fixed section tells the model that the tree projects the durable Harness Session log: native turns synchronize automatically, `context` reads the active branch after navigation, `append` is only for explicit custom entries, and branching never edits history.
+A fixed section tells the model that the tree projects the durable Harness Session log: native turns synchronize automatically, `context` reads the active branch after navigation, `append` is only for explicit custom entries, and branching never edits history. The `surface` field reported by `context` and `session` states the active surface mode (`native`, `stock`, or `projection`).
 ##### SessionTree guidance
 
 ```markdown
-SessionTree is the append-only projection of the durable Harness Session log. Native user, assistant, tool, and model-context events synchronize automatically; never duplicate ordinary turns with operation 'append'. After navigation, use 'context' for the root-to-cursor active branch. Use 'append' only for an explicit custom entry, and use 'fork' or 'branch' to explore alternatives without modifying old nodes. Use snapshots for explicit export or full-tree restore. All operations report failures as {ok:false,error:{code,message}}.
+SessionTree is the append-only projection of this agent's durable Harness Session log. Native user, assistant, tool, and model-context events are synchronized automatically: never duplicate ordinary turns with operation 'append'. Before answering after navigation, call session_tree with operation 'context' and treat its root-to-cursor messages as the active branch context. Use 'append' only for an explicit custom tree entry not already recorded by Harness. To explore an alternative, call 'fork' or 'branch' with a historical nodeId and branch name (or 'branch.summary' to record a summary); old nodes are never modified or deleted. Use 'branches' and 'tree' to inspect topology, and 'snapshot.save'/'snapshot.load' for explicit export or full-tree restore. All operations report failures as {ok:false,error:{code,message}}. Depending on the Harness build, jump/fork switch the model-visible history either through the native selected-surface API or through an official replace-surface emulation; when neither is available the tree is projection-only. The surface field reported by 'context' and 'session' states the active mode: native, stock, or projection.
 ```
 
 #### Token effect

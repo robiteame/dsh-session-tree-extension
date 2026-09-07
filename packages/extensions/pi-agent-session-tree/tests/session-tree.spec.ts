@@ -23,7 +23,6 @@ import SessionTreeService, {
   appendSessionTreeEvent,
   applyTreeCursorToSession,
   getSessionTreeSidecar,
-  persistSessionTree,
   setSessionTreeSidecar,
   SessionTree,
   SessionTreeSidecar,
@@ -31,10 +30,10 @@ import SessionTreeService, {
   supportsDurableSessionTreeEvents,
   supportsSelectedMessageSurface,
   syncSessionTree,
-} from '@deepseek-ai/dsh-pi-agent-session-tree'
-import type { SessionTreeSnapshot, TreeNode } from '@deepseek-ai/dsh-pi-agent-session-tree'
-import { sessionEventsToTreeNodes } from '@deepseek-ai/dsh-pi-agent-session-tree'
-import * as toolSessionTree from '@deepseek-ai/dsh-tool-session-tree'
+} from '@robiteame/dsh-pi-agent-session-tree'
+import type { SessionTreeSnapshot, TreeNode } from '@robiteame/dsh-pi-agent-session-tree'
+import { sessionEventsToTreeNodes } from '@robiteame/dsh-pi-agent-session-tree'
+import * as toolSessionTree from '@robiteame/dsh-tool-session-tree'
 
 const testToolSignal = new AbortController().signal
 const testSidecarRoot = mkdtempSync(join(tmpdir(), 'dsh-session-tree-sidecar-'))
@@ -111,6 +110,19 @@ function expectError(result: unknown, code: string): void {
   const record = result as { ok?: unknown; error?: { code?: unknown } }
   expect(record.ok).toBe(false)
   expect(record.error?.code).toBe(code)
+}
+
+/** Live stock surface seqs, flattened for assertions. */
+function normalizeSurfaceNodesForTest(session: { surface: { nodes: readonly unknown[] } }): number[] {
+  const out: number[] = []
+  const walk = (values: readonly unknown[]): void => {
+    for (const value of values) {
+      if (Array.isArray(value)) walk(value)
+      else if (Number.isSafeInteger(value)) out.push(value as number)
+    }
+  }
+  walk(session.surface.nodes)
+  return out
 }
 
 function nodeOf(nodes: readonly TreeNode[], summary: string): TreeNode {
@@ -330,12 +342,12 @@ describe('session_tree tool: append-only history', () => {
   })
 
   it('exports and replays append-only log records', async () => {
-    const tree = new (await import('@deepseek-ai/dsh-pi-agent-session-tree')).SessionTree(SessionId('tree-log'))
+    const tree = new (await import('@robiteame/dsh-pi-agent-session-tree')).SessionTree(SessionId('tree-log'))
     const first = tree.append({ role: 'user', content: 'one' })
     expect(first.ok).toBe(true)
     const records = tree.log()
     expect(records).toHaveLength(1)
-    const restored = new (await import('@deepseek-ai/dsh-pi-agent-session-tree')).SessionTree(SessionId('tree-log-restored'))
+    const restored = new (await import('@robiteame/dsh-pi-agent-session-tree')).SessionTree(SessionId('tree-log-restored'))
     const result = restored.replay(records)
     expect(result).toEqual({ ok: true, value: { applied: 1 } })
     expect(restored.list()[0]?.message?.content).toBe('one')
@@ -348,13 +360,13 @@ describe('session_tree tool: append-only history', () => {
   })
 
   it('replays a branched append-only node log without deleting either path', async () => {
-    const tree = new (await import('@deepseek-ai/dsh-pi-agent-session-tree')).SessionTree(SessionId('tree-mixed-log'))
+    const tree = new (await import('@robiteame/dsh-pi-agent-session-tree')).SessionTree(SessionId('tree-mixed-log'))
     const root = expectOk(tree.append({ role: 'user', content: 'root' })) as TreeNode
     const main = expectOk(tree.append({ role: 'assistant', content: 'main answer' })) as TreeNode
     expect(tree.jump(root.nodeId).ok).toBe(true)
     const alternative = expectOk(tree.append({ role: 'assistant', content: 'alternative answer' })) as TreeNode
     const records = tree.log()
-    const restored = new (await import('@deepseek-ai/dsh-pi-agent-session-tree')).SessionTree(SessionId('tree-mixed-restored'))
+    const restored = new (await import('@robiteame/dsh-pi-agent-session-tree')).SessionTree(SessionId('tree-mixed-restored'))
     expect(restored.replay(records)).toEqual({ ok: true, value: { applied: 3 } })
     expect(restored.list().map(node => node.nodeId)).toEqual([root.nodeId, main.nodeId, alternative.nodeId])
     expect(restored.list().find(node => node.nodeId === main.nodeId)?.parentId).toBe(root.nodeId)
@@ -384,14 +396,14 @@ describe('session_tree tool: append-only history', () => {
   })
 
   it('preserves the native event watermark in snapshots and accepts legacy snapshots', async () => {
-    const tree = new (await import('@deepseek-ai/dsh-pi-agent-session-tree')).SessionTree(SessionId('tree-watermark'))
+    const tree = new (await import('@robiteame/dsh-pi-agent-session-tree')).SessionTree(SessionId('tree-watermark'))
     tree.markSessionEventSeq(17)
     const snapshot = tree.snapshot()
     expect(snapshot.nativeEventSeq).toBe(17)
-    const restored = new (await import('@deepseek-ai/dsh-pi-agent-session-tree')).SessionTree(SessionId('tree-watermark'), snapshot)
+    const restored = new (await import('@robiteame/dsh-pi-agent-session-tree')).SessionTree(SessionId('tree-watermark'), snapshot)
     expect(restored.lastSessionEventSeq()).toBe(17)
     const legacy = { ...snapshot, nativeEventSeq: undefined }
-    const legacyRestored = new (await import('@deepseek-ai/dsh-pi-agent-session-tree')).SessionTree(SessionId('tree-legacy'), { ...legacy, sessionId: 'tree-legacy' })
+    const legacyRestored = new (await import('@robiteame/dsh-pi-agent-session-tree')).SessionTree(SessionId('tree-legacy'), { ...legacy, sessionId: 'tree-legacy' })
     expect(legacyRestored.lastSessionEventSeq()).toBe(-1)
   })
 
@@ -633,7 +645,7 @@ describe('stock Harness Session compatibility (no harness.patch)', () => {
       events: [] as SessionEvent[],
       surface: { nodes: [] as number[] },
     } as unknown as Session
-    agent.session = stockLike
+    ;(agent as { session: Session }).session = stockLike
     expect(supportsSelectedMessageSurface(agent.session)).toBe(false)
     expect(supportsDurableSessionTreeEvents(agent.session)).toBe(false)
     const tree = new SessionTree(agent.session.id)
@@ -645,7 +657,7 @@ describe('stock Harness Session compatibility (no harness.patch)', () => {
     const { service } = await harness()
     const agent = stubAgent('tree-stock-mutation')
     const original = agent.session
-    agent.session = {
+    ;(agent as { session: Session }).session = {
       id: original.id,
       events: [...original.events],
       surface: { nodes: [] as number[] },
@@ -664,7 +676,7 @@ describe('stock Harness Session compatibility (no harness.patch)', () => {
     const events = [
       { type: 'user/message', seq: 0, time: 1, data: { role: 'user', content: 'one', source: { kind: 'user' } }, surfaceOp: 'append' },
       { type: 'user/message', seq: 1, time: 2, data: { role: 'user', content: 'two', source: { kind: 'user' } }, surfaceOp: 'append' },
-    ] as SessionEvent[]
+    ] as unknown as SessionEvent[]
     // Older/merged surfaces can occasionally carry nested seq payloads;
     // stock rewriting must flatten them before they become durable provenance.
     const surfaceNodes = [0, [1]] as unknown as number[]
@@ -688,7 +700,7 @@ describe('stock Harness Session compatibility (no harness.patch)', () => {
     } as unknown as Session
 
     const agent = stubAgent(sessionId)
-    agent.session = stockSession
+    ;(agent as { session: Session }).session = stockSession
     const tree = new SessionTree(sessionId)
     const root = expectOk(tree.append({ role: 'user', content: 'one' }, { metadata: { sessionEventSeq: 0 } })) as TreeNode
     const second = expectOk(tree.append({ role: 'user', content: 'two' }, { metadata: { sessionEventSeq: 1 } })) as TreeNode
@@ -699,8 +711,8 @@ describe('stock Harness Session compatibility (no harness.patch)', () => {
     expect(surfaceNodes).toEqual([0])
     const cursorEvent = events[2]
     expect(cursorEvent?.type).toBe('assistant/message')
-    expect(cursorEvent?.surfaceOp).toEqual({ op: 'replace', start: 0, end: 1 })
-    expect(cursorEvent?.sourceEventSeqs).toEqual([0, 1])
+    expect((cursorEvent as unknown as { surfaceOp?: unknown } | undefined)?.surfaceOp).toEqual({ op: 'replace', start: 0, end: 1 })
+    expect((cursorEvent as unknown as { sourceEventSeqs?: number[] } | undefined)?.sourceEventSeqs).toEqual([0, 1])
     expect((cursorEvent?.data as Record<string, unknown>).treeRestore).toEqual({ kind: 'cursor', nodeId: root.nodeId })
 
     tree.jump(second.nodeId)
@@ -712,6 +724,40 @@ describe('stock Harness Session compatibility (no harness.patch)', () => {
     expect(restored?.cursor).toBe(second.nodeId)
     expect(restored?.lastSessionEventSeq()).toBe(3)
     expect(restored?.list().map(node => node.nodeId)).toEqual([root.nodeId, second.nodeId])
+  })
+
+  it('keeps the stock log resume-valid across repeated cursor rewrites', () => {
+    const sessionId = SessionId('tree-stock-replay')
+    const session = Session.create(sessionId)
+    session.append('user/message', { id: 'm-one', role: 'user', content: [{ type: 'text', text: 'one' }], source: { kind: 'user' } } as never, { surfaceOp: 'append' })
+    session.append('user/message', { id: 'm-two', role: 'user', content: [{ type: 'text', text: 'two' }], source: { kind: 'user' } } as never, { surfaceOp: 'append' })
+
+    const agent = stubAgent(sessionId)
+    ;(agent as { session: Session }).session = session
+    const tree = new SessionTree(sessionId)
+    const root = expectOk(tree.append({ role: 'user', content: 'one' }, { metadata: { sessionEventSeq: 0 } })) as TreeNode
+    const second = expectOk(tree.append({ role: 'user', content: 'two' }, { metadata: { sessionEventSeq: 1 } })) as TreeNode
+
+    for (const target of [root.nodeId, second.nodeId, root.nodeId]) {
+      tree.jump(target)
+      applyTreeCursorToSession(agent, tree)
+    }
+
+    // The durable log must still rebuild through a fresh Session: replace
+    // ranges are computed against the replayed surface, not the live spliced
+    // one, so repeated navigation cannot corrupt the stored history.
+    const seed = session.events.slice()
+    expect(() => Session.create(SessionId('tree-stock-replay-check'), seed)).not.toThrow()
+    const replayed = Session.create(SessionId('tree-stock-replay-check'), seed)
+    if (supportsSelectedMessageSurface(session)) {
+      // Native mode never appends markers: the replay keeps the linear history.
+      expect(replayed.deriveMessages()).toHaveLength(2)
+    } else {
+      // The replayed surface is marker-only until the next pre-step re-selects
+      // the sidecar cursor; the live session keeps the selected path.
+      expect(replayed.deriveMessages()).toHaveLength(0)
+      expect(normalizeSurfaceNodesForTest(session)).toEqual([0])
+    }
   })
 
   it('keeps synthetic cursor events out of the tree projection', () => {

@@ -21,13 +21,13 @@ available. It never renders above the composer and creates no standalone page.
 
 ```yaml
 - id: ui-session-tree
-  name: '@deepseek-ai/dsh-client-ui-session-tree'
+  name: '@robiteame/dsh-client-ui-session-tree'
 ```
 
 The official standalone Bundle already supplies both Host services and this
 browser package. A patched source checkout additionally requires the two Host
 packages and the `conversation.details.panel` integration from
-`harness.patch`.
+`dev/harness.patch`.
 
 ## Model Experience
 

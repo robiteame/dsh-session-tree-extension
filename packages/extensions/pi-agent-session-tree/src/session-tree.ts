@@ -5,7 +5,7 @@
  * cursor, so every history branch survives (PI-Agent SessionTree semantics:
  * append-only entries, leaf-pointer branching, root-to-leaf message paths).
  *
- * @module @deepseek-ai/dsh-pi-agent-session-tree/session-tree
+ * @module @robiteame/dsh-pi-agent-session-tree/session-tree
  */
 
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
