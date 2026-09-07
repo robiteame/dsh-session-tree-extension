@@ -446,7 +446,9 @@ async function runTreeCommand(ctx: Context, invocation: CommandInvocation): Prom
     return { kind: failed ? 'error' : 'success', text: JSON.stringify(value) }
   }
   switch (action) {
-    case 'list': return json({ ok: true, value: { ...tree.list(), surface } })
+    // Spreading the node array would collapse it into numeric keys; keep it a
+    // real array under `nodes` so JSON consumers can iterate it.
+    case 'list': return json({ ok: true, value: { nodes: tree.list(), surface } })
     case 'branches': return json({ ok: true, value: tree.branches() })
     case 'tree': return json({ ok: true, value: { ...tree.view(), surface } })
     case 'session': return json({ ok: true, value: { ...tree.info(), surface } })
