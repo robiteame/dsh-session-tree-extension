@@ -11,10 +11,11 @@ category: "tools"
 description:
   en: "Pi-style append-only multi-branch session trees: fork or jump to any historical node without deleting history, clone a branch into a new session, and browse the tree in a WebUI panel. Works on stock Harness via graceful degradation."
   zh: "Pi 风格的追加式多分支会话树:在任意历史节点开分支或跳转而不删除旧历史,可将分支克隆为新会话,并在 WebUI 树面板中浏览(明暗主题)。在原版 Harness 上优雅降级运行。"
-npm: "@robiteame/dsh-session-tree"
 ```
 
-> `npm:` 字段属于可选附加项;若 CI lint 报不认识该字段,删掉这一行再推即可。
+> 条目 schema 只允许 `url`/`name`/`category`/`description`/`tarball` 五个字段;
+> **不要写 `npm:` 字段** —— npm 包名由仓库自动解析,带了它 `generate-readme.mjs`
+> 会直接拒绝生成("unknown field"),PR check 必挂。
 > 注意描述里含 `: ` 的值必须带引号(YAML 语法要求)。
 
 ## 提交前置检查单(官方 CI 会逐项检查)
@@ -27,6 +28,7 @@ npm: "@robiteame/dsh-session-tree"
 | 仓库年龄 ≥ 1 天 | ✅ |
 | 仓库打了 `dsh-plugin` 主题标签 | ⬜ 提 PR 前记得在 GitHub 网页添加(见下) |
 | 一个 PR 只加一个条目 | ✅ 我们只加一个文件 |
+| 条目文件是纯 YAML(只含条目本身,无说明文字) | ✅ 8 行条目;曾因把整份文档粘进条目导致 gate 判 "checked nothing" 而失败 |
 
 ## 给仓库打 `dsh-plugin` 主题标签(网页操作)
 
@@ -39,7 +41,9 @@ npm: "@robiteame/dsh-session-tree"
 1. 打开 https://github.com/awesome-dsh-plugin/awesome-dsh-plugin → 右上角 **Fork**
 2. 在你的 fork 里进入 `data/plugins/` 目录 → **Add file → Create new file**
 3. 文件名粘贴:`robiteame__dsh-session-tree-extension.yml`
-4. 内容粘贴上面的 YAML → **Commit changes**
+4. **只粘贴上面代码块里的 YAML(共 8 行),不要把本文档其余的中文说明粘进去** ——
+   条目文件必须是纯 YAML;混入任何说明文字会让 CI 解析出 0 个条目,
+   gate 判 "The gate checked nothing",check 直接 exit 1 → **Commit changes**
 5. 页面会出现 "This branch is X commits ahead" → 点 **Contribute → Open pull request**
 6. PR 标题:`plugin: add dsh-session-tree (append-only multi-branch session trees)`
 7. 提交后等 CI 变绿;若 CI 报错按提示修改(推到同一分支即可,不要重开 PR)
