@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: verify (node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+    env:
+      # corepack ships with Node 22/24; never prompt before downloading pnpm.
+      COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+    steps:
+      # Node-24-runtime actions only: checkout@v5 and setup-node@v5. Node 20
+      # actions are deprecated on GitHub runners (removed 2026-09-23).
+      - uses: actions/checkout@v5
+
+      - name: Enable pnpm
+        # Version is pinned repo-wide by "packageManager" in the root package.json.
+        run: corepack enable
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build, typecheck, verify bundles, test
+        run: pnpm verify

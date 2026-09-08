@@ -4,6 +4,7 @@
   "private": true,
   "description": "Development workspace for the dsh-session-tree plugin packages (not published)",
   "type": "module",
+  "packageManager": "pnpm@11.15.1",
   "dsh": {
     "bundle": {
       "patch": "./packages/bundle/session-tree/cordis.patch.yml"

@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Repository CI (`.github/workflows/ci.yml`): Node 22/24 matrix running the
+  full `pnpm verify` gate. Uses only Node-24-runtime actions
+  (`actions/checkout@v5`, `actions/setup-node@v5`); Node-20 actions are
+  deprecated on GitHub runners and fully removed after 2026-09-23. pnpm is
+  activated through corepack and pinned via `packageManager` in the root
+  `package.json`.
+
 ## 0.1.0 — 2026-09-07
 
 First publishable release of the session-tree plugin as npm packages.

@@ -1,6 +1,7 @@
 # dsh-session-tree
 
 [![npm](https://img.shields.io/npm/v/@robiteame/dsh-session-tree)](https://www.npmjs.com/package/@robiteame/dsh-session-tree)
+[![CI](https://github.com/robiteame/dsh-session-tree-extension/actions/workflows/ci.yml/badge.svg)](https://github.com/robiteame/dsh-session-tree-extension/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
 [![Harness](https://img.shields.io/badge/DeepSeek--Harness-0.1.2--alpha.3-orange)](https://github.com/deepseek-ai/deepseek-harness)
 

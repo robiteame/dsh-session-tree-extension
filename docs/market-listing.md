@@ -23,6 +23,7 @@ npm: "@robiteame/dsh-session-tree"
 |---|---|
 | 仓库 `package.json` 声明 `dsh.bundle` | ✅ 已在根 package.json 声明,指向载体包组合层 |
 | 真实可用代码(无占位) | ✅ 已发布 4 个 npm 包并有完整测试 |
+| 仓库自带 CI,且不依赖已弃用的 Node 20 actions | ✅ `.github/workflows/ci.yml`:只用 Node 24 运行时的 `actions/checkout@v5` + `actions/setup-node@v5`,Node 22×24 矩阵跑完整 `pnpm verify`(2026-06-16 起 runner 强制 Node 24,`@v4` 系 action 会触发弃用告警,2026-09-23 后彻底移除) |
 | 仓库年龄 ≥ 1 天 | ✅ |
 | 仓库打了 `dsh-plugin` 主题标签 | ⬜ 提 PR 前记得在 GitHub 网页添加(见下) |
 | 一个 PR 只加一个条目 | ✅ 我们只加一个文件 |
