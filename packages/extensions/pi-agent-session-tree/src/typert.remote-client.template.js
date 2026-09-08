@@ -5,10 +5,15 @@ const JsonValueRemoteCodec$schema = z.union([z.literal(null), z.string(), z.numb
 const _robiteame_dsh_pi_agent_session_tree_sessionTree_fork_parameter_0$schema = z.intersection(z.string(), z.unknown())
 const _robiteame_dsh_pi_agent_session_tree_sessionTree_fork_parameter_1$schema = z.string()
 const _robiteame_dsh_pi_agent_session_tree_sessionTree_fork_parameter_2$schema = z.string()
+const _robiteame_dsh_pi_agent_session_tree_sessionTree_forkSession_parameter_0$schema = z.intersection(z.string(), z.unknown())
+const _robiteame_dsh_pi_agent_session_tree_sessionTree_forkSession_parameter_1$schema = z.string()
+const _robiteame_dsh_pi_agent_session_tree_sessionTree_forkSession_parameter_2$schema = z.string()
 const _robiteame_dsh_pi_agent_session_tree_sessionTree_fork_result$schema = z.object({
   'cursor': z.string(),
   'branch': z.string(),
   'forkCount': z.number(),
+  'sessionId': z.intersection(z.string(), z.unknown()).readonly().optional(),
+  'prompt': z.string().readonly().optional(),
 })
 const _robiteame_dsh_pi_agent_session_tree_sessionTree_jump_parameter_0$schema = z.intersection(z.string(), z.unknown())
 const _robiteame_dsh_pi_agent_session_tree_sessionTree_jump_parameter_1$schema = z.union([z.literal(null), z.string()])
@@ -140,6 +145,56 @@ export const TYPERT_REMOTE = {
         schema: _robiteame_dsh_pi_agent_session_tree_sessionTree_fork_result$schema,
       },
       sourceLocation: {"file":"packages/extensions/pi-agent-session-tree/src/index.ts","line":188,"column":3},
+    },
+    {
+      id: '@robiteame/dsh-pi-agent-session-tree#sessionTree/forkSession',
+      service: 'sessionTree',
+      namespace: 'sessionTree',
+      method: 'forkSession',
+      invocation: { kind: 'direct' },
+      scope: {
+        context: 'agent',
+        wire: 'agentId',
+      },
+      parameters: [
+        {
+          name: 'agent',
+          wire: 'agentId',
+          source: 'lookup',
+          lookup: 'agent',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@deepseek-ai/dsh-session/types#SessionId',
+            schema: _robiteame_dsh_pi_agent_session_tree_sessionTree_forkSession_parameter_0$schema,
+          },
+        },
+        {
+          name: 'nodeId',
+          wire: 'nodeId',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@robiteame/dsh-pi-agent-session-tree#sessionTree/forkSession:nodeId',
+            schema: _robiteame_dsh_pi_agent_session_tree_sessionTree_forkSession_parameter_1$schema,
+          },
+        },
+        {
+          name: 'branch',
+          wire: 'branch',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@robiteame/dsh-pi-agent-session-tree#sessionTree/forkSession:branch',
+            schema: _robiteame_dsh_pi_agent_session_tree_sessionTree_forkSession_parameter_2$schema,
+          },
+        },
+      ],
+      result: {
+        mode: 'strict',
+        typeSymbol: '@robiteame/dsh-pi-agent-session-tree#sessionTree/forkSession:result',
+        schema: _robiteame_dsh_pi_agent_session_tree_sessionTree_fork_result$schema,
+      },
+      sourceLocation: {"file":"packages/extensions/pi-agent-session-tree/src/index.ts","line":645,"column":3},
     },
     {
       id: '@robiteame/dsh-pi-agent-session-tree#sessionTree/jump',

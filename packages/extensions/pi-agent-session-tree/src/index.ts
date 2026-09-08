@@ -19,6 +19,8 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { SessionId as toSessionId } from '@deepseek-ai/dsh-session'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { Session } from '@deepseek-ai/dsh-session'
 import { isSurfaceEvent } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionEventMap } from '@deepseek-ai/dsh-session/types'
@@ -26,7 +28,13 @@ import { TypertRemoteService, Remote } from '@deepseek-ai/dsh-typert-protocol'
 import { SessionTree, sessionTreeStore } from './session-tree.ts'
 import { attachToolResult, sessionEventsToTreeNodes, toolResultOf } from './session-event-adapter.ts'
 import { getSessionTreeSidecar, persistSessionTree } from './session-tree-sidecar.ts'
-import type { JumpView, SessionTreeSessionInfo, SessionTreeView } from './types.ts'
+import type {
+  JumpView,
+  SessionTreeForkView,
+  SessionTreeSessionInfo,
+  SessionTreeView,
+  TreeNode,
+} from './types.ts'
 
 export { SessionTree, SessionTreeStore, sessionTreeStore } from './session-tree.ts'
 export type * from './types.ts'
@@ -153,8 +161,133 @@ export function appendSessionTreeEvent(
   return session.append(type, data)
 }
 
+/** Event types needed to keep a copied path replayable without conversation noise. */
+const STRUCTURAL_EVENT_TYPES = new Set<SessionEvent['type']>([
+  'turn/start',
+  'turn/end',
+  'step/start',
+  'step/end',
+  'request/header',
+])
+
+/** Source seqs represented by one tree node, including merged tool results. */
+function sourceSeqsOf(node: TreeNode): number[] {
+  const seqs: number[] = []
+  const primary = node.metadata?.sessionEventSeq
+  if (typeof primary === 'number') seqs.push(primary)
+  const result = node.metadata?.toolResultEventSeq
+  if (typeof result === 'number') seqs.push(result)
+  return seqs
+}
+
+/**
+ * Build a fresh-session seed from only the selected root-to-node path.
+ *
+ * The source Session is read through its immutable event snapshot; no append,
+ * cursor, or surface method is called. Structural events keep copied turns
+ * replayable, while events from sibling branches and messages after the
+ * selected user prompt are deliberately omitted. Sequence numbers are rebuilt
+ * contiguously because Agent creation requires a valid independent log.
+ */
+export function sessionPathForkSeed(
+  source: Session,
+  path: readonly TreeNode[],
+): readonly SessionEvent[] {
+  const wanted = new Set<number>()
+  let anchorSeq = -1
+  for (const node of path) {
+    const seqs = sourceSeqsOf(node)
+    for (const seq of seqs) wanted.add(seq)
+    anchorSeq = Math.max(anchorSeq, ...seqs)
+  }
+  if (anchorSeq < 0) return []
+
+  // Keep the enclosing turn boundary (if any) so a user-only path remains a
+  // balanced, durable Session seed; filtering removes its assistant content.
+  const boundary = source.events.find(event => event.seq >= anchorSeq && event.type === 'turn/end')?.seq ?? anchorSeq
+  const kept: SessionEvent[] = []
+  for (const event of source.events) {
+    if (event.seq > boundary) break
+    const isWanted = wanted.has(event.seq)
+      || (event.type === 'session-tree/node' && sourceSeqsOf(event.data.node).some(seq => wanted.has(seq)))
+    if (isWanted || STRUCTURAL_EVENT_TYPES.has(event.type)) kept.push(event)
+  }
+
+  const seedIndexBySourceSeq = new Map<number, number>()
+  return kept.map((event, index) => {
+    seedIndexBySourceSeq.set(event.seq, index)
+    const record = JSON.parse(JSON.stringify(event)) as SessionEvent
+    record.seq = index
+    // A copied subset cannot keep replace ranges that point at omitted source
+    // seqs. All retained path events become appends in the target's own space.
+    if (isSurfaceEvent(record)) {
+      record.surfaceOp = 'append'
+      delete record.sourceEventSeqs
+    }
+    if (record.type === 'session-tree/node') {
+      const metadata = record.data.node.metadata
+      const primary = typeof metadata?.sessionEventSeq === 'number' ? metadata.sessionEventSeq : undefined
+      const mappedPrimary = primary === undefined ? undefined : seedIndexBySourceSeq.get(primary)
+      const resultSeq = typeof metadata?.toolResultEventSeq === 'number' ? metadata.toolResultEventSeq : undefined
+      const mappedResult = resultSeq === undefined ? undefined : seedIndexBySourceSeq.get(resultSeq)
+      record.data = {
+        ...record.data,
+        node: {
+          ...record.data.node,
+          metadata: {
+            ...metadata,
+            ...(mappedPrimary === undefined ? {} : { sessionEventSeq: mappedPrimary, sourceEventSeq: mappedPrimary }),
+            ...(mappedResult === undefined ? {} : { toolResultEventSeq: mappedResult }),
+          },
+        },
+      }
+    }
+    return record
+  })
+}
+
+/**
+ * Project an independent target tree from path envelopes. `nativeEventSeq`
+ * pins the target's replay watermark to its freshly renumbered seed, so the
+ * target never re-projects the source's original sequence space.
+ */
+function createForkTargetTree(
+  targetId: SessionId,
+  path: readonly TreeNode[],
+  branchName: string,
+  seedLength: number,
+): SessionTree {
+  const tree = new SessionTree(targetId)
+  const replay = tree.replay(path.map((node, index) => ({ seq: index, node })))
+  if (!replay.ok) throw new Error(`${replay.error.code}: ${replay.error.message}`)
+  if (seedLength > 0) tree.markSessionEventSeq(seedLength - 1)
+  const tail = path[path.length - 1]?.nodeId ?? ''
+  const selected = tree.select(tail)
+  if (!selected.ok) throw new Error(`${selected.error.code}: ${selected.error.message}`)
+  const branched = tree.branch(tail, branchName)
+  if (!branched.ok) throw new Error(`${branched.error.code}: ${branched.error.message}`)
+  return tree
+}
+
+/** Extract the complete editable text of a projected user prompt. */
+function promptTextOf(node: TreeNode): string {
+  const parts = (node.content ?? [])
+    .filter((part): part is Extract<typeof part, { type: 'text' }> => part.type === 'text')
+    .map(part => part.text)
+  const text = parts.join('\n').trim()
+  return text === '' ? node.message?.content ?? node.summary : text
+}
+
+/** Optional side-effect controls for callers that only need to inspect history. */
+export interface SyncSessionTreeOptions {
+  /** Apply the tree cursor to the model-visible Session surface (default true). */
+  readonly applySurface?: boolean
+  /** Persist the projected tree sidecar (default true). */
+  readonly persist?: boolean
+}
+
 /** Materialize and incrementally synchronize native Harness history. */
-export function syncSessionTree(agent: Agent): SessionTree {
+export function syncSessionTree(agent: Agent, options: SyncSessionTreeOptions = {}): SessionTree {
   const sessionId = agent.session.id
   const existing = sessionTreeStore.get(sessionId)
   const restored = existing === undefined ? getSessionTreeSidecar().load(sessionId) : undefined
@@ -228,8 +361,8 @@ export function syncSessionTree(agent: Agent): SessionTree {
   const newestSeq = freshEvents[freshEvents.length - 1]?.seq
   if (newestSeq !== undefined) tree.markSessionEventSeq(newestSeq)
   sessionTreeStore.replace(sessionId, tree)
-  applyTreeCursorToSession(agent, tree)
-  persistSessionTree(tree)
+  if (options.applySurface !== false) applyTreeCursorToSession(agent, tree)
+  if (options.persist !== false) persistSessionTree(tree)
   return tree
 }
 
@@ -439,6 +572,11 @@ export class SessionTreeService extends TypertRemoteService {
     }
   }
 
+  /** Read the projected tree without mutating the source Session surface. */
+  private readOnlyTree(agent: Agent): SessionTree {
+    return syncSessionTree(agent, { applySurface: false, persist: false })
+  }
+
   /**
    * Move the SessionTree cursor to an existing node and return its root-to-node
    * path through the context operation. This also selects the same path on
@@ -481,6 +619,86 @@ export class SessionTreeService extends TypertRemoteService {
    */
   @Remote('fork')
   fork(agent: Agent, nodeId: string, branch: string): { cursor: string; branch: string; forkCount: number } {
+    const branchName = branch === '' ? 'fork' : branch
+    const tree = syncSessionTree(agent)
+    const checkpoint = tree.checkpoint()
+    const result = tree.fork(nodeId, branchName)
+    if (!result.ok) throw new Error(`${result.error.code}: ${result.error.message}`)
+    try {
+      const selected = tree.select(nodeId)
+      if (!selected.ok) throw new Error(`${selected.error.code}: ${selected.error.message}`)
+      const event = appendSessionTreeEvent(agent.session, 'session-tree/branch', { nodeId, branch: result.value.branch })
+      if (event !== undefined) tree.markSessionEventSeq(event.seq)
+      const selection = appendSessionTreeEvent(agent.session, 'session-tree/selection', { nodeId })
+      if (selection !== undefined) tree.markSessionEventSeq(selection.seq)
+      applyTreeCursorToSession(agent, tree)
+    } catch (error) {
+      tree.rollback(checkpoint)
+      throw error
+    }
+    return result.value
+  }
+
+  /**
+   * Copy only the selected user-node root path into a brand-new Session.
+   * @param agent - owning live source agent.
+   * @param nodeId - selected user-message node.
+   * @param branch - branch label installed on the independent copy.
+   * @returns the source fork point plus target session and editable prompt.
+   */
+  @Remote('forkSession')
+  async forkSession(agent: Agent, nodeId: string, branch: string): Promise<SessionTreeForkView> {
+    const branchName = branch === '' ? 'fork' : branch
+    // Independent forks must not invoke jump/branch/surface methods on the
+    // source: the source JSONL remains byte-for-byte unchanged.
+    const tree = this.readOnlyTree(agent)
+    const selectedNode = tree.list().find(node => node.nodeId === nodeId)
+    if (selectedNode === undefined) throw new Error('NODE_NOT_FOUND: node was not found')
+    if (selectedNode?.message?.role !== 'user') {
+      throw new Error('INVALID_ARGUMENT: forkSession requires a user-message node')
+    }
+    const path = tree.currentPath(nodeId)
+    if (path[path.length - 1]?.nodeId !== nodeId) {
+      throw new Error('NODE_NOT_FOUND: fork path could not be reconstructed')
+    }
+    const source = agent.session
+    const targetId = toSessionId(`${source.id}-fork-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`)
+    const seed = sessionPathForkSeed(source, path)
+    const targetTree = createForkTargetTree(targetId, path, branchName, seed.length)
+    try {
+      await this.ctx.agents.create({
+        sessionId: targetId,
+        ...(seed.length === 0 ? {} : { seed }),
+        meta: { parentSession: source.id, seedLength: seed.length },
+        agentOptions: agent.options,
+      })
+    } catch (error) {
+      // Standalone hosts may not mount the loop-owned Agent factory. Real
+      // Harness creates the live Session above; any other failure is real.
+      if (!(error instanceof Error) || !error.message.includes('no agent factory registered')) throw error
+    }
+    // Publish the projected tree only after the independent Session has been
+    // accepted. A failed factory call therefore leaves no fork sidecar/store
+    // entry behind, while the no-factory test/runtime fallback still exposes
+    // the fully materialized target tree.
+    sessionTreeStore.replace(targetId, targetTree)
+    persistSessionTree(targetTree)
+    // Unlike legacy fork(), the source tree is not branched or selected.
+    const forkCount = tree.list().filter(node => node.parentId === nodeId).length
+    return {
+      cursor: nodeId,
+      branch: branchName,
+      forkCount,
+      sessionId: targetId,
+      prompt: promptTextOf(selectedNode),
+    }
+  }
+
+  /**
+   * Legacy in-tree branch primitive retained for API compatibility. Prefer
+   * {@link fork} in user-facing flows: it creates an isolated Session copy.
+   */
+  branchInPlace(agent: Agent, nodeId: string, branch: string): { cursor: string; branch: string; forkCount: number } {
     const branchName = branch === '' ? 'fork' : branch
     const tree = syncSessionTree(agent)
     const checkpoint = tree.checkpoint()

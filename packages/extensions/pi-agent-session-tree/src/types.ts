@@ -145,6 +145,20 @@ export interface JumpView {
   readonly messages: readonly LlmMessage[]
 }
 
+/**
+ * Compatibility view for tree forks. The legacy cursor/branch fields remain
+ * authoritative for callers of the old in-tree primitive; `sessionId` and
+ * `prompt` are additive and identify the independent session created by
+ * user-prompt forks.
+ */
+export interface SessionTreeForkView {
+  readonly cursor: string
+  readonly branch: string
+  readonly forkCount: number
+  readonly sessionId?: SessionId
+  readonly prompt?: string
+}
+
 /** Stable error codes for every failure path. */
 export type TreeErrorCode =
   | 'INVALID_ARGUMENT'

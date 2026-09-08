@@ -49,12 +49,16 @@ export default defineConfig({
   resolve: {
     alias: [
       { find: '@robiteame/dsh-pi-agent-session-tree/client', replacement: `${root}packages/extensions/pi-agent-session-tree/src/client` },
+      { find: '@robiteame/dsh-pi-agent-session-tree/remote', replacement: `${root}packages/extensions/pi-agent-session-tree/src/typert.remote-client.template.js` },
       { find: '@robiteame/dsh-pi-agent-session-tree', replacement: `${root}packages/extensions/pi-agent-session-tree/src/index` },
       { find: '@robiteame/dsh-tool-session-tree', replacement: `${root}packages/extensions/tool-session-tree/src/index` },
     ],
   },
   test: {
     environment: 'node',
-    include: ['packages/extensions/**/tests/**/*.spec.ts'],
+  include: [
+    'packages/extensions/**/tests/**/*.spec.ts',
+    'packages/client/ui-session-tree/tests/**/*.spec.tsx',
+  ],
   },
 })

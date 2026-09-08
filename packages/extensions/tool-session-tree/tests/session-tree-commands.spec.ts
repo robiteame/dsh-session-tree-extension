@@ -180,7 +180,7 @@ function withSession(agent: Agent, session: Session): Agent {
 }
 
 describe('/fork command', () => {
-  it('defaults the branch name to fork-<timestamp> when omitted', async () => {
+  it('opens the user-prompt selector without creating a source branch', async () => {
     const { ctx, service } = await harness()
     const agent = stubAgent('cmd-fork-default')
     seedTurns(agent)
@@ -189,13 +189,30 @@ describe('/fork command', () => {
 
     const forked = await command(ctx, agent, '/fork')
     expect(forked.kind).toBe('success')
-    const value = expectOk(forked.json) as { cursor: string; branch: string }
-    expect(value.cursor).toBe(root.nodeId)
-    expect(value.branch).toMatch(/^fork-[a-z0-9]+$/u)
-    expect(treeOf('cmd-fork-default').activeBranch).toBe(value.branch)
+    expect(expectOk(forked.json)).toEqual({ selectorRequired: true, userNodeCount: 1 })
+    expect(treeOf('cmd-fork-default').activeBranch).toBe('main')
+    expect(treeOf('cmd-fork-default').branches()).toHaveLength(1)
+    expect(root.nodeId).toBe('session-event-0')
   })
 
-  it('keeps every pre-fork node byte-identical while the fork grows', async () => {
+  it('reports an empty selector when the source has no user messages', async () => {
+    const { ctx, service } = await harness()
+    const agent = stubAgent('cmd-fork-empty')
+    agent.session.append('assistant/message', {
+      turn: 1,
+      step: 1,
+      message: { id: 'm-answer', role: 'assistant', content: [{ type: 'text', text: 'assistant only' }] },
+    } as never, { surfaceOp: 'append' })
+    const sourceSurfaceEvents = structuredClone(agent.session.events.filter(event => event.type !== 'command/run' && event.type !== 'command/done'))
+
+    const outcome = await command(ctx, agent, '/fork')
+    expect(outcome.kind).toBe('success')
+    expect(expectOk(outcome.json)).toEqual({ selectorRequired: true, userNodeCount: 0 })
+    expect(agent.session.events.filter(event => event.type !== 'command/run' && event.type !== 'command/done')).toEqual(sourceSurfaceEvents)
+    expect(service.list(agent).nodes.some(node => node.message?.role === 'user')).toBe(false)
+  })
+
+  it('keeps every pre-branch node byte-identical while the compatibility branch grows', async () => {
     const { ctx, service } = await harness()
     const agent = stubAgent('cmd-fork-immutable')
     seedTurns(agent)
@@ -203,7 +220,7 @@ describe('/fork command', () => {
     service.jump(agent, root.nodeId)
     const before = treeOf('cmd-fork-immutable').list()
 
-    expect((await command(ctx, agent, '/fork experiment')).kind).toBe('success')
+    service.branchInPlace(agent, root.nodeId, 'experiment')
     agent.session.append('user/message', { id: 'm-alt', role: 'user', content: [{ type: 'text', text: 'alt prompt' }], source: { kind: 'user' } } as never, { surfaceOp: 'append' })
     service.list(agent) // project the fresh native event into the store
 
@@ -225,9 +242,9 @@ describe('/fork command', () => {
     const view = service.list(agent)
     const root = view.nodes[0]!
     service.jump(agent, root.nodeId)
-    await command(ctx, agent, '/fork first')
+    service.branchInPlace(agent, root.nodeId, 'first')
     agent.session.append('user/message', { id: 'm-a', role: 'user', content: [{ type: 'text', text: 'a' }], source: { kind: 'user' } } as never, { surfaceOp: 'append' })
-    await command(ctx, agent, '/fork second')
+    service.branchInPlace(agent, root.nodeId, 'second')
     agent.session.append('user/message', { id: 'm-b', role: 'user', content: [{ type: 'text', text: 'b' }], source: { kind: 'user' } } as never, { surfaceOp: 'append' })
 
     const result = await runTool(ctx, agent, { operation: 'fork', nodeId: root.nodeId, branch: 'third' })
@@ -574,18 +591,99 @@ describe('session_tree tool argument validation', () => {
 })
 
 describe('sessionTree Remote service', () => {
+  it('passes an isolated root-path seed to the forked Agent factory', async () => {
+    const { ctx, service } = await harness()
+    const created: Array<{ sessionId: string; seed: readonly SessionEvent[] }> = []
+    ctx.agents.setFactory({
+      createAgent: async (_ownerCtx, options) => {
+        created.push({ sessionId: String(options.sessionId), seed: options.seed ?? [] })
+        return { agent: stubAgent(String(options.sessionId)), dispose: () => Promise.resolve() }
+      },
+      resume: async () => { throw new Error('resume is unused in this test') },
+    })
+
+    const agent = stubAgent('remote-fork-seed')
+    agent.session.append('turn/start', { turn: 0 })
+    agent.session.append('user/message', {
+      id: 'm-root',
+      role: 'user',
+      content: [{ type: 'text', text: 'root prompt' }],
+      source: { kind: 'user' },
+    } as never, { surfaceOp: 'append' })
+    agent.session.append('assistant/message', {
+      turn: 0,
+      step: 0,
+      message: {
+        id: 'm-answer',
+        role: 'assistant',
+        content: [{ type: 'text', text: 'later answer' }],
+        source: { kind: 'model', provider: 'p', model: 'm' },
+      },
+    } as never, { surfaceOp: 'append' })
+    agent.session.append('turn/end', { turn: 0, reason: { kind: 'completed' } })
+    const root = service.list(agent).nodes.find(node => node.message?.role === 'user')
+    if (root === undefined) throw new Error('expected user root')
+    const sourceEvents = structuredClone(agent.session.events)
+
+    const forked = await service.forkSession(agent, root.nodeId, 'seed-check')
+    expect(created).toHaveLength(1)
+    expect(created[0]?.sessionId).toBe(String(forked.sessionId))
+    expect(created[0]?.seed.some(event => event.type === 'assistant/message')).toBe(false)
+    expect(created[0]?.seed.map(event => event.type)).toEqual(['turn/start', 'user/message', 'turn/end'])
+
+    const target = Session.create(SessionId('remote-fork-seed-replay'), created[0]?.seed)
+    expect(target.deriveMessages().map(message => message.role)).toEqual(['user'])
+    expect(agent.session.events).toEqual(sourceEvents)
+  })
+
   it('forks with the default branch name and throws the standard error for unknown nodes', async () => {
     const { service } = await harness()
     const agent = stubAgent('remote-fork')
     seedTurns(agent)
     const root = service.list(agent).nodes[0]!
 
-    const forked = service.fork(agent, root.nodeId, '')
+    const sourceEvents = structuredClone(agent.session.events)
+    const forked = await service.forkSession(agent, root.nodeId, '')
     expect(forked).toMatchObject({ cursor: root.nodeId, branch: 'fork' })
-    expect(treeOf('remote-fork').selectedNode).toBe(root.nodeId)
-    expect(treeOf('remote-fork').activeBranch).toBe('fork')
+    expect(forked.sessionId).toMatch(/^remote-fork-fork-/u)
+    expect(forked.prompt).toBe('root')
+    // The source log is read-only: no branch marker or other event is added.
+    expect(agent.session.events).toEqual(sourceEvents)
+    // The independent copy contains only the selected root-to-node path.
+    const target = treeOf(forked.sessionId!)
+    expect(target.list()).toHaveLength(1)
+    expect(target.list()[0]?.message).toMatchObject({ role: 'user', content: 'root' })
+    expect(target.cursor).toBe(root.nodeId)
+    expect(target.activeBranch).toBe('fork')
 
-    expect(() => service.fork(agent, 'missing-node', 'x')).toThrow('NODE_NOT_FOUND')
+    await expect(service.forkSession(agent, 'missing-node', 'x')).rejects.toThrow('NODE_NOT_FOUND')
+    const assistant = service.list(agent).nodes.find(node => node.message?.role === 'assistant')
+    if (assistant === undefined) throw new Error('expected assistant node')
+    await expect(service.forkSession(agent, assistant.nodeId, 'assistant-only')).rejects.toThrow('user-message node')
+  })
+
+  it('copies a leaf user node without carrying the abandoned assistant turn', async () => {
+    const { service } = await harness()
+    const agent = stubAgent('remote-fork-leaf')
+    agent.session.append('user/message', { id: 'm-root', role: 'user', content: [{ type: 'text', text: 'root' }], source: { kind: 'user' } } as never, { surfaceOp: 'append' })
+    agent.session.append('assistant/message', { turn: 1, step: 1, message: { id: 'm-answer', role: 'assistant', content: [{ type: 'text', text: 'answer' }] } } as never, { surfaceOp: 'append' })
+    const root = service.list(agent).nodes[0]!
+    // Start a real alternative branch from root; the first-turn assistant is
+    // a sibling, not an ancestor, of the selected retry prompt.
+    service.jump(agent, root.nodeId)
+    agent.session.append('user/message', { id: 'm-leaf', role: 'user', content: [{ type: 'text', text: 'retry prompt' }], source: { kind: 'user' } } as never, { surfaceOp: 'append' })
+    const tree = service.list(agent)
+    const leaf = tree.nodes.find(node => node.summary === 'retry prompt')!
+    const sourceEvents = structuredClone(agent.session.events)
+
+    const forked = await service.forkSession(agent, leaf.nodeId, 'retry')
+    expect(forked.prompt).toBe('retry prompt')
+    const target = treeOf(forked.sessionId!)
+    expect(target.list().map(node => node.summary)).toEqual(['root', 'retry prompt'])
+    expect(target.list().some(node => node.summary === 'answer')).toBe(false)
+    expect(target.cursor).toBe(leaf.nodeId)
+    expect(target.activeBranch).toBe('retry')
+    expect(agent.session.events).toEqual(sourceEvents)
   })
 
   it('creates an empty tree on first read and serves session info', async () => {
@@ -649,8 +747,8 @@ describe('native surface mode (patched Harness)', () => {
     service.jump(agent, root.nodeId)
     expect(session.messageSurfaceNodes()).toEqual([0])
 
-    const forked = await command(ctx, agent, '/fork durable-alt')
-    expect(forked.kind).toBe('success')
+    const forked = service.branchInPlace(agent, root.nodeId, 'durable-alt')
+    expect(forked).toMatchObject({ cursor: root.nodeId, branch: 'durable-alt' })
     expect(session.messageSurfaceNodes()).toEqual([0])
     const durable = session.events.filter(event => event.type.startsWith('session-tree/'))
     expect(durable.map(event => `${event.type}:${(event.data as { nodeId?: string }).nodeId}`)).toEqual([
@@ -671,7 +769,7 @@ describe('native surface mode (patched Harness)', () => {
     seedTurns(agent)
     const root = service.list(agent).nodes[0]!
     service.jump(agent, root.nodeId)
-    await command(ctx, agent, '/fork resumed-branch')
+    service.branchInPlace(agent, root.nodeId, 'resumed-branch')
     agent.session.append('user/message', { id: 'm-alt', role: 'user', content: [{ type: 'text', text: 'alt turn' }], source: { kind: 'user' } } as never, { surfaceOp: 'append' })
     // Consume the full log once on the source side, then capture the surface
     // selection the live agent ended up with.

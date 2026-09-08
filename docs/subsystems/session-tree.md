@@ -148,11 +148,13 @@ type TreeResult<T> =
   `sessions`.
 - `/tree` command family: `list`, `branches`, `tree`, `context`, `jump
   <nodeId>`, `branch <nodeId> <name>`, `snapshot save`, `snapshot load <json>`.
-  `/fork [branch]` and `/clone` automatically use the selected sidebar node;
-  without one they return `请先在右侧会话树选中目标节点`.
+  `/fork` opens a user-prompt selector and copies the selected root path into
+  an independent session; `/clone` automatically uses the selected sidebar
+  node.
 - `sessionTree` Remote service (`@robiteame/dsh-pi-agent-session-tree`):
-  `list(agent)`, `jump(agent, nodeId)`, `fork(agent, nodeId, branch)`, and
-  `session(agent)` drive the browser panel.
+  `list(agent)`, `jump(agent, nodeId)`, `fork(agent, nodeId, branch)`,
+  `forkSession(agent, nodeId, branch)`, and `session(agent)` drive the browser
+  panel; `forkSession` is the user-facing independent-copy operation.
 - `@robiteame/dsh-client-ui-session-tree`: in a patched source checkout it
   occupies the native `conversation.details.panel` seat; in an official Web
   profile it uses the additive `shell.overlay` seat. `/tree` opens or refreshes
@@ -204,6 +206,15 @@ Remote-only service backing the browser tree panel.
  * @returns the parked cursor, branch label, and direct-child fork count.
  */
 @Remote('fork') fork(agent: Agent, nodeId: string, branch: string): { cursor: string; branch: string; forkCount: number }
+
+/**
+ * Copy only the selected user-node root path into a brand-new Session.
+ * @param agent - owning live source agent.
+ * @param nodeId - selected user-message node.
+ * @param branch - branch label installed on the independent copy.
+ * @returns the source fork point plus target session and editable prompt.
+ */
+@Remote('forkSession') forkSession(agent: Agent, nodeId: string, branch: string): Promise<SessionTreeForkView>
 
 /**
  * Read compact status metadata for the current session tree.

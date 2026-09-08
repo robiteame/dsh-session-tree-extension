@@ -15,7 +15,7 @@ declare module '@deepseek-ai/cordis' {
     'command/executed'(sessionId: SessionId, name: string, result: CommandResult): void
   }
 }
-import type { SessionTreeView } from '@robiteame/dsh-pi-agent-session-tree/client'
+import type { SessionTreeForkView, SessionTreeView } from '@robiteame/dsh-pi-agent-session-tree/client'
 import type { SessionTreePanelActions } from './slots.ts'
 import { SessionTreeDock } from './SessionTreePanel.tsx'
 import {
@@ -46,6 +46,21 @@ function registerSessionTreeUi(ctx: ClientContext): void {
   const overlay = new SessionTreeOverlayController()
   ctx.effect(() => () => { overlay.dispose() }, 'ui-session-tree: overlay state')
 
+  /** Give the new fork session focus and stage its editable prompt. */
+  const completeFork = (result: SessionTreeForkView): void => {
+    if (result.sessionId !== undefined) ctx.sessions.open(result.sessionId)
+    if (result.sessionId !== undefined && result.prompt !== undefined) {
+      overlay.openPromptDraft(result.sessionId, result.prompt)
+    }
+  }
+
+  const sendPrompt = async (sessionId: SessionId, text: string): Promise<void> => {
+    const binding = ctx.sessions.binding(sessionId)
+    if (binding === undefined) throw new Error('session is not ready')
+    const answered = await binding.session.prompt([{ type: 'text', text }], 'queue')
+    if (!answered.ok) throw new Error(`${answered.error.code}: ${answered.error.message}`)
+  }
+
   const remoteActions: SessionTreeRemoteActions = {
     load: async (sessionId) => {
       const answered = await ctx.remote.sessionTree.list(sessionId)
@@ -58,7 +73,7 @@ function registerSessionTreeUi(ctx: ClientContext): void {
       return answered.value
     },
     fork: async (sessionId, nodeId, branch) => {
-      const answered = await ctx.remote.sessionTree.fork(sessionId, nodeId, branch)
+      const answered = await ctx.remote.sessionTree.forkSession(sessionId, nodeId, branch)
       if (!answered.ok) throw new Error(`${answered.error.code}: ${answered.error.message}`)
       return answered.value
     },
@@ -74,7 +89,12 @@ function registerSessionTreeUi(ctx: ClientContext): void {
   // richer named details-panel slot below.
   ctx.slots.inject('shell.overlay', () => ctx.slots.register({
     name: 'shell.overlay', id: 'session-tree', order: 10, locale: NS,
-    inject: () => ({ controller: overlay, remoteActions }),
+    inject: () => ({
+      controller: overlay,
+      remoteActions,
+      sendPrompt,
+      openSession: (sessionId: SessionId) => { ctx.sessions.open(sessionId) },
+    }),
   }, SessionTreeOverlay))
 
   // The legacy source patch owns this optional slot. Mirror its exact
@@ -85,7 +105,12 @@ function registerSessionTreeUi(ctx: ClientContext): void {
       inject: (sessionId: SessionId): SessionTreePanelActions => ({
         load: remoteActions.load,
         jump: nodeId => remoteActions.jump(sessionId, nodeId),
-        fork: (nodeId, branch) => remoteActions.fork(sessionId, nodeId, branch),
+        fork: async (nodeId, branch) => {
+          const result = await remoteActions.fork(sessionId, nodeId, branch)
+          completeFork(result)
+          return result
+        },
+        modeController: overlay,
         onRefresh: callback => remoteActions.onRefresh(sessionId, callback),
       }),
     } as never, SessionTreeDock as never)
@@ -104,13 +129,19 @@ function registerSessionTreeUi(ctx: ClientContext): void {
         overlay.open()
       }
     }
-    if (name === 'clone' && result.kind === 'success' && result.text !== undefined) {
+    if ((name === 'clone' || name === 'fork') && result.kind === 'success' && result.text !== undefined) {
       try {
-        const payload = JSON.parse(result.text) as { value?: { sessionId?: string } }
-        const clonedId = payload.value?.sessionId
-        if (typeof clonedId === 'string') ctx.sessions.open(clonedId as SessionId)
+        const payload = JSON.parse(result.text) as { value?: { sessionId?: string; prompt?: string; selectorRequired?: boolean } }
+        if (payload.value?.selectorRequired === true) overlay.openSelector()
+        else if (typeof payload.value?.sessionId === 'string') {
+          completeFork({
+            cursor: '', branch: '', forkCount: 0,
+            sessionId: payload.value.sessionId as SessionId,
+            ...(payload.value.prompt === undefined ? {} : { prompt: payload.value.prompt }),
+          })
+        }
       } catch {
-        // A non-JSON success is still a valid Host outcome; it simply has no navigable clone id.
+        // A non-JSON success is still a valid Host outcome; it simply has no navigable fork id.
       }
     }
     if (name === 'tree' || name === 'fork' || name === 'clone') {

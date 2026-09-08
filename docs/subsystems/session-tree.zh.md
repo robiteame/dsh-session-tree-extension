@@ -128,8 +128,8 @@ type TreeResult<T> =
 ## 表面
 
 - `session_tree` 工具（`@robiteame/dsh-tool-session-tree`）：`create`、`append`、`list`、`branches`、`tree`、`jump`、`fork`、`clone`、`context`、`session`、`branch`、`branch.summary`、`snapshot.save`、`snapshot.load`、`sessions`。
-- `/tree` 命令族：`list`、`branches`、`tree`、`context`、`jump <nodeId>`、`branch <nodeId> <name>`、`snapshot save`、`snapshot load <json>`。`/fork [branch]` 与 `/clone` 自动读取右侧会话树选中节点；未选中时返回“请先在右侧会话树选中目标节点”。
-- `sessionTree` Remote 服务（`@robiteame/dsh-pi-agent-session-tree`）：`list(agent)`、`jump(agent, nodeId)`、`fork(agent, nodeId, branch)` 与 `session(agent)` 驱动浏览器面板。
+- `/tree` 命令族：`list`、`branches`、`tree`、`context`、`jump <nodeId>`、`branch <nodeId> <name>`、`snapshot save`、`snapshot load <json>`。`/fork` 打开用户消息选择器并把选中路径复制到独立 session；`/clone` 自动读取右侧会话树选中节点。
+- `sessionTree` Remote 服务（`@robiteame/dsh-pi-agent-session-tree`）：`list(agent)`、`jump(agent, nodeId)`、`fork(agent, nodeId, branch)`、`forkSession(agent, nodeId, branch)` 与 `session(agent)` 驱动浏览器面板；`forkSession` 是用户面的独立副本操作。
 - `@robiteame/dsh-client-ui-session-tree`：在打补丁的源码集成中占用原生右侧详情栏的 `conversation.details.panel`；在官方 Web profile 中使用叠加式 `shell.overlay`。`/tree` 打开或刷新视图，节点点击绑定命令上下文；固定图形栏不会随树深度横向增长。
 
 ## Cordis API
@@ -177,6 +177,15 @@ Remote-only service backing the browser tree panel.
  * @returns the parked cursor, branch label, and direct-child fork count.
  */
 @Remote('fork') fork(agent: Agent, nodeId: string, branch: string): { cursor: string; branch: string; forkCount: number }
+
+/**
+ * Copy only the selected user-node root path into a brand-new Session.
+ * @param agent - owning live source agent.
+ * @param nodeId - selected user-message node.
+ * @param branch - branch label installed on the independent copy.
+ * @returns the source fork point plus target session and editable prompt.
+ */
+@Remote('forkSession') forkSession(agent: Agent, nodeId: string, branch: string): Promise<SessionTreeForkView>
 
 /**
  * Read compact status metadata for the current session tree.

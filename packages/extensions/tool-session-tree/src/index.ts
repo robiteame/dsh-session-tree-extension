@@ -80,7 +80,7 @@ export function apply(ctx: Context): void {
     description: 'Open or refresh the right-sidebar session tree',
     handler: invocation => runTreeCommand(ctx, invocation),
   })
-  ctx.commands.register({ name: 'fork', description: 'Fork the selected session-tree node', handler: invocation => runForkCommand(invocation) })
+  ctx.commands.register({ name: 'fork', description: 'Select a user prompt and fork it into a new session', handler: invocation => runForkCommand(invocation) })
   ctx.commands.register({ name: 'clone', description: 'Clone the selected session-tree node into a new Harness session', handler: invocation => runCloneCommand(ctx, invocation) })
   ctx.commands.register({ name: 'session', description: 'Show current session tree status', handler: invocation => runSessionCommand(invocation) })
 }
@@ -292,25 +292,15 @@ async function runToolOperation(ctx: Context, args: SessionTreeToolArgs, exec: T
 }
 
 function runForkCommand(invocation: CommandInvocation): CommandResult {
-  const [branch = `fork-${Date.now().toString(36)}`] = invocation.rawInput.trim().split(/\s+/u).filter(Boolean)
-  const tree = syncSessionTree(invocation.agent)
-  if (tree.selectedNode === null) return errorCommand('请先在右侧会话树选中目标节点')
-  const checkpoint = tree.checkpoint()
-  const forked = tree.fork(tree.selectedNode, branch)
-  if (!forked.ok) return jsonCommand(forked)
-  try {
-    const selected = tree.select(forked.value.cursor)
-    if (!selected.ok) throw new Error(`${selected.error.code}: ${selected.error.message}`)
-    const event = appendSessionTreeEvent(invocation.agent.session, 'session-tree/branch', { nodeId: forked.value.cursor, branch: forked.value.branch })
-    if (event !== undefined) tree.markSessionEventSeq(event.seq)
-    const selection = appendSessionTreeEvent(invocation.agent.session, 'session-tree/selection', { nodeId: forked.value.cursor })
-    if (selection !== undefined) tree.markSessionEventSeq(selection.seq)
-    applyTreeCursorToSession(invocation.agent, tree)
-  } catch (error) {
-    tree.rollback(checkpoint)
-    throw error
-  }
-  return jsonCommand(forked)
+  // Read only the already projected tree: entering /fork must never append a
+  // cursor/branch marker or otherwise mutate the source Session. The selector
+  // load is what safely projects an existing tree before the user chooses.
+  const tree = syncSessionTree(invocation.agent, { applySurface: false, persist: false })
+  const userNodeCount = tree.list().filter(node => node.message?.role === 'user').length
+  return jsonCommand({
+    ok: true,
+    value: { selectorRequired: true, userNodeCount },
+  })
 }
 
 async function cloneActiveSession(ctx: Context, agent: NonNullable<ToolRunContext['agent']>, target: string, nodeId?: string): Promise<unknown> {

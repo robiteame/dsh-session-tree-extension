@@ -78,6 +78,7 @@ async function bench(tree = view(null, []), nativePanel = true) {
     list: (...args: unknown[]) => { calls.push({ method: 'list', args }); return Promise.resolve({ ok: true, value: tree }) },
     jump: (...args: unknown[]) => { calls.push({ method: 'jump', args }); return Promise.resolve({ ok: true, value: { cursor: args[1], messages: [] } }) },
     fork: (...args: unknown[]) => { calls.push({ method: 'fork', args }); return Promise.resolve({ ok: true, value: { cursor: args[1], branch: args[2], forkCount: 1 } }) },
+    forkSession: (...args: unknown[]) => { calls.push({ method: 'fork', args }); return Promise.resolve({ ok: true, value: { cursor: args[1], branch: args[2], forkCount: 1, sessionId: 's1-fork-test', prompt: 'test' } }) },
   }
   class RemoteService extends Service {
     constructor(c: Context) { super(c, 'remote') }
@@ -120,6 +121,19 @@ describe('session tree browser plugin', () => {
     expect(b.openedSessions).toEqual(['s1-clone-1'])
   })
 
+  it('routes /fork into the native panel selector state', async () => {
+    const b = await bench(view('root', [node('root', null, 'user prompt')]))
+    await b.fiber.await()
+    const actions = ((b.entry() as unknown as { inject: (id: SessionId) => SessionTreePanelActions }).inject)(sid('s1'))
+    expect(actions.modeController?.getSnapshot().selectorOpen).toBe(false)
+
+    b.ctx.emit('command/executed', sid('s1'), 'fork', {
+      kind: 'success',
+      text: JSON.stringify({ ok: true, value: { selectorRequired: true, userNodeCount: 1 } }),
+    })
+    expect(actions.modeController?.getSnapshot().selectorOpen).toBe(true)
+  })
+
   it('falls back to the additive official shell overlay and opens it on /tree', async () => {
     const b = await bench(view(null, []), false)
     await b.fiber.await()
@@ -127,9 +141,13 @@ describe('session tree browser plugin', () => {
     expect(b.overlayEntry()?.options).toMatchObject({ id: 'session-tree', order: 10 })
     expect(b.ctx.slots.entries('details' as never)[0]?.component).toBe(b.toolDetails)
     const injected = b.overlayEntry()?.inject?.() as { controller: SessionTreeOverlayController }
-    expect(injected.controller.getSnapshot()).toEqual({ open: false, nativePanel: false })
+    expect(injected.controller.getSnapshot()).toEqual({
+      open: false, nativePanel: false, selectorOpen: false, promptDraft: null,
+    })
     b.ctx.emit('command/executed', sid('s1'), 'tree', { kind: 'success' })
-    expect(injected.controller.getSnapshot()).toEqual({ open: true, nativePanel: false })
+    expect(injected.controller.getSnapshot()).toEqual({
+      open: true, nativePanel: false, selectorOpen: false, promptDraft: null,
+    })
     expect(b.opened).toEqual([])
   })
 
@@ -157,7 +175,7 @@ describe('session tree browser plugin', () => {
       load={load} jump={jump} fork={vi.fn()}
     />)
     await screen.findByText('alternative')
-    expect(container.querySelectorAll('svg').length).toBe(3)
+    expect(container.querySelectorAll('svg').length).toBe(4)
     expect(container.querySelector('[data-node-id="main"]')?.getAttribute('class')).toContain('nodeSelected')
     fireEvent.click(screen.getByLabelText(`${zh['panel.select']} — alternative`))
     await waitFor(() => { expect(jump).toHaveBeenCalledWith('alt') })
@@ -241,6 +259,66 @@ describe('session tree browser plugin', () => {
     await waitFor(() => { expect(controller.getSnapshot().open).toBe(false) })
   })
 
+  it('opens the independent fork session and stages its editable prompt in the fallback overlay', async () => {
+    const controller = new SessionTreeOverlayController()
+    const opened: SessionId[] = []
+    const remoteActions: SessionTreeRemoteActions = {
+      load: vi.fn(async () => view('prompt', [node('prompt', null, 'editable prompt')], 'prompt')),
+      jump: vi.fn(async (_sessionId, nodeId) => ({ cursor: nodeId, messages: [] })),
+      fork: vi.fn(async (_sessionId, nodeId, branch) => ({
+        cursor: nodeId,
+        branch,
+        forkCount: 0,
+        sessionId: sid('s2-fork'),
+        prompt: 'editable prompt',
+      })),
+      onRefresh: vi.fn(() => () => {}),
+    }
+    const useSessions = (<T,>(select: (state: {
+      current: SessionId
+      byId: Record<SessionId, { blank: boolean }>
+    }) => T): T => select({ current: sid('s1'), byId: { [sid('s1')]: { blank: false } } }))
+    const Overlay = SessionTreeOverlay as unknown as ComponentType<Record<string, unknown>>
+    controller.openSelector()
+    render(<Overlay
+      controller={controller}
+      remoteActions={remoteActions}
+      openSession={(sessionId: SessionId) => { opened.push(sessionId) }}
+      useSessions={useSessions}
+      t={t}
+    />)
+
+    await screen.findByText('editable prompt')
+    fireEvent.click(screen.getByLabelText(`${zh['fork.selector.select']} — editable prompt`))
+    await waitFor(() => { expect(opened).toEqual([sid('s2-fork')]) })
+    expect((screen.getByRole('textbox', { name: zh['fork.prompt.title'] }) as HTMLTextAreaElement).value).toBe('editable prompt')
+  })
+
+  it('reloads the tree when the reactive session-list revision changes', async () => {
+    const state = {
+      phase: 'ready' as const,
+      current: sid('s1'),
+      ids: [sid('s1')],
+      byId: { [sid('s1')]: { displayTitle: 'Session one', blank: false, running: false, updatedAt: 1 } },
+    }
+    const load = vi.fn(async () => view('root', [node('root', null, 'root')]))
+    const useSessions = (<T,>(select: (value: typeof state) => T): T => select(state))
+    const Panel = SessionTreeDock as unknown as ComponentType<Record<string, unknown>>
+    const rendered = render(<Panel
+      sessionId={sid('s1')} panel="session-tree" closeDetails={vi.fn()} t={t}
+      load={load} jump={vi.fn()} fork={vi.fn()} useSessions={useSessions}
+    />)
+    await screen.findByText('root')
+    await waitFor(() => { expect(load).toHaveBeenCalledTimes(1) })
+
+    state.byId[sid('s1')].updatedAt = 2
+    rendered.rerender(<Panel
+      sessionId={sid('s1')} panel="session-tree" closeDetails={vi.fn()} t={t}
+      load={load} jump={vi.fn()} fork={vi.fn()} useSessions={useSessions}
+    />)
+    await waitFor(() => { expect(load).toHaveBeenCalledTimes(2) })
+  })
+
   it('renders tool interactions quietly and marks failed calls as errors', async () => {
     const toolNode: TreeNode = {
       nodeId: 'tool-ok', parentId: null, type: 'tool_call', branch: 'main', summary: 'bash({}) → ok output',
@@ -287,6 +365,68 @@ describe('session tree browser plugin', () => {
     const fullText = container.querySelector('[data-node-id="long"] span[title]')
     expect(fullText?.textContent).toBe(full)
     expect(fullText?.getAttribute('title')).toBe(full)
+  })
+
+  it('collapses descendants from the left-side expander without shifting the title', async () => {
+    const nodes = [
+      node('parent', null, 'parent prompt'),
+      node('child', 'parent', 'child answer'),
+      node('grandchild', 'child', 'grandchild detail'),
+    ]
+    const Panel = SessionTreeDock as unknown as ComponentType<Record<string, unknown>>
+    const { container } = render(<Panel
+      sessionId={sid('collapse')} panel="session-tree" closeDetails={vi.fn()} t={t}
+      load={async () => view('grandchild', nodes, 'grandchild')}
+      jump={vi.fn()} fork={vi.fn()}
+    />)
+    await screen.findByText('grandchild detail')
+    const expander = screen.getByLabelText(`${zh['node.collapse']} — parent prompt`)
+    const title = screen.getByText('parent prompt')
+    expect(expander.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
+    const row = expander.closest('[data-node-id]')
+    expect(row?.getAttribute('data-node-id')).toBe('parent')
+
+    fireEvent.click(expander)
+    expect(expander.getAttribute('aria-expanded')).toBe('false')
+    expect(screen.queryByText('child answer')).toBeNull()
+    expect(screen.queryByText('grandchild detail')).toBeNull()
+
+    fireEvent.click(screen.getByLabelText(`${zh['node.expand']} — parent prompt`))
+    expect(screen.getByText('child answer')).not.toBeNull()
+    expect(screen.getByText('grandchild detail')).not.toBeNull()
+    expect(row?.getAttribute('data-node-id')).toBe('parent')
+  })
+
+  it('filters the fork selector to user prompts and reports an empty state', async () => {
+    const user = node('prompt', null, 'editable prompt')
+    const assistant: TreeNode = {
+      ...node('answer', 'prompt', 'hidden answer'),
+      message: { role: 'assistant', content: 'hidden answer' },
+    }
+    const onForkCompleted = vi.fn()
+    const fork = vi.fn(async () => ({
+      cursor: 'prompt', branch: 'fork-1', forkCount: 1,
+      sessionId: sid('forked'), prompt: 'editable prompt',
+    }))
+    const Panel = SessionTreeDock as unknown as ComponentType<Record<string, unknown>>
+    const { rerender } = render(<Panel
+      sessionId={sid('selector')} panel="session-tree" mode="selectUserPrompt"
+      closeDetails={vi.fn()} t={t} load={async () => view('answer', [user, assistant], 'answer')}
+      jump={vi.fn()} fork={fork} onForkCompleted={onForkCompleted}
+    />)
+    await screen.findByText('editable prompt')
+    expect(screen.queryByText('hidden answer')).toBeNull()
+
+    fireEvent.click(screen.getByLabelText(`${zh['fork.selector.select']} — editable prompt`))
+    await waitFor(() => { expect(fork).toHaveBeenCalledWith('prompt', expect.stringMatching(/^fork-/u)) })
+    expect(onForkCompleted).toHaveBeenCalledWith(expect.objectContaining({ sessionId: sid('forked') }))
+
+    rerender(<Panel
+      sessionId={sid('empty-selector')} panel="session-tree" mode="selectUserPrompt"
+      closeDetails={vi.fn()} t={t} load={async () => view('answer', [assistant], 'answer')}
+      jump={vi.fn()} fork={vi.fn()}
+    />)
+    await screen.findByText(zh['fork.selector.empty'])
   })
 
   it('shows the required friendly state when the host reports no selection', async () => {

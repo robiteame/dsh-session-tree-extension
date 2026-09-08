@@ -586,19 +586,14 @@ describe('session_tree plugin surfaces', () => {
     agent.session.append('user/message', { role: 'user', content: 'root', source: 'human' } as never, { surfaceOp: 'append' })
     agent.session.append('assistant/message', { turn: 1, step: 1, message: { role: 'assistant', content: [{ type: 'text', text: 'answer' }] } } as never, { surfaceOp: 'append' })
     const before = await ctx.commands.execute(agent, '/fork', [], new AbortController().signal)
-    expect(before?.result.kind).toBe('error')
-    expect(before?.result.text).toContain('请先在右侧会话树选中目标节点')
+    expect(before?.result.kind).toBe('success')
+    expect(JSON.parse(before?.result.text ?? '{}')).toMatchObject({
+      ok: true,
+      value: { selectorRequired: true, userNodeCount: 1 },
+    })
 
     const selected = service.list(agent).nodes[0]!
     service.jump(agent, selected.nodeId)
-    const forked = await ctx.commands.execute(agent, '/fork experiment', [], new AbortController().signal)
-    expect(forked?.result.kind).toBe('success')
-    expect(syncSessionTree(agent).activeBranch).toBe('experiment')
-    expect(syncSessionTree(agent).cursor).toBe(selected.nodeId)
-    // The command must synchronously re-point the model-visible surface at the
-    // fork target so the next turn starts from the selected node, not the tail.
-    expect(agent.session.deriveMessages().map(message => message.content)).toEqual(['root'])
-
     const cloned = await ctx.commands.execute(agent, '/clone', [], new AbortController().signal)
     expect(cloned?.result.kind).toBe('success')
     const payload = JSON.parse(cloned?.result.text ?? '{}') as { value?: { sessionId?: string } }
@@ -620,8 +615,10 @@ describe('session_tree plugin surfaces', () => {
 
     const selected = service.list(agent).nodes[0]!
     service.jump(agent, selected.nodeId)
-    const forked = await ctx.commands.execute(agent, '/fork experiment', [], new AbortController().signal)
-    expect(forked?.result.kind).toBe('success')
+    // This spec covers the compatibility branch primitive, not the new
+    // user-facing independent-session /fork workflow.
+    const forked = service.branchInPlace(agent, selected.nodeId, 'experiment')
+    expect(forked).toMatchObject({ cursor: selected.nodeId, branch: 'experiment' })
 
     agent.session.append('user/message', { role: 'user', content: 'branch prompt', source: 'human' } as never, { surfaceOp: 'append' })
     const branched = service.list(agent)

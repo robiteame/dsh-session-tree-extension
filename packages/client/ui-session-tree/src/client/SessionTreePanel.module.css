@@ -20,6 +20,66 @@
   pointer-events: none;
 }
 
+.promptEditor {
+  position: fixed;
+  z-index: 2;
+  inset: auto 24px 24px;
+  display: grid;
+  gap: 8px;
+  width: min(640px, calc(100vw - 48px));
+  padding: 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-base);
+  box-shadow: 0 14px 34px rgb(0 0 0 / 20%);
+  pointer-events: auto;
+}
+
+.promptTitle {
+  color: var(--dsw-alias-label-primary-dimmed);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.promptInput {
+  min-height: 96px;
+  max-height: min(40vh, 320px);
+  padding: 8px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: 1.45;
+  resize: vertical;
+}
+
+.promptError {
+  margin: 0;
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.promptActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.promptActions button {
+  min-height: 30px;
+  padding: 5px 11px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.promptActions button:disabled { cursor: not-allowed; opacity: .55; }
+
 .overlayDrawer {
   position: absolute;
   inset-block: 0;
@@ -138,7 +198,7 @@
 
 .node {
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr) 28px;
+  grid-template-columns: 18px 44px minmax(0, 1fr) 28px;
   align-items: stretch;
   width: 100%;
   min-width: 0;
@@ -151,6 +211,36 @@
   background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 12%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--dsw-alias-state-business-primary) 34%, transparent);
 }
+
+.expander,
+.expanderPlaceholder {
+  align-self: center;
+  justify-self: start;
+  width: 18px;
+  height: 18px;
+  margin-left: 2px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.expander {
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.expander svg {
+  width: 10px;
+  height: 10px;
+  transition: transform .16s ease;
+}
+
+.expander[aria-expanded='true'] svg { transform: rotate(90deg); }
+.expander:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.expander:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary); outline-offset: -2px; }
 
 .graph {
   display: block;

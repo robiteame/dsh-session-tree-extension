@@ -38,7 +38,9 @@ After installing, restart the profile. The composition gains three rows
 (`pi-agent-session-tree`, `tool-session-tree`, `ui-session-tree`) that load the
 Host service, the tool and commands, and the browser panel. Type `/tree` in the
 composer to open the panel; click a node to bind it as the active context, then
-`/fork [branch]` and `/clone` operate on that selection. `/session` reports
+`/clone` operates on that selection and `/fork` opens a user-prompt selector.
+A selected prompt is copied through its root path into an independent Session;
+the source JSONL stays read-only. `/session` reports
 tree status (nodes/messages/branches/tokens/cost) and the active surface mode.
 
 Verify the composed layer:
