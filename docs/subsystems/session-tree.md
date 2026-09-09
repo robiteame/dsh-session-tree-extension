@@ -160,12 +160,13 @@ type TreeResult<T> =
   profile it uses the additive `shell.overlay` seat. `/tree` opens or refreshes
   the panel, and node clicks bind the selected command context. Its fixed
   graph gutter never grows with tree depth. A second `shell.overlay` entry
-  (`session-tree-branches`) renders the left-docked fork branch rail: `/fork`
-  children appear nested under their source session in the Session list with
-  indentation, connector rails, and expand/collapse. Topology comes from the
-  native fork API's reactive `parentId` linkage; a UI-layer lineage registry
-  only distinguishes `/fork` from `/clone`, so clones keep their original
-  sidebar presentation.
+  (`session-tree-branches`) portals an inline collapsible fork menu directly
+  after each source Session's native list row: `/fork` children appear nested
+  with connector rails and per-level expand/collapse, while the child title is
+  the user message immediately before the selected node. Topology comes from
+  the native fork API's reactive `parentId` linkage; a UI-layer lineage
+  registry only distinguishes `/fork` from `/clone`, so clones keep their
+  original sidebar presentation.
 
 ## Cordis API
 

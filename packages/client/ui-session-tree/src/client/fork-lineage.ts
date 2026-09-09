@@ -1,9 +1,9 @@
 /**
- * UI-layer fork-lineage annotations for the left branch rail.
+ * UI-layer fork-lineage annotations for the inline session-list menus.
  *
  * The fork itself — and the durable parent linkage — always comes from the
  * official native session fork API: `ctx.sessions.fork()` writes the child into
- * the reactive Session list with `parentId`, and the rail reads that state for
+ * the reactive Session list with `parentId`, and the menus read that state for
  * topology and live updates. This registry stores only the presentation
  * metadata that state cannot know: which children were created by THIS
  * plugin's `/fork` flows (so `/clone` children and host-sidebar forks keep
@@ -15,7 +15,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 export interface ForkLineageEntry {
   readonly childId: SessionId
   readonly parentId: SessionId
-  /** Short single-line annotation for the branch node (the seeded fork prompt). */
+  /** Short single-line menu title (the user prompt before the selected node). */
   readonly summary?: string
   /** Branch label supplied by remote forks, when the creator named one. */
   readonly branch?: string
@@ -38,7 +38,7 @@ const MAX_ENTRIES = 500
 /** Storage key the browser persistence writes under (exported for tests). */
 export const FORK_LINEAGE_STORAGE_KEY = STORAGE_KEY
 
-/** Collapse a seeded fork prompt into the short single-line rail annotation. */
+/** Collapse a fork title prompt into one short single-line menu title. */
 export function summarizeForkPrompt(text: string, maxLength = 96): string {
   const flat = text.replace(/\s+/gu, ' ').trim()
   if (flat.length <= maxLength) return flat
@@ -69,7 +69,7 @@ export class SessionForkLineage {
     return () => { this.listeners.delete(listener) }
   }
 
-  /** Record (or re-annotate) one `/fork` child and notify rail subscribers. */
+  /** Record (or re-annotate) one `/fork` child and notify menu subscribers. */
   record(input: ForkLineageRecordInput): ForkLineageEntry {
     const entry: ForkLineageEntry = {
       childId: input.childId,

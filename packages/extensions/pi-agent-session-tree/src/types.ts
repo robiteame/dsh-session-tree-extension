@@ -156,7 +156,10 @@ export interface SessionTreeForkView {
   readonly branch: string
   readonly forkCount: number
   readonly sessionId?: SessionId
+  /** Complete selected-node prompt used to seed the fork composer. */
   readonly prompt?: string
+  /** Preceding user prompt, used only as the inline fork-menu title. */
+  readonly previousUserPrompt?: string
 }
 
 /** Stable error codes for every failure path. */

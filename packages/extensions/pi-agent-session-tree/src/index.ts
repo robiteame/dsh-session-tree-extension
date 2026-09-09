@@ -699,12 +699,17 @@ export class SessionTreeService extends TypertRemoteService {
     persistSessionTree(targetTree)
     // Unlike legacy fork(), the source tree is not branched or selected.
     const forkCount = tree.list().filter(node => node.parentId === nodeId).length
+    const previousUser = path
+      .slice(0, -1)
+      .reverse()
+      .find(node => node.message?.role === 'user')
     return {
       cursor: nodeId,
       branch: branchName,
       forkCount,
       sessionId: targetId,
       prompt: promptTextOf(selectedNode),
+      ...(previousUser === undefined ? {} : { previousUserPrompt: promptTextOf(previousUser) }),
     }
   }
 

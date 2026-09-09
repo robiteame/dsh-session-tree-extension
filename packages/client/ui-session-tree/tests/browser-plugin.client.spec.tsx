@@ -100,7 +100,20 @@ async function bench(tree = view(null, []), nativePanel = true) {
     list: (...args: unknown[]) => { calls.push({ method: 'list', args }); return Promise.resolve({ ok: true, value: tree }) },
     jump: (...args: unknown[]) => { calls.push({ method: 'jump', args }); return Promise.resolve({ ok: true, value: { cursor: args[1], messages: [] } }) },
     fork: (...args: unknown[]) => { calls.push({ method: 'fork', args }); return Promise.resolve({ ok: true, value: { cursor: args[1], branch: args[2], forkCount: 1 } }) },
-    forkSession: (...args: unknown[]) => { calls.push({ method: 'fork', args }); return Promise.resolve({ ok: true, value: { cursor: args[1], branch: args[2], forkCount: 1, sessionId: 's1-fork-test', prompt: 'test' } }) },
+    forkSession: (...args: unknown[]) => {
+      calls.push({ method: 'fork', args })
+      return Promise.resolve({
+        ok: true,
+        value: {
+          cursor: args[1],
+          branch: args[2],
+          forkCount: 1,
+          sessionId: 's1-fork-test',
+          prompt: 'test',
+          previousUserPrompt: 'previous',
+        },
+      })
+    },
   }
   class RemoteService extends Service {
     constructor(c: Context) { super(c, 'remote') }
@@ -141,7 +154,7 @@ async function bench(tree = view(null, []), nativePanel = true) {
   }
 }
 
-/** Shared fake for the reactive Session list consumed by the branch rail. */
+/** Shared fake for the reactive Session list consumed by the inline branch menu. */
 interface FakeListRow {
   id: SessionId
   displayTitle: string
@@ -162,6 +175,35 @@ function fakeListState(ids: SessionId[], rows: Record<string, FakeListRow>, curr
 
 function fakeRow(id: SessionId, displayTitle: string, parentId?: SessionId): [string, FakeListRow] {
   return [id, { id, displayTitle, ...(parentId === undefined ? {} : { parentId }), running: false, blank: false, updatedAt: 1 }]
+}
+
+function renderNativeSessionRows(
+  rows: ReadonlyArray<{ id: SessionId; title: string; selected?: boolean }>,
+) {
+  const rendered = render(
+    <div role="tree">
+      {rows.map(row => (
+        <div
+          key={row.id}
+          role="treeitem"
+          aria-selected={row.selected === true ? 'true' : 'false'}
+          data-test-session-row={row.id}
+        >
+          {row.title}
+        </div>
+      ))}
+    </div>,
+  )
+  return {
+    ...rendered,
+    row(sessionId: SessionId): HTMLElement {
+      const element = rendered.container.querySelector<HTMLElement>(
+        `[data-test-session-row="${sessionId}"]`,
+      )
+      if (element === null) throw new Error(`native row '${sessionId}' missing`)
+      return element
+    },
+  }
 }
 
 describe('session tree browser plugin', () => {
@@ -218,6 +260,14 @@ describe('session tree browser plugin', () => {
     const loadThrough = vi.fn(async () => {})
     const entries = [
       { type: 'event', event: { type: 'turn/start', seq: 1 } },
+      {
+        type: 'event',
+        event: {
+          type: 'user/message',
+          seq: 4,
+          data: { content: [{ type: 'text', text: 'previous prompt' }] },
+        },
+      },
       { type: 'event', event: { type: 'turn/end', seq: 5 } },
       { type: 'event', event: { type: 'user/message', seq: 8 } },
       { type: 'event', event: { type: 'turn/end', seq: 9 } },
@@ -253,6 +303,8 @@ describe('session tree browser plugin', () => {
       b.open.mock.invocationCallOrder[0]!,
     )
     expect(textFromEditorState(vi.mocked(childEditor.setEditorState).mock.calls[0]?.[0])).toBe(prompt)
+    const lineage = ((b.branchEntry()?.inject) as unknown as () => { lineage: SessionForkLineage })().lineage
+    expect(lineage.getSnapshot().get(childId)?.summary).toBe('previous prompt')
     expect(entries).toEqual(sourceEvents)
     expect(b.openedSessions).toEqual([childId])
     expect(b.refresh).not.toHaveBeenCalled()
@@ -611,86 +663,93 @@ describe('session tree browser plugin', () => {
     await screen.findByText(zh['fork.selector.empty'])
   })
 
-  it('nests a /fork branch under its source in the left rail without a refresh', async () => {
-    const prompt = '  selected line one\nselected line two  \n'
-    const sourceCtx = { role: 'source' }
-    const childCtx = { role: 'child' }
-    const childEditor: TestEditor = {
-      parseEditorState: vi.fn((state: unknown) => state),
-      setEditorState: vi.fn(),
-    }
-    const selected: TreeNode = {
-      ...node('prompt', null, 'selected prompt'),
-      content: [{ type: 'text', text: prompt }],
-      metadata: { sessionEventSeq: 8 },
-    }
+  it('portals an inline /fork menu after its source row and restores native rows', async () => {
     const childId = sid('native-child')
-    const entries = [
-      { type: 'event', event: { type: 'turn/start', seq: 1 } },
-      { type: 'event', event: { type: 'turn/end', seq: 5 } },
-      { type: 'event', event: { type: 'user/message', seq: 8 } },
-    ]
-    const b = await bench(view('prompt', [selected], 'prompt'))
-    b.editors.set(childCtx, childEditor)
-    b.bindings.set(sid('s1'), {
-      session: { loadThrough: vi.fn(async () => {}) },
-      eventSource: { getSnapshot: () => ({ entries }) },
-      ctx: sourceCtx,
+    const lineage = new SessionForkLineage()
+    lineage.record({
+      childId,
+      parentId: sid('s1'),
+      summary: 'previous prompt',
+      branch: 'alt',
+      createdAt: 1,
     })
-    b.bindings.set(childId, { ctx: childCtx })
-    b.nativeFork.mockResolvedValueOnce(childId)
-    await b.fiber.await()
-
-    const actions = ((b.entry() as unknown as { inject: (id: SessionId) => SessionTreePanelActions }).inject)(sid('s1'))
-    const lineage = ((b.branchEntry()?.inject) as unknown as () => { lineage: SessionForkLineage })().lineage
-    expect(lineage.getSnapshot().size).toBe(0)
-
-    // The rail mounts before any fork exists and renders nothing. The fake
-    // list hook models the real store's immutable snapshots: every push
-    // replaces the state object the selector reads.
-    let listState = fakeListState([sid('s1')], Object.fromEntries([fakeRow(sid('s1'), 'Source chat')]), sid('s1'))
-    const useSessions = (<T,>(select: (value: typeof listState) => T): T => select(listState))
-    const openedBranches: string[] = []
-    const openBranch = (id: SessionId) => { openedBranches.push(id) }
-    const Rail = SessionBranchList as unknown as ComponentType<Record<string, unknown>>
-    const rendered = render(<Rail lineage={lineage} openSession={openBranch} useSessions={useSessions} t={t} />)
-    expect(rendered.container.querySelector('[data-session-branch-rail]')).toBeNull()
-
-    await actions.forkUserPrompt?.(selected)
-    expect(b.nativeFork).toHaveBeenCalledWith({ sessionId: sid('s1'), atSeq: 5, increaseTitle: true })
-    const recorded = lineage.getSnapshot().get(childId)
-    expect(recorded).toMatchObject({ childId, parentId: sid('s1'), summary: 'selected line one selected line two' })
-
-    // The native fork API publishes the child into the reactive list with its
-    // parent linkage; the already-mounted rail re-renders from the store push.
-    listState = fakeListState(
+    const state = fakeListState(
       [sid('s1'), childId],
       Object.fromEntries([
         fakeRow(sid('s1'), 'Source chat'),
-        [childId, { id: childId, displayTitle: 'native-child', parentId: sid('s1'), running: true, blank: false, updatedAt: 2 }] as [string, FakeListRow],
+        [childId, {
+          id: childId,
+          displayTitle: 'native-child',
+          parentId: sid('s1'),
+          running: true,
+          blank: false,
+          updatedAt: 2,
+        }] as [string, FakeListRow],
       ]),
       childId,
     )
-    rendered.rerender(<Rail lineage={lineage} openSession={openBranch} useSessions={useSessions} t={t} />)
+    const useSessions = (<T,>(select: (value: typeof state) => T): T => select(state))
+    const openedBranches: SessionId[] = []
+    const native = renderNativeSessionRows([
+      { id: sid('s1'), title: 'Source chat', selected: false },
+      { id: childId, title: 'native-child', selected: true },
+    ])
+    const sourceRow = native.row(sid('s1'))
+    const childRow = native.row(childId)
+    const Menu = SessionBranchList as unknown as ComponentType<Record<string, unknown>>
+    const branch = render(
+      <Menu
+        lineage={lineage}
+        openSession={(id: SessionId) => { openedBranches.push(id) }}
+        useSessions={useSessions}
+        t={t}
+      />,
+    )
 
-    // The new branch opens the rail by itself — no browser refresh involved.
-    const root = rendered.container.querySelector('[data-session-branch-rail="mounted"]')
-    expect(root?.getAttribute('data-open')).toBe('true')
-    const sourceRow = root?.querySelector('[data-branch-session-id="s1"]')
-    expect(sourceRow?.getAttribute('data-branch-depth')).toBe('0')
-    expect(sourceRow?.querySelector('[class*="countChip"]')?.textContent).toContain('×1')
-    const branchRow = root?.querySelector(`[data-branch-session-id="${childId}"]`)
+    const host = await waitFor(() => {
+      const element = document.querySelector<HTMLElement>(
+        `[data-session-tree-branch-host][data-session-tree-branch-target="s1"]`,
+      )
+      expect(element).not.toBeNull()
+      return element!
+    })
+    expect(host.parentElement).toBe(sourceRow.parentElement)
+    expect(host.previousElementSibling).toBe(sourceRow)
+    expect(childRow.style.display).toBe('none')
+    expect(childRow.getAttribute('data-session-tree-branch-hidden')).toBe(childId)
+
+    const menu = await waitFor(() => {
+      const element = document.querySelector<HTMLElement>(
+        '[data-session-tree-branch-menu="s1"]',
+      )
+      expect(element).not.toBeNull()
+      return element!
+    })
+    expect(menu.getAttribute('data-session-tree-branch-menu')).toBe('s1')
+    const branchRow = menu.querySelector<HTMLElement>(`[data-branch-session-id="${childId}"]`)
     expect(branchRow?.getAttribute('data-branch-depth')).toBe('1')
     expect(branchRow?.getAttribute('class')).toContain('rowCurrent')
     expect(branchRow?.querySelector('[class*="forkBadge"]')?.textContent).toContain(zh['branch.node.forkBadge'])
-    expect(branchRow?.querySelector('[class*="summary"]')?.textContent).toBe('selected line one selected line two')
+    expect(branchRow?.querySelector('[class*="branchChip"]')?.textContent).toBe('alt')
+    expect(branchRow?.querySelector('[class*="runningDot"]')).not.toBeNull()
+    expect(branchRow?.querySelector('[class*="summary"]')?.textContent).toBe('previous prompt')
     expect(branchRow?.querySelectorAll('[class*="cellElbow"]')).toHaveLength(1)
 
-    fireEvent.click(branchRow?.querySelector(`button[aria-label="${zh['branch.node.open']} — selected line one selected line two"]`) as HTMLElement)
+    fireEvent.click(screen.getByLabelText(`${zh['branch.node.open']} - previous prompt`))
     expect(openedBranches).toEqual([childId])
+
+    fireEvent.click(screen.getByLabelText(`${zh['branch.menu.collapse']} - Source chat`))
+    expect(screen.queryByText('previous prompt')).toBeNull()
+    fireEvent.click(screen.getByLabelText(`${zh['branch.menu.expand']} - Source chat`))
+    expect(screen.getByText('previous prompt')).not.toBeNull()
+
+    branch.unmount()
+    expect(childRow.style.display).toBe('')
+    expect(childRow.hasAttribute('data-session-tree-branch-hidden')).toBe(false)
+    expect(document.querySelector('[data-session-tree-branch-host]')).toBeNull()
   })
 
-  it('keeps /clone children out of the fork lineage rail', async () => {
+  it('keeps /clone children in the native list and records previous-prompt fork titles', async () => {
     const b = await bench()
     await b.fiber.await()
     const lineage = ((b.branchEntry()?.inject) as unknown as () => { lineage: SessionForkLineage })().lineage
@@ -701,9 +760,6 @@ describe('session tree browser plugin', () => {
     await waitFor(() => { expect(b.openedSessions).toEqual([sid('s1-native-fork')]) })
     expect(lineage.getSnapshot().size).toBe(0)
 
-    // Even with the clone child live in the list (parent linkage written by
-    // the same native fork API), the rail renders nothing: /clone sessions
-    // keep their original sidebar presentation.
     const cloneId = sid('s1-native-fork')
     const state = fakeListState(
       [sid('s1'), cloneId],
@@ -711,78 +767,141 @@ describe('session tree browser plugin', () => {
       cloneId,
     )
     const useSessions = (<T,>(select: (value: typeof state) => T): T => select(state))
-    const Rail = SessionBranchList as unknown as ComponentType<Record<string, unknown>>
-    const { container } = render(<Rail lineage={lineage} openSession={vi.fn()} useSessions={useSessions} t={t} />)
-    expect(container.firstElementChild).toBeNull()
-  })
+    const native = renderNativeSessionRows([
+      { id: sid('s1'), title: 'Source chat' },
+      { id: cloneId, title: 'cloned copy', selected: true },
+    ])
+    const Menu = SessionBranchList as unknown as ComponentType<Record<string, unknown>>
+    render(<Menu lineage={lineage} openSession={vi.fn()} useSessions={useSessions} t={t} />)
+    expect(document.querySelector('[data-session-tree-branch-host]')).toBeNull()
+    expect(native.row(cloneId).style.display).toBe('')
 
-  it('records lineage when the host /fork command returns a session id', async () => {
-    const b = await bench()
-    await b.fiber.await()
-    const lineage = ((b.branchEntry()?.inject) as unknown as () => { lineage: SessionForkLineage })().lineage
     b.ctx.emit('command/executed', sid('s1'), 'fork', {
       kind: 'success',
-      text: JSON.stringify({ ok: true, value: { sessionId: 's1-fork-x', prompt: '  hello \n fork  ' } }),
+      text: JSON.stringify({
+        ok: true,
+        value: {
+          sessionId: 's1-fork-x',
+          prompt: '  selected prompt  ',
+          previousUserPrompt: '  previous\n prompt  ',
+        },
+      }),
     })
+    await waitFor(() => { expect(lineage.getSnapshot().has(sid('s1-fork-x'))).toBe(true) })
     expect(lineage.getSnapshot().get(sid('s1-fork-x'))).toMatchObject({
       childId: sid('s1-fork-x'),
       parentId: sid('s1'),
-      summary: 'hello fork',
+      summary: 'previous prompt',
     })
   })
 
-  it('cascades nested fork branches with connector rails and expand/collapse', async () => {
+  it('renders nested inline branches with connector rails and per-level collapse', async () => {
     const lineage = new SessionForkLineage()
-    lineage.record({ childId: sid('c1'), parentId: sid('s1'), summary: 'first fork' })
-    lineage.record({ childId: sid('c2'), parentId: sid('s1'), summary: 'second fork' })
-    lineage.record({ childId: sid('g1'), parentId: sid('c1'), summary: 'fork of fork' })
+    lineage.record({ childId: sid('c1'), parentId: sid('s1'), summary: 'first fork', createdAt: 1 })
+    lineage.record({ childId: sid('c2'), parentId: sid('s1'), summary: 'second fork', createdAt: 2 })
+    lineage.record({ childId: sid('g1'), parentId: sid('c1'), summary: 'fork of fork', createdAt: 3 })
     const state = fakeListState(
       [sid('s1'), sid('c1'), sid('c2'), sid('g1')],
       Object.fromEntries([
         fakeRow(sid('s1'), 'Source chat'),
-        fakeRow(sid('c1'), 'c1', sid('s1')),
+        [sid('c1'), {
+          id: sid('c1'),
+          displayTitle: 'c1',
+          parentId: sid('s1'),
+          running: true,
+          blank: false,
+          updatedAt: 3,
+        }] as [string, FakeListRow],
         fakeRow(sid('c2'), 'c2', sid('s1')),
         fakeRow(sid('g1'), 'g1', sid('c1')),
+      ]),
+      sid('c1'),
+    )
+    const useSessions = (<T,>(select: (value: typeof state) => T): T => select(state))
+    renderNativeSessionRows([
+      { id: sid('s1'), title: 'Source chat' },
+      { id: sid('c1'), title: 'c1' },
+      { id: sid('c2'), title: 'c2' },
+      { id: sid('g1'), title: 'g1' },
+    ])
+    const Menu = SessionBranchList as unknown as ComponentType<Record<string, unknown>>
+    render(<Menu lineage={lineage} openSession={vi.fn()} useSessions={useSessions} t={t} />)
+
+    const order = await waitFor(() => {
+      const rows = [...document.querySelectorAll<HTMLElement>('[data-branch-session-id]')]
+      expect(rows).toHaveLength(3)
+      return rows
+    })
+    expect(order
+      .map(row => [row.getAttribute('data-branch-session-id'), row.getAttribute('data-branch-depth')] as const)
+    ).toEqual([
+      ['c1', '1'], ['g1', '2'], ['c2', '1'],
+    ])
+    expect(order[0]?.getAttribute('data-branch-session-id')).toBe(sid('c1'))
+    expect(order[0]?.getAttribute('class')).toContain('rowCurrent')
+    expect(order[0]?.querySelector('[class*="runningDot"]')).not.toBeNull()
+
+    const grandchild = document.querySelector<HTMLElement>('[data-branch-session-id="g1"]')
+    expect(grandchild?.querySelectorAll('[class*="cellRail"]')).toHaveLength(1)
+    expect(grandchild?.querySelectorAll('[class*="cellElbow"]')).toHaveLength(1)
+    expect(grandchild?.querySelectorAll('[class*="cellElbowLast"]')).toHaveLength(1)
+    const middleChild = document.querySelector<HTMLElement>('[data-branch-session-id="c1"]')
+    expect(middleChild?.querySelectorAll('[class*="cellElbow"]:not([class*="cellElbowLast"])')).toHaveLength(1)
+    const lastChild = document.querySelector<HTMLElement>('[data-branch-session-id="c2"]')
+    expect(lastChild?.querySelectorAll('[class*="cellRail"]')).toHaveLength(0)
+    expect(lastChild?.querySelectorAll('[class*="cellElbowLast"]')).toHaveLength(1)
+
+    fireEvent.click(screen.getByLabelText(`${zh['node.collapse']} - first fork`))
+    expect(screen.queryByText('fork of fork')).toBeNull()
+    expect(screen.getByText('second fork')).not.toBeNull()
+
+    fireEvent.click(screen.getByLabelText(`${zh['node.expand']} - first fork`))
+    expect(screen.getByText('fork of fork')).not.toBeNull()
+
+    fireEvent.click(screen.getByLabelText(`${zh['branch.menu.collapse']} - Source chat`))
+    expect(screen.queryByText('first fork')).toBeNull()
+    expect(screen.queryByText('fork of fork')).toBeNull()
+    expect(screen.queryByText('second fork')).toBeNull()
+
+    fireEvent.click(screen.getByLabelText(`${zh['branch.menu.expand']} - Source chat`))
+    expect(screen.getByText('first fork')).not.toBeNull()
+    expect(screen.getByText('second fork')).not.toBeNull()
+  })
+
+  it('rebuilds the inline menu when the native session list mutates', async () => {
+    const childId = sid('observer-child')
+    const lineage = new SessionForkLineage()
+    lineage.record({ childId, parentId: sid('s1'), summary: 'observer fork' })
+    const state = fakeListState(
+      [sid('s1'), childId],
+      Object.fromEntries([
+        fakeRow(sid('s1'), 'Source chat'),
+        fakeRow(childId, 'observer-child', sid('s1')),
       ]),
       sid('s1'),
     )
     const useSessions = (<T,>(select: (value: typeof state) => T): T => select(state))
-    const Rail = SessionBranchList as unknown as ComponentType<Record<string, unknown>>
-    const { container } = render(<Rail lineage={lineage} openSession={vi.fn()} useSessions={useSessions} t={t} />)
+    const native = renderNativeSessionRows([])
+    const Menu = SessionBranchList as unknown as ComponentType<Record<string, unknown>>
+    render(<Menu lineage={lineage} openSession={vi.fn()} useSessions={useSessions} t={t} />)
+    expect(document.querySelector('[data-session-tree-branch-host]')).toBeNull()
 
-    // Mounted with pre-existing lineage starts collapsed behind the rail tab.
-    const root = container.querySelector('[data-session-branch-rail="mounted"]')
-    expect(root?.hasAttribute('data-open')).toBe(false)
-    fireEvent.click(screen.getByLabelText(zh['branch.rail.open']))
+    const sourceRow = document.createElement('div')
+    sourceRow.setAttribute('role', 'treeitem')
+    sourceRow.setAttribute('aria-selected', 'false')
+    sourceRow.dataset.testSessionRow = sid('s1')
+    sourceRow.textContent = 'Source chat'
+    native.container.querySelector('[role="tree"]')?.append(sourceRow)
 
-    const order = [...container.querySelectorAll('[data-branch-session-id]')]
-      .map(row => [row.getAttribute('data-branch-session-id'), row.getAttribute('data-branch-depth')] as const)
-    expect(order).toEqual([
-      ['s1', '0'], ['c1', '1'], ['g1', '2'], ['c2', '1'],
-    ])
-    // Depth-2 row: the level-1 rail continues below (a younger sibling follows
-    // at depth 1) and its own elbow terminates. A non-last depth-1 child (c1)
-    // carries the continuing elbow; the last one (c2) only a terminating one.
-    const grandchild = container.querySelector('[data-branch-session-id="g1"]')
-    expect(grandchild?.querySelectorAll('[class*="cellRail"]')).toHaveLength(1)
-    expect(grandchild?.querySelectorAll('[class*="cellElbow"]')).toHaveLength(1)
-    expect(grandchild?.querySelectorAll('[class*="cellElbowLast"]')).toHaveLength(1)
-    const middleChild = container.querySelector('[data-branch-session-id="c1"]')
-    expect(middleChild?.querySelectorAll('[class*="cellElbow"]:not([class*="cellElbowLast"])')).toHaveLength(1)
-    const lastChild = container.querySelector('[data-branch-session-id="c2"]')
-    expect(lastChild?.querySelectorAll('[class*="cellRail"]')).toHaveLength(0)
-    expect(lastChild?.querySelectorAll('[class*="cellElbowLast"]')).toHaveLength(1)
-
-    fireEvent.click(screen.getByLabelText(`${zh['node.collapse']} — Source chat`))
-    expect(screen.queryByText('first fork')).toBeNull()
-    expect(screen.queryByText('fork of fork')).toBeNull()
-    expect(screen.queryByText('second fork')).toBeNull()
-    expect(screen.getByText('Source chat')).not.toBeNull()
-
-    fireEvent.click(screen.getByLabelText(`${zh['node.expand']} — Source chat`))
-    expect(screen.getByText('first fork')).not.toBeNull()
-    expect(screen.getByText('fork of fork')).not.toBeNull()
-    expect(screen.getByText('second fork')).not.toBeNull()
+    const host = await waitFor(() => {
+      const element = document.querySelector<HTMLElement>(
+        '[data-session-tree-branch-host][data-session-tree-branch-target="s1"]',
+      )
+      expect(element).not.toBeNull()
+      return element!
+    })
+    expect(host.previousElementSibling).toBe(sourceRow)
+    expect(await screen.findByText('observer fork')).not.toBeNull()
   })
 
   it('shows the required friendly state when the host reports no selection', async () => {

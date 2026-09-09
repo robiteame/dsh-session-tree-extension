@@ -136,7 +136,7 @@ async function buildUi() {
     outfile: clientCjs,
     platform: 'browser',
     format: 'cjs',
-    external: ['react', 'react/jsx-runtime'],
+    external: ['react', 'react/jsx-runtime', 'react-dom'],
     define: { 'process.env.NODE_ENV': '"production"' },
     plugins: [remoteStubPlugin, cssPlugin],
   })

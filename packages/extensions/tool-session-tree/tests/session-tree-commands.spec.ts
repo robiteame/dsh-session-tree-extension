@@ -667,6 +667,7 @@ describe('sessionTree Remote service', () => {
     expect(forked).toMatchObject({ cursor: root.nodeId, branch: 'fork' })
     expect(forked.sessionId).toMatch(/^remote-fork-fork-/u)
     expect(forked.prompt).toBe('root')
+    expect(forked.previousUserPrompt).toBeUndefined()
     // The source log is read-only: no branch marker or other event is added.
     expect(agent.session.events).toEqual(sourceEvents)
     // The independent copy contains only the selected root-to-node path.
@@ -698,6 +699,7 @@ describe('sessionTree Remote service', () => {
 
     const forked = await service.forkSession(agent, leaf.nodeId, 'retry')
     expect(forked.prompt).toBe('retry prompt')
+    expect(forked.previousUserPrompt).toBe('root')
     const target = treeOf(forked.sessionId!)
     expect(target.list().map(node => node.summary)).toEqual(['root', 'retry prompt'])
     expect(target.list().some(node => node.summary === 'answer')).toBe(false)

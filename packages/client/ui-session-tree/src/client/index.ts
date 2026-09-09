@@ -96,9 +96,9 @@ function registerSessionTreeUi(ctx: ClientContext): void {
   ctx.effect(() => () => { refreshers.clear() }, 'ui-session-tree: refreshers')
   const overlay = new SessionTreeOverlayController()
   ctx.effect(() => () => { overlay.dispose() }, 'ui-session-tree: overlay state')
-  // /fork presentation annotations for the left branch rail. The fork data and
-  // the parent linkage stay owned by ctx.sessions.fork; only the /fork-vs-
-  // /clone distinction and the rail summary live here.
+  // /fork presentation annotations for the inline session-list menus. The
+  // fork data and parent linkage stay owned by ctx.sessions.fork; only the
+  // /fork-vs-/clone distinction and the branch title live here.
   const forkLineage = new SessionForkLineage(browserForkLineageStorage())
   ctx.effect(() => () => { forkLineage.dispose() }, 'ui-session-tree: fork lineage')
 
@@ -152,17 +152,31 @@ function registerSessionTreeUi(ctx: ClientContext): void {
     // for the previous completed-turn boundary.
     await source.session.loadThrough(selectedSeq)
     const entries = source.eventSource.getSnapshot().entries
+    let previousUserPrompt: string | undefined
     let previousTurnEnd: number | undefined
     for (let index = entries.length - 1; index >= 0; index--) {
       const entry = entries[index]
+      if (
+        previousUserPrompt === undefined
+        && entry?.type === 'event'
+        && entry.event.type === 'user/message'
+        && entry.event.seq < selectedSeq
+      ) {
+        const text = entry.event.data.content
+          .filter(part => part.type === 'text')
+          .map(part => part.text)
+          .join('\n')
+          .trim()
+        if (text !== '') previousUserPrompt = text
+      }
       if (
         entry?.type === 'event'
         && entry.event.type === 'turn/end'
         && entry.event.seq < selectedSeq
       ) {
         previousTurnEnd = entry.event.seq
-        break
       }
+      if (previousUserPrompt !== undefined && previousTurnEnd !== undefined) break
     }
 
     if (previousTurnEnd === undefined) {
@@ -175,7 +189,7 @@ function registerSessionTreeUi(ctx: ClientContext): void {
     forkLineage.record({
       childId,
       parentId: sessionId,
-      summary: summarizeForkPrompt(nodeFullText(node)),
+      ...(previousUserPrompt === undefined ? {} : { summary: summarizeForkPrompt(previousUserPrompt) }),
     })
     writeNativePrompt(childId, nodeFullText(node))
     ctx.sessions.open(childId)
@@ -207,7 +221,9 @@ function registerSessionTreeUi(ctx: ClientContext): void {
         forkLineage.record({
           childId: answered.value.sessionId,
           parentId: sessionId,
-          ...(answered.value.prompt === undefined ? {} : { summary: summarizeForkPrompt(answered.value.prompt) }),
+          ...(answered.value.previousUserPrompt === undefined
+            ? {}
+            : { summary: summarizeForkPrompt(answered.value.previousUserPrompt) }),
           branch,
         })
       }
@@ -235,9 +251,9 @@ function registerSessionTreeUi(ctx: ClientContext): void {
     }),
   }, SessionTreeOverlay))
 
-  // Second additive shell.overlay entry: the left-docked /fork branch rail.
-  // It renders nothing until a /fork flow records a live branch, so ordinary
-  // sessions and /clone children keep their original sidebar presentation.
+  // Second additive shell.overlay entry: inline /fork menus under native
+  // Session rows. It renders nothing until a /fork flow records a live branch,
+  // so ordinary sessions and /clone children keep their native presentation.
   ctx.slots.inject('shell.overlay', () => ctx.slots.register({
     name: 'shell.overlay', id: 'session-tree-branches', order: 11, locale: NS,
     inject: () => ({
@@ -285,6 +301,7 @@ function registerSessionTreeUi(ctx: ClientContext): void {
           value?: {
             sessionId?: string
             prompt?: string
+            previousUserPrompt?: string
             selectorRequired?: boolean
             nativeForkRequired?: boolean
           }
@@ -304,11 +321,15 @@ function registerSessionTreeUi(ctx: ClientContext): void {
         }
         else if (typeof payload.value?.sessionId === 'string') {
           const childId = payload.value.sessionId as SessionId
-          forkLineage.record({
-            childId,
-            parentId: sessionId,
-            ...(payload.value.prompt === undefined ? {} : { summary: summarizeForkPrompt(payload.value.prompt) }),
-          })
+          if (name === 'fork') {
+            forkLineage.record({
+              childId,
+              parentId: sessionId,
+              ...(payload.value.previousUserPrompt === undefined
+                ? {}
+                : { summary: summarizeForkPrompt(payload.value.previousUserPrompt) }),
+            })
+          }
           completeFork({
             cursor: '', branch: '', forkCount: 0,
             sessionId: childId,

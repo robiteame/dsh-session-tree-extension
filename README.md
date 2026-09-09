@@ -40,11 +40,12 @@ Host service, the tool and commands, and the browser panel. Type `/tree` in the
 composer to open the panel; `/fork` opens a user-prompt selector, and `/clone`
 duplicates the current conversation into a new session under the same project.
 A selected prompt is copied through its root path into an independent Session;
-the source JSONL stays read-only. When a `/fork` lands, a left-docked branch
-rail nests the new session under its source with indentation, connector rails,
-and expand/collapse — fed by the native fork API's reactive parent linkage, so
-it updates without a refresh and leaves `/clone` and ordinary sessions in their
-original sidebar presentation. `/session` reports
+the source JSONL stays read-only. When a `/fork` lands, an inline collapsible
+menu opens directly beneath its source row in the native session list, with
+connector rails and per-level expand/collapse. The menu title comes from the
+user message preceding the selected node. It is fed by the native fork API's
+reactive parent linkage, so it updates without a refresh and leaves `/clone`
+and ordinary sessions in their original sidebar presentation. `/session` reports
 tree status (nodes/messages/branches/tokens/cost) and the active surface mode.
 
 Verify the composed layer:

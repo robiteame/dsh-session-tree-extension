@@ -14,6 +14,7 @@ const _robiteame_dsh_pi_agent_session_tree_sessionTree_fork_result$schema = z.ob
   'forkCount': z.number(),
   'sessionId': z.intersection(z.string(), z.unknown()).readonly().optional(),
   'prompt': z.string().readonly().optional(),
+  'previousUserPrompt': z.string().readonly().optional(),
 })
 const _robiteame_dsh_pi_agent_session_tree_sessionTree_jump_parameter_0$schema = z.intersection(z.string(), z.unknown())
 const _robiteame_dsh_pi_agent_session_tree_sessionTree_jump_parameter_1$schema = z.union([z.literal(null), z.string()])

@@ -1,9 +1,24 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 — 2026-09-09
+
+### Changed
+
+- The WebUI `/fork` presentation moved from the left-docked branch rail to
+  inline collapsible branch menus portaled directly beneath their source
+  Session's native row. The native list keeps owning the source row; native
+  rows for `/fork` descendants are hidden while `/clone` rows stay untouched.
+  Topology and liveness still come exclusively from the official reactive
+  Session list.
+- Fork branch titles now derive from the user prompt preceding the selected
+  node instead of the selected node's own text, so menu entries read as the
+  turn the branch continues from.
 
 ### Added
 
+- `previousUserPrompt` on sessionTree fork views and the typert remote
+  payloads: the preceding user prompt carried alongside `prompt` for use as
+  the inline fork-menu title.
 - Repository CI (`.github/workflows/ci.yml`): Node 22/24 matrix running the
   full `pnpm verify` gate. Uses only Node-24-runtime actions
   (`actions/checkout@v5`, `actions/setup-node@v5`); Node-20 actions are
