@@ -533,6 +533,12 @@ export function applyTreeCursorToSession(agent: Agent, tree: SessionTree): void 
 /** Remote-only service backing the browser tree panel. */
 export class SessionTreeService extends TypertRemoteService {
   /**
+   * Remote methods receive an `agentId` and resolve it through `ctx.agents`.
+   * Declare the dependency so the lookup runs in this plugin's own fiber.
+   */
+  static inject = ['agents']
+
+  /**
    * Register the service under `sessionTree`.
    * @param ctx - owning Cordis Context.
    */
@@ -669,7 +675,15 @@ export class SessionTreeService extends TypertRemoteService {
       await this.ctx.agents.create({
         sessionId: targetId,
         ...(seed.length === 0 ? {} : { seed }),
-        meta: { parentSession: source.id, seedLength: seed.length },
+        meta: {
+          parentSession: source.id,
+          seedLength: seed.length,
+          // Harness history/list only serves ordinary Sessions with a cwd.
+          // Inherit the source project so the fork is a usable real Session
+          // instead of a store-only id that fails session/not-found.
+          cwd: source.header.cwd ?? process.cwd(),
+          ...(source.header.agentPreset === undefined ? {} : { agentPreset: source.header.agentPreset }),
+        },
         agentOptions: agent.options,
       })
     } catch (error) {

@@ -14,7 +14,7 @@ the command line, and the browser panel observe the same trees.
 |---|---|---|
 | Tool | `session_tree` | one tree per agent session; operations below |
 | Command | `/tree` | Opens/refreshes the right sidebar; low-level subcommands remain available for automation |
-| Commands | `/fork`, `/clone`, `/session` | Fork or clone the selected sidebar node with no IDs; inspect tree status |
+| Commands | `/fork`, `/clone`, `/session` | Fork a selected user message or clone the whole session, without entering IDs; inspect tree status |
 
 ## Tool operations
 
@@ -32,8 +32,9 @@ the command line, and the browser panel observe the same trees.
 
 Every operation answers `{ok: true, value}` or
 `{ok: false, error: {code, message}}`, so tool results are always lossless
-JSON with a stable failure vocabulary. Human `/fork` and `/clone` commands
-require a sidebar selection and otherwise return `请先在右侧会话树选中目标节点`.
+JSON with a stable failure vocabulary. `/fork` opens a user-prompt selector;
+`/clone` duplicates the current conversation as-is. Both create a new session
+under the source project.
 
 ## Tool examples
 

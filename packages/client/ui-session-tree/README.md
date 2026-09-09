@@ -9,13 +9,35 @@ additive `shell.overlay` seat so the shipped Tool-details surface remains
 available. It never renders above the composer and creates no standalone page.
 
 - `/tree` opens or refreshes the right sidebar.
-- Clicking a node binds that exact node as the active `/fork` and `/clone`
-  context and shows a clear selected-state highlight.
+- `/fork` shows only user-prompt nodes and, once one is chosen, opens an
+  independent session copy under the current project; `/clone` duplicates the
+  whole current conversation into a new same-project session without requiring
+  a selected node.
 - A fixed 44px, three-lane graph gutter draws vertical rails and curved branch
   connectors in an IDEA Git-log style. Tree depth never becomes CSS margin or
   padding, so horizontal width is bounded.
 - Branch heads, role, branch name, summary, refresh, close, and one-click fork
   use native `--dsw-alias-*` design tokens in light and dark themes.
+
+## Fork branch rail
+
+After `/fork` creates a child session, a second additive `shell.overlay` entry
+(`session-tree-branches`) renders a left-docked branch rail beside the
+sidebar session list: every forked child appears directly under its source
+session, indented with connector rails, elbow joints, and expand/collapse
+controls, and shows the short seeded-prompt summary. The rail opens itself
+when a fork lands and follows the reactive Session list, so new branches
+appear without a browser refresh.
+
+Presentation-only by construction: the fork data and the parent linkage come
+from the official native fork API (`ctx.sessions.fork` writes each child with
+`parentId`), and the rail derives its cascade purely from that reactive list.
+A small UI-layer lineage registry (`fork-lineage.ts`, persisted to
+`localStorage`) only marks which children came from `/fork` — so `/clone`
+sessions and ordinary sessions never enter the rail and keep their original
+sidebar presentation. The `sidebar` slot itself stays untouched: it is
+single-occupant (replacing it would remove the shipped workspace and settings
+seats), so the rail is the additive seat for cascade rendering.
 
 ## Composition
 

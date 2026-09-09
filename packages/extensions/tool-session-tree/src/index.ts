@@ -81,7 +81,7 @@ export function apply(ctx: Context): void {
     handler: invocation => runTreeCommand(ctx, invocation),
   })
   ctx.commands.register({ name: 'fork', description: 'Select a user prompt and fork it into a new session', handler: invocation => runForkCommand(invocation) })
-  ctx.commands.register({ name: 'clone', description: 'Clone the selected session-tree node into a new Harness session', handler: invocation => runCloneCommand(ctx, invocation) })
+  ctx.commands.register({ name: 'clone', description: 'Fork the current session through Harness native session service', handler: () => runCloneCommand() })
   ctx.commands.register({ name: 'session', description: 'Show current session tree status', handler: invocation => runSessionCommand(invocation) })
 }
 
@@ -348,7 +348,13 @@ async function cloneActiveSession(ctx: Context, agent: NonNullable<ToolRunContex
     await ctx.agents.create({
       sessionId: toSessionId(target),
       seed,
-      meta: { parentSession: agent.session.id, seedLength: seed.length },
+      meta: {
+        seedLength: seed.length,
+        // Keep the clone in the source's project so the Host history/list
+        // services can serve it as an ordinary Session.
+        cwd: agent.session.header.cwd ?? process.cwd(),
+        ...(agent.session.header.agentPreset === undefined ? {} : { agentPreset: agent.session.header.agentPreset }),
+      },
       agentOptions: agent.options,
     })
   } catch (error) {
@@ -394,15 +400,11 @@ function newSessionTreeFromSnapshot(
   }
 }
 
-async function runCloneCommand(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
-  const tree = syncSessionTree(invocation.agent)
-  if (tree.selectedNode === null) return errorCommand('请先在右侧会话树选中目标节点')
-  const target = `${invocation.agent.session.id}-clone-${Date.now().toString(36)}`
-  try {
-    return jsonCommand(await cloneActiveSession(ctx, invocation.agent, target, tree.selectedNode))
-  } catch (error) {
-    return { kind: 'error', text: JSON.stringify({ ok: false, error: { code: 'INVALID_ARGUMENT', message: error instanceof Error ? error.message : 'clone failed' } }) }
-  }
+function runCloneCommand(): CommandResult {
+  // The browser half owns the native session service. Returning a marker keeps
+  // /clone on the exact same sessions.fork path as the sidebar action instead
+  // of reimplementing session copying in the host plugin.
+  return jsonCommand({ ok: true, value: { nativeForkRequired: true } })
 }
 
 function runSessionCommand(invocation: CommandInvocation): CommandResult {
@@ -415,10 +417,6 @@ function jsonCommand(value: unknown, map?: (tree: import('@robiteame/dsh-pi-agen
     : value
   const failed = typeof result === 'object' && result !== null && (result as { ok?: unknown }).ok === false
   return { kind: failed ? 'error' : 'success', text: JSON.stringify(result) }
-}
-
-function errorCommand(message: string): CommandResult {
-  return { kind: 'error', text: JSON.stringify({ ok: false, error: { code: 'INVALID_ARGUMENT', message } }) }
 }
 
 async function runTreeCommand(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
@@ -460,9 +458,9 @@ async function runTreeCommand(ctx: Context, invocation: CommandInvocation): Prom
       return json(result)
     }
     case 'clone': {
-      if (tree.selectedNode === null) return json({ ok: false, error: { code: 'INVALID_ARGUMENT', message: '请先在右侧会话树选中目标节点' } })
       const target = rest[0] ?? `${sessionId}-clone-${Date.now().toString(36)}`
-      try { return json(await cloneActiveSession(ctx, invocation.agent, target, tree.selectedNode)) }
+      const focusId = tree.selectedNode ?? tree.cursor ?? undefined
+      try { return json(await cloneActiveSession(ctx, invocation.agent, target, focusId)) }
       catch (error) { return json({ ok: false, error: { code: 'INVALID_ARGUMENT', message: error instanceof Error ? error.message : 'clone failed' } }) }
     }
     case 'context': return json({ ok: true, value: { cursor: tree.cursor, selectedNodeId: tree.selectedNode, surface, messages: tree.messages(tree.selectedNode ?? tree.cursor) } })

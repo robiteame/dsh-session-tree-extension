@@ -26,6 +26,7 @@
     "@deepseek-ai/dsh-client-locale": "0.1.2-alpha.3",
     "@deepseek-ai/dsh-client-store": "0.1.2-alpha.3",
     "@deepseek-ai/dsh-client-ui-chat": "0.1.2-alpha.3",
+    "@deepseek-ai/dsh-client-ui-conversation": "0.1.2-alpha.3",
     "@deepseek-ai/dsh-client-ui-layout": "0.1.2-alpha.3",
     "@deepseek-ai/dsh-client-ui-renderer": "0.1.2-alpha.3",
     "@deepseek-ai/dsh-client-ui-session": "0.1.2-alpha.3",

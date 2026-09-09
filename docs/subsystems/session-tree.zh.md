@@ -128,9 +128,9 @@ type TreeResult<T> =
 ## 表面
 
 - `session_tree` 工具（`@robiteame/dsh-tool-session-tree`）：`create`、`append`、`list`、`branches`、`tree`、`jump`、`fork`、`clone`、`context`、`session`、`branch`、`branch.summary`、`snapshot.save`、`snapshot.load`、`sessions`。
-- `/tree` 命令族：`list`、`branches`、`tree`、`context`、`jump <nodeId>`、`branch <nodeId> <name>`、`snapshot save`、`snapshot load <json>`。`/fork` 打开用户消息选择器并把选中路径复制到独立 session；`/clone` 自动读取右侧会话树选中节点。
+- `/tree` 命令族：`list`、`branches`、`tree`、`context`、`jump <nodeId>`、`branch <nodeId> <name>`、`snapshot save`、`snapshot load <json>`。`/fork` 打开用户消息选择器并把选中路径复制到同项目新 session；`/clone` 把当前会话完整复制到同项目新 session。
 - `sessionTree` Remote 服务（`@robiteame/dsh-pi-agent-session-tree`）：`list(agent)`、`jump(agent, nodeId)`、`fork(agent, nodeId, branch)`、`forkSession(agent, nodeId, branch)` 与 `session(agent)` 驱动浏览器面板；`forkSession` 是用户面的独立副本操作。
-- `@robiteame/dsh-client-ui-session-tree`：在打补丁的源码集成中占用原生右侧详情栏的 `conversation.details.panel`；在官方 Web profile 中使用叠加式 `shell.overlay`。`/tree` 打开或刷新视图，节点点击绑定命令上下文；固定图形栏不会随树深度横向增长。
+- `@robiteame/dsh-client-ui-session-tree`：在打补丁的源码集成中占用原生右侧详情栏的 `conversation.details.panel`；在官方 Web profile 中使用叠加式 `shell.overlay`。`/tree` 打开或刷新视图，节点点击绑定命令上下文；固定图形栏不会随树深度横向增长。第二个 `shell.overlay` 条目（`session-tree-branches`）渲染左停靠分叉分支栏：`/fork` 子会话以缩进、连接轨道和展开/收起嵌套展示在会话列表的原父会话之下；拓扑来自原生分叉 API 写入的响应式 `parentId`，UI 层标注注册表只区分 `/fork` 与 `/clone`，clone 会话保持原有侧边栏展示。
 
 ## Cordis API
 

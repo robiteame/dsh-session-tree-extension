@@ -50,8 +50,11 @@ afterAll(() => {
 const sessionTreeStoreForTest = (id: string) => sessionTreeStore.get(SessionId(id))
 
 /** One registry-compatible live agent whose session id keys its tree. */
-function stubAgent(rawId: string): Agent {
-  const session = Session.create(SessionId(rawId))
+function stubAgent(rawId: string, cwd?: string): Agent {
+  const id = SessionId(rawId)
+  const session = cwd === undefined
+    ? Session.create(id)
+    : Session.create(id, undefined, { version: 0, id, createdAt: 0, cwd })
   return {
     id: session.id,
     options: {},
@@ -76,9 +79,9 @@ async function harness() {
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(CommandRuntime)
-  await ctx.plugin(SessionTreeService)
+  const serviceFiber = await ctx.plugin(SessionTreeService)
   const fiber = await ctx.plugin(toolSessionTree)
-  return { ctx, fiber, service: ctx.sessionTree }
+  return { ctx, fiber, serviceFiber, service: ctx.sessionTree }
 }
 
 /** Execute one registered tool on behalf of an agent and parse its JSON text. */
@@ -132,6 +135,12 @@ function nodeOf(nodes: readonly TreeNode[], summary: string): TreeNode {
 }
 
 describe('session_tree tool: append-only history', () => {
+  it('resolves Remote agent lookups through the service fiber', async () => {
+    const { serviceFiber } = await harness()
+    expect(SessionTreeService.inject).toEqual(['agents'])
+    expect(() => serviceFiber.ctx.agents).not.toThrow()
+  })
+
   it('appends nodes as children of the cursor, never modifying old nodes', async () => {
     const { ctx } = await harness()
     const agent = stubAgent('tree-append-only')
@@ -580,7 +589,7 @@ describe('session_tree plugin surfaces', () => {
     expect(branched.nodes.find(node => node.summary === 'main answer')).toBeDefined()
   })
 
-  it('runs /fork and /clone from the explicitly selected node without IDs', async () => {
+  it('runs /fork and /tree clone from the explicitly selected node without IDs', async () => {
     const { ctx, service } = await harness()
     const agent = stubAgent('tree-command-selection')
     agent.session.append('user/message', { role: 'user', content: 'root', source: 'human' } as never, { surfaceOp: 'append' })
@@ -594,7 +603,7 @@ describe('session_tree plugin surfaces', () => {
 
     const selected = service.list(agent).nodes[0]!
     service.jump(agent, selected.nodeId)
-    const cloned = await ctx.commands.execute(agent, '/clone', [], new AbortController().signal)
+    const cloned = await ctx.commands.execute(agent, '/tree clone', [], new AbortController().signal)
     expect(cloned?.result.kind).toBe('success')
     const payload = JSON.parse(cloned?.result.text ?? '{}') as { value?: { sessionId?: string } }
     expect(payload.value?.sessionId).toMatch(/^tree-command-selection-clone-/u)
@@ -608,7 +617,7 @@ describe('session_tree plugin surfaces', () => {
   })
 
   it('grows the /fork branch as a child of the selected node, not the previous tail', async () => {
-    const { ctx, service } = await harness()
+    const { service } = await harness()
     const agent = stubAgent('tree-fork-parent')
     agent.session.append('user/message', { role: 'user', content: 'root', source: 'human' } as never, { surfaceOp: 'append' })
     agent.session.append('assistant/message', { turn: 1, step: 1, message: { role: 'assistant', content: [{ type: 'text', text: 'answer' }] } } as never, { surfaceOp: 'append' })
@@ -629,23 +638,24 @@ describe('session_tree plugin surfaces', () => {
 
   it('clones the full source event log so the new session derives the same messages', async () => {
     const { ctx, service } = await harness()
-    const created: Array<{ sessionId: string; seed: readonly SessionEvent[] }> = []
+    const created: Array<{ sessionId: string; seed: readonly SessionEvent[]; meta?: Record<string, unknown> }> = []
     ctx.agents.setFactory({
       createAgent: async (_ownerCtx, options) => {
-        created.push({ sessionId: String(options.sessionId), seed: options.seed ?? [] })
+        created.push({ sessionId: String(options.sessionId), seed: options.seed ?? [], ...(options.meta === undefined ? {} : { meta: { ...options.meta } }) })
         return { agent: stubAgent(String(options.sessionId)), dispose: () => Promise.resolve() }
       },
       resume: async () => { throw new Error('resume is unused in this test') },
     })
-    const agent = stubAgent('tree-clone-content')
+    const agent = stubAgent('tree-clone-content', '/workspace/clone-pi')
     agent.session.append('user/message', { id: 'm-root', role: 'user', content: [{ type: 'text', text: 'root' }], source: { kind: 'user' } } as never, { surfaceOp: 'append' })
     agent.session.append('assistant/message', { turn: 1, step: 1, message: { id: 'm-answer', role: 'assistant', content: [{ type: 'text', text: 'answer' }], source: { kind: 'model', provider: 'p', model: 'm' } } } as never, { surfaceOp: 'append' })
 
     const selected = service.list(agent).nodes[0]!
     service.jump(agent, selected.nodeId)
-    const cloned = await ctx.commands.execute(agent, '/clone', [], new AbortController().signal)
+    const cloned = await ctx.commands.execute(agent, '/tree clone', [], new AbortController().signal)
     expect(cloned?.result.kind).toBe('success')
     expect(created).toHaveLength(1)
+    expect(created[0]?.meta).toMatchObject({ cwd: '/workspace/clone-pi' })
 
     const replayed = Session.create(SessionId('tree-clone-replay'), created[0]!.seed)
     const texts = replayed.deriveMessages().map(message =>
@@ -680,7 +690,10 @@ describe('session_tree plugin surfaces', () => {
     if (supportsSelectedMessageSurface(agent.session)) {
       expect(agent.session.messageSurfaceNodes()).toEqual([0, 2])
     } else {
-      expect(agent.session.surface.nodes).toEqual([0, 2])
+      // On a patched Harness the guard's negative branch is `never`, so read
+      // the stock surface through a structural view instead of the narrowed type.
+      const stock = agent.session as unknown as { surface: { nodes: readonly number[] } }
+      expect(stock.surface.nodes).toEqual([0, 2])
     }
   })
 

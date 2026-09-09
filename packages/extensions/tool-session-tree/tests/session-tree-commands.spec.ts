@@ -55,8 +55,11 @@ const treeOf = (id: string): SessionTree => {
 }
 
 /** One registry-compatible live agent whose session id keys its tree. */
-function stubAgent(rawId: string): Agent {
-  const session = Session.create(SessionId(rawId))
+function stubAgent(rawId: string, cwd?: string): Agent {
+  const id = SessionId(rawId)
+  const session = cwd === undefined
+    ? Session.create(id)
+    : Session.create(id, undefined, { version: 0, id, createdAt: 0, cwd })
   return {
     id: session.id,
     options: {},
@@ -112,8 +115,10 @@ interface CommandOutcome {
 async function command(ctx: Context, agent: Agent, line: string): Promise<CommandOutcome> {
   const execution = await ctx.commands.execute(agent, line, [], new AbortController().signal)
   if (execution === undefined) throw new Error(`command '${line}' did not match a registration`)
-  const parsed = JSON.parse(execution.result.text) as Record<string, unknown>
-  return { kind: execution.result.kind, text: execution.result.text, json: parsed }
+  const text = execution.result.text
+  if (text === undefined) throw new Error(`command '${line}' returned no text payload`)
+  const parsed = JSON.parse(text) as Record<string, unknown>
+  return { kind: execution.result.kind, text, json: parsed }
 }
 
 function expectOk(result: unknown): unknown {
@@ -150,7 +155,7 @@ function nativeLikeSession(rawId: string, seed?: readonly SessionEvent[]): Nativ
     append: real.append.bind(real) as Session['append'],
     surface: real.surface,
     requestContext: () => ({ provider: 'p', model: 'm' }),
-    selectMessageSurface(nodes) { selected = [...(nodes ?? [])] },
+    selectMessageSurface(nodes: readonly number[] | null) { selected = [...(nodes ?? [])] },
     messageSurfaceNodes() { return selected ?? [...real.surface.nodes] },
   } as unknown as NativeLikeSession
 }
@@ -213,7 +218,7 @@ describe('/fork command', () => {
   })
 
   it('keeps every pre-branch node byte-identical while the compatibility branch grows', async () => {
-    const { ctx, service } = await harness()
+    const { service } = await harness()
     const agent = stubAgent('cmd-fork-immutable')
     seedTurns(agent)
     const root = service.list(agent).nodes[0]!
@@ -254,16 +259,30 @@ describe('/fork command', () => {
 })
 
 describe('/clone command', () => {
-  it('rejects /clone and /tree clone before a node is selected', async () => {
+  it('delegates /clone to the browser native fork flow', async () => {
     const { ctx } = await harness()
     const agent = stubAgent('cmd-clone-unselected')
     seedTurns(agent)
-    for (const line of ['/clone', '/tree clone']) {
-      const outcome = await command(ctx, agent, line)
-      expect(outcome.kind).toBe('error')
-      expectError(outcome.json, 'INVALID_ARGUMENT')
-      expect(outcome.text).toContain('请先在右侧会话树选中目标节点')
-    }
+
+    const outcome = await command(ctx, agent, '/clone')
+    expect(outcome.kind).toBe('success')
+    expect(expectOk(outcome.json)).toEqual({ nativeForkRequired: true })
+    expect(sessionTreeStore.list()).not.toContainEqual(expect.objectContaining({
+      sessionId: expect.stringMatching(/^cmd-clone-unselected-clone-/u),
+    }))
+  })
+
+  it('keeps /tree clone on the explicit compatibility copy path', async () => {
+    const { ctx } = await harness()
+    const agent = stubAgent('cmd-clone-unselected')
+    seedTurns(agent)
+
+    const outcome = await command(ctx, agent, '/tree clone')
+    expect(outcome.kind).toBe('success')
+    const payload = expectOk(outcome.json) as { sessionId?: string }
+    expect(payload.sessionId).toMatch(/^cmd-clone-unselected-clone-/u)
+    const cloneTree = treeOf(payload.sessionId!)
+    expect(cloneTree.list()).toHaveLength(2)
   })
 
   it('uses an explicit /tree clone target and persists the clone sidecar', async () => {
@@ -287,15 +306,15 @@ describe('/clone command', () => {
 
   it('filters synthetic cursor events and rewrites snapshot ownership in the clone seed', async () => {
     const { ctx, service } = await harness()
-    const created: Array<{ sessionId: string; seed: readonly SessionEvent[] }> = []
+    const created: Array<{ sessionId: string; seed: readonly SessionEvent[]; meta?: Record<string, unknown> }> = []
     ctx.agents.setFactory({
       createAgent: async (_ownerCtx, options) => {
-        created.push({ sessionId: String(options.sessionId), seed: options.seed ?? [] })
+        created.push({ sessionId: String(options.sessionId), seed: options.seed ?? [], ...(options.meta === undefined ? {} : { meta: { ...options.meta } }) })
         return { agent: stubAgent(String(options.sessionId)), dispose: () => Promise.resolve() }
       },
       resume: async () => { throw new Error('resume is unused in this test') },
     })
-    const agent = stubAgent('cmd-clone-seed')
+    const agent = stubAgent('cmd-clone-seed', '/workspace/clone-target')
     seedTurns(agent)
     const root = service.list(agent).nodes[0]!
     // A stock-mode jump writes a synthetic cursor event into the source log.
@@ -305,9 +324,10 @@ describe('/clone command', () => {
     const snapshot = treeOf('cmd-clone-seed').snapshot()
     agent.session.append('session-tree/snapshot', { snapshot } as never)
 
-    const outcome = await command(ctx, agent, '/clone')
+    const outcome = await command(ctx, agent, '/tree clone')
     expect(outcome.kind).toBe('success')
     expect(created).toHaveLength(1)
+    expect(created[0]?.meta).toMatchObject({ cwd: '/workspace/clone-target' })
     const seed = created[0]!.seed
     expect(seed.some(event => (event.data as { treeRestore?: unknown }).treeRestore !== undefined)).toBe(false)
     const snapshotEvent = seed.find(event => event.type === 'session-tree/snapshot')
@@ -331,7 +351,7 @@ describe('/clone command', () => {
     const root = service.list(agent).nodes[0]!
     service.jump(agent, root.nodeId)
 
-    const outcome = await command(ctx, agent, '/clone')
+    const outcome = await command(ctx, agent, '/tree clone')
     expect(outcome.kind).toBe('error')
     expectError(outcome.json, 'INVALID_ARGUMENT')
     expect(outcome.text).toContain('boom: capacity exhausted')
@@ -582,7 +602,6 @@ describe('session_tree tool argument validation', () => {
       callId: ToolCallId('call-no-agent'),
       name: 'session_tree',
       arguments: { operation: 'sessions' },
-      agent: undefined,
     })
     const block = result.content[0]
     if (block?.type !== 'text') throw new Error('expected text tool result')
@@ -593,16 +612,16 @@ describe('session_tree tool argument validation', () => {
 describe('sessionTree Remote service', () => {
   it('passes an isolated root-path seed to the forked Agent factory', async () => {
     const { ctx, service } = await harness()
-    const created: Array<{ sessionId: string; seed: readonly SessionEvent[] }> = []
+    const created: Array<{ sessionId: string; seed: readonly SessionEvent[]; meta?: Record<string, unknown> }> = []
     ctx.agents.setFactory({
       createAgent: async (_ownerCtx, options) => {
-        created.push({ sessionId: String(options.sessionId), seed: options.seed ?? [] })
+        created.push({ sessionId: String(options.sessionId), seed: options.seed ?? [], ...(options.meta === undefined ? {} : { meta: { ...options.meta } }) })
         return { agent: stubAgent(String(options.sessionId)), dispose: () => Promise.resolve() }
       },
       resume: async () => { throw new Error('resume is unused in this test') },
     })
 
-    const agent = stubAgent('remote-fork-seed')
+    const agent = stubAgent('remote-fork-seed', '/workspace/session-tree')
     agent.session.append('turn/start', { turn: 0 })
     agent.session.append('user/message', {
       id: 'm-root',
@@ -630,6 +649,7 @@ describe('sessionTree Remote service', () => {
     expect(created[0]?.sessionId).toBe(String(forked.sessionId))
     expect(created[0]?.seed.some(event => event.type === 'assistant/message')).toBe(false)
     expect(created[0]?.seed.map(event => event.type)).toEqual(['turn/start', 'user/message', 'turn/end'])
+    expect(created[0]?.meta).toMatchObject({ cwd: '/workspace/session-tree', parentSession: agent.session.id })
 
     const target = Session.create(SessionId('remote-fork-seed-replay'), created[0]?.seed)
     expect(target.deriveMessages().map(message => message.role)).toEqual(['user'])
@@ -737,7 +757,7 @@ describe('native surface mode (patched Harness)', () => {
   })
 
   it('switches the selected surface and writes durable branch/selection events on /fork', async () => {
-    const { ctx, service } = await harness()
+    const { service } = await harness()
     const session = nativeLikeSession('native-fork')
     const agent = withSession(stubAgent('native-fork'), session)
     seedTurns(agent)
@@ -763,7 +783,7 @@ describe('native surface mode (patched Harness)', () => {
   })
 
   it('restores cursor, branch, selection, and surface from the durable log on resume', async () => {
-    const { ctx, service } = await harness()
+    const { service } = await harness()
     const source = nativeLikeSession('native-resume')
     const agent = withSession(stubAgent('native-resume'), source)
     seedTurns(agent)

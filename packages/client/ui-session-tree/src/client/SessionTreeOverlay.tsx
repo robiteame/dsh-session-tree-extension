@@ -2,7 +2,7 @@
 import { useEffect, useRef, useSyncExternalStore } from 'react'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import type { JumpView, SessionTreeForkView, SessionTreeView } from '@robiteame/dsh-pi-agent-session-tree/client'
+import type { JumpView, SessionTreeForkView, SessionTreeView, TreeNode } from '@robiteame/dsh-pi-agent-session-tree/client'
 import { SessionTreePanel } from './SessionTreePanel.tsx'
 import css from './SessionTreePanel.module.css'
 
@@ -85,6 +85,8 @@ export type SessionTreeOverlayProps =
   & {
     controller: SessionTreeOverlayController
     remoteActions: SessionTreeRemoteActions
+    completeFork?: (result: SessionTreeForkView) => void
+    forkUserPrompt?: (sessionId: SessionId, node: TreeNode) => Promise<void>
     openSession?: (sessionId: SessionId) => void
     sendPrompt?: (sessionId: SessionId, text: string) => Promise<void>
   }
@@ -97,6 +99,8 @@ export type SessionTreeOverlayProps =
 export function SessionTreeOverlay({
   controller,
   remoteActions,
+  completeFork,
+  forkUserPrompt,
   openSession,
   sendPrompt,
   useSessions,
@@ -133,15 +137,14 @@ export function SessionTreeOverlay({
               load={remoteActions.load}
               jump={nodeId => remoteActions.jump(sessionId, nodeId)}
               fork={(nodeId, branch) => remoteActions.fork(sessionId, nodeId, branch)}
+              {...(forkUserPrompt === undefined ? {} : { forkUserPrompt: (node: TreeNode) => forkUserPrompt(sessionId, node) })}
               mode={state.selectorOpen ? 'selectUserPrompt' : 'tree'}
               modeController={controller}
               useSessions={useSessions}
               onRefresh={callback => remoteActions.onRefresh(sessionId, callback)}
               onForkCompleted={result => {
-                if (result.sessionId !== undefined) openSession?.(result.sessionId)
-                if (result.prompt !== undefined && result.sessionId !== undefined) {
-                  controller.openPromptDraft(result.sessionId, result.prompt)
-                }
+                if (completeFork !== undefined) completeFork(result)
+                else if (result.sessionId !== undefined) openSession?.(result.sessionId)
               }}
               closeDetails={() => { controller.close() }}
               t={t}

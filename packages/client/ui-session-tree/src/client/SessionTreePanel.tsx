@@ -8,6 +8,7 @@ import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionTreeForkView, TreeNode, LlmRole, SessionTreeView } from '@robiteame/dsh-pi-agent-session-tree/client'
 import type { SessionTreeViewProps } from './slots.ts'
 import type { SessionTreeKey } from './locales.ts'
+import { nodeFullText } from './node-text.ts'
 import css from './SessionTreePanel.module.css'
 
 const ROLE_LABELS: Record<LlmRole, SessionTreeKey> = {
@@ -62,26 +63,6 @@ function Graph({ row, active }: { row: GraphRow; active: boolean }) {
   )
 }
 
-/** The node's complete message text: structured content parts beat the capped summary. */
-function nodeFullText(node: TreeNode): string {
-  const parts = node.content
-  if (parts === undefined || parts.length === 0) return node.message?.content ?? node.summary
-  const lines: string[] = []
-  for (const part of parts) {
-    if (part.type === 'text' || part.type === 'reasoning') {
-      const text = part.text.trim()
-      if (text !== '') lines.push(text)
-    } else if (part.type === 'tool_call') {
-      lines.push(`${part.name}(${typeof part.arguments === 'string' ? part.arguments : JSON.stringify(part.arguments)})`)
-    } else if (part.type === 'tool_result') {
-      const text = part.content.trim()
-      if (text !== '') lines.push(text)
-    }
-  }
-  const text = lines.join('\n')
-  return text === '' ? node.message?.content ?? node.summary : text
-}
-
 /** The tool name carried by a tool-call node, used as the role label before its result lands. */
 function toolNameOf(node: TreeNode): string | undefined {
   for (const part of node.content ?? []) {
@@ -105,7 +86,8 @@ function nodeHasError(node: TreeNode): boolean {
  *  gray rows; only a failed call is highlighted, in error red. Hover/focus
  *  expands the preview into a scrollable view of the complete node content. */
 function NodeRow({
-  row, selected, pending, branchHeads, hasChildren, expanded, selectorMode, onToggle, onSelect, onFork, t,
+  row, selected, pending, branchHeads, hasChildren, expanded, selectorMode,
+  onToggle, onSelect, onFork, onForkUserPrompt, t,
 }: {
   row: GraphRow
   selected: boolean
@@ -116,7 +98,8 @@ function NodeRow({
   selectorMode: boolean
   onToggle: (nodeId: string) => void
   onSelect: (node: TreeNode) => void
-  onFork: (nodeId: string) => void
+  onFork: (node: TreeNode) => void
+  onForkUserPrompt: (node: TreeNode) => void
   t: (key: SessionTreeKey) => string
 }) {
   const { node } = row
@@ -150,7 +133,7 @@ function NodeRow({
         aria-pressed={selectorMode ? undefined : selected}
         aria-label={`${selectorMode ? t('fork.selector.select') : t('panel.select')} — ${node.summary}`}
         title={`${selectorMode ? t('fork.selector.select') : t('panel.select')} — ${node.nodeId}`}
-        onClick={() => { selectorMode ? onFork(node.nodeId) : onSelect(node) }}
+        onClick={() => { selectorMode ? onForkUserPrompt(node) : onSelect(node) }}
       >
         <span className={css.nodeTopline}>
           <span className={css.role}>{role}</span>
@@ -162,7 +145,7 @@ function NodeRow({
       <button
         type="button" className={css.forkAction} disabled={pending || selectorMode}
         title={t('panel.fork')} aria-label={`${t('panel.fork')} — ${node.nodeId}`}
-        onClick={() => { onFork(node.nodeId) }}
+        onClick={() => { onFork(node) }}
       >⑂</button>
     </div>
   )
@@ -175,6 +158,7 @@ export function SessionTreePanel({
   jump,
   select,
   fork,
+  forkUserPrompt,
   onRefresh,
   mode = 'tree',
   modeController,
@@ -267,17 +251,27 @@ export function SessionTreePanel({
     catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)) }
     finally { setPending(false) }
   }, [jump, pending, refresh])
-  const handleFork = useCallback(async (nodeId: string) => {
+  const handleFork = useCallback(async (node: TreeNode) => {
     if (pending) return
     setPending(true); setError(null)
     try {
-      const result: SessionTreeForkView = await fork(nodeId, `fork-${Date.now().toString(36)}`)
+      const result: SessionTreeForkView = await fork(node.nodeId, `fork-${Date.now().toString(36)}`)
       onForkCompleted?.(result)
       await refresh()
     }
     catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)) }
     finally { setPending(false) }
   }, [fork, onForkCompleted, pending, refresh])
+  const handleForkUserPrompt = useCallback(async (node: TreeNode) => {
+    if (pending) return
+    setPending(true); setError(null)
+    try {
+      if (forkUserPrompt === undefined) throw new Error('native fork action is unavailable')
+      await forkUserPrompt(node)
+    }
+    catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)) }
+    finally { setPending(false) }
+  }, [forkUserPrompt, pending])
 
   const toggleNode = useCallback((nodeId: string) => {
     setCollapsed(current => {
@@ -315,7 +309,8 @@ export function SessionTreePanel({
             expanded={!collapsed.has(row.node.nodeId)}
             selectorMode={selectorMode}
             onToggle={toggleNode}
-            onFork={nodeId => { void handleFork(nodeId) }} t={t} />
+            onFork={node => { void handleFork(node) }}
+            onForkUserPrompt={node => { void handleForkUserPrompt(node) }} t={t} />
         ))}
       </div>
     </section>

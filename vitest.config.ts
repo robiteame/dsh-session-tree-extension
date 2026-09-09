@@ -58,6 +58,7 @@ export default defineConfig({
     environment: 'node',
   include: [
     'packages/extensions/**/tests/**/*.spec.ts',
+    'packages/client/ui-session-tree/tests/**/*.spec.ts',
     'packages/client/ui-session-tree/tests/**/*.spec.tsx',
   ],
   },

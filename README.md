@@ -37,10 +37,14 @@ dsh plugin --profile <profile> add robiteame-dsh-session-tree-0.1.0.tgz
 After installing, restart the profile. The composition gains three rows
 (`pi-agent-session-tree`, `tool-session-tree`, `ui-session-tree`) that load the
 Host service, the tool and commands, and the browser panel. Type `/tree` in the
-composer to open the panel; click a node to bind it as the active context, then
-`/clone` operates on that selection and `/fork` opens a user-prompt selector.
+composer to open the panel; `/fork` opens a user-prompt selector, and `/clone`
+duplicates the current conversation into a new session under the same project.
 A selected prompt is copied through its root path into an independent Session;
-the source JSONL stays read-only. `/session` reports
+the source JSONL stays read-only. When a `/fork` lands, a left-docked branch
+rail nests the new session under its source with indentation, connector rails,
+and expand/collapse — fed by the native fork API's reactive parent linkage, so
+it updates without a refresh and leaves `/clone` and ordinary sessions in their
+original sidebar presentation. `/session` reports
 tree status (nodes/messages/branches/tokens/cost) and the active surface mode.
 
 Verify the composed layer:

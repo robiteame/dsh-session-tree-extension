@@ -13,7 +13,7 @@ an embedded WebUI tree panel.
 |---|---|---|
 | Tool | `session_tree` | one tree per agent session; operations below |
 | Command | `/tree` | `list`, `branches`, `tree`, `context`, `jump <nodeId>`, `branch <nodeId> <name>`, `snapshot save`, `snapshot load <json>` |
-| Commands | `/fork`, `/clone`, `/session` | fork in-tree, clone the active path to a separate session, inspect tree status |
+| Commands | `/fork`, `/clone`, `/session` | fork a selected user message to a same-project session, clone the whole current session, inspect tree status |
 | Remote service | `sessionTree` | `list(agent)`, `jump(agent, nodeId)`, `fork(agent, nodeId, branch)`, `session(agent)` — drives the browser panel |
 | Browser slot | `conversation.details.panel` / `shell.overlay` | native details seat in a patched checkout, additive drawer in an official Bundle; click a node to jump |
 

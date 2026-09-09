@@ -650,10 +650,12 @@ function foldLegacyToolResultPairs(snapshot: SessionTreeSnapshot): SessionTreeSn
       const merged = mergedByParent.get(node.nodeId)
       return merged === undefined ? { ...node, parentId: reparent(node.parentId) } : { ...merged, parentId: reparent(merged.parentId) }
     })
+  const selectedNodeId = snapshot.selectedNodeId === undefined ? undefined : reparent(snapshot.selectedNodeId)
   return {
     ...snapshot,
     cursor: reparent(snapshot.cursor),
-    selectedNodeId: snapshot.selectedNodeId === undefined ? undefined : reparent(snapshot.selectedNodeId),
+    // exactOptionalPropertyTypes: keep the key absent rather than explicit undefined
+    ...(selectedNodeId === undefined ? {} : { selectedNodeId }),
     ...(snapshot.branchHeads === undefined
       ? {}
       : { branchHeads: Object.fromEntries(Object.entries(snapshot.branchHeads).map(([name, head]) => [name, reparent(head) ?? head])) }),

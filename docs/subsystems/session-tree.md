@@ -149,8 +149,8 @@ type TreeResult<T> =
 - `/tree` command family: `list`, `branches`, `tree`, `context`, `jump
   <nodeId>`, `branch <nodeId> <name>`, `snapshot save`, `snapshot load <json>`.
   `/fork` opens a user-prompt selector and copies the selected root path into
-  an independent session; `/clone` automatically uses the selected sidebar
-  node.
+  a new same-project session; `/clone` duplicates the whole current session
+  into another same-project session.
 - `sessionTree` Remote service (`@robiteame/dsh-pi-agent-session-tree`):
   `list(agent)`, `jump(agent, nodeId)`, `fork(agent, nodeId, branch)`,
   `forkSession(agent, nodeId, branch)`, and `session(agent)` drive the browser
@@ -159,7 +159,13 @@ type TreeResult<T> =
   occupies the native `conversation.details.panel` seat; in an official Web
   profile it uses the additive `shell.overlay` seat. `/tree` opens or refreshes
   the panel, and node clicks bind the selected command context. Its fixed
-  graph gutter never grows with tree depth.
+  graph gutter never grows with tree depth. A second `shell.overlay` entry
+  (`session-tree-branches`) renders the left-docked fork branch rail: `/fork`
+  children appear nested under their source session in the Session list with
+  indentation, connector rails, and expand/collapse. Topology comes from the
+  native fork API's reactive `parentId` linkage; a UI-layer lineage registry
+  only distinguishes `/fork` from `/clone`, so clones keep their original
+  sidebar presentation.
 
 ## Cordis API
 

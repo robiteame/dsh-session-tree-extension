@@ -1,0 +1,289 @@
+/* Left-docked /fork branch rail on the additive shell.overlay seat. Mirrors
+   the right overlay drawer's geometry (inset-block, token palette, shadow)
+   flipped to the start edge. The root layer stays click-through; only the
+   rail and its reopen tab opt back into pointer events. */
+.railRoot[data-session-branch-rail] {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.rail {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  display: flex;
+  flex-direction: column;
+  width: min(300px, calc(100vw - 48px));
+  min-width: 0;
+  overflow: hidden;
+  border-inline-end: 1px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-base);
+  box-shadow: 10px 0 28px rgb(0 0 0 / 18%);
+  pointer-events: auto;
+}
+
+.railTab {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  width: 30px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-inline-start: 0;
+  border-radius: 0 8px 8px 0;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-state-business-primary);
+  font-size: 14px;
+  cursor: pointer;
+  pointer-events: auto;
+  writing-mode: vertical-rl;
+}
+.railTab:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.railTab:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary); outline-offset: -2px; }
+
+.header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 55px;
+  padding: 10px 12px;
+  box-sizing: border-box;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+}
+.heading { min-width: 0; }
+.title {
+  display: block;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.stats {
+  display: block;
+  margin-top: 1px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 16px;
+}
+.close {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--dsw-alias-state-business-primary);
+  font-size: 20px;
+  line-height: 20px;
+  cursor: pointer;
+}
+.close:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.close:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary); outline-offset: -2px; }
+
+.body {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 6px 8px 12px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  list-style: none;
+}
+
+/* One cascade row: connector cells carry both the tree rails and the depth
+   indentation, so indentation never exists without its connector line. */
+.row {
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+  min-width: 0;
+  min-height: 38px;
+  border-radius: 7px;
+  color: inherit;
+}
+.row:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.rowCurrent {
+  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 12%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--dsw-alias-state-business-primary) 34%, transparent);
+}
+
+.cell {
+  position: relative;
+  flex: none;
+  width: 14px;
+}
+/* Vertical rail segment: an ancestor level whose siblings continue below. */
+.cellRail::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 6px;
+  border-left: 1px solid var(--dsw-alias-border-l3, var(--dsw-alias-border-l2));
+}
+/* Elbow into this row: drops from the parent above, then turns to the node.
+   The last child stops the rail at the turn; older siblings rail on. */
+.cellElbow::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 50%;
+  left: 6px;
+  border-left: 1px solid var(--dsw-alias-border-l3, var(--dsw-alias-border-l2));
+}
+.cellElbow:not(.cellElbowLast)::before { bottom: 0; }
+.cellElbow::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 6px;
+  width: 8px;
+  border-top: 1px solid var(--dsw-alias-border-l3, var(--dsw-alias-border-l2));
+}
+.elbowDot {
+  position: absolute;
+  top: 50%;
+  left: 3.5px;
+  width: 5px;
+  height: 5px;
+  box-sizing: border-box;
+  border: 1.5px solid var(--dsw-alias-state-business-primary);
+  border-radius: 50%;
+  transform: translateY(-50%);
+}
+
+.expander,
+.expanderPlaceholder {
+  align-self: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+}
+.expander {
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.expander svg {
+  width: 10px;
+  height: 10px;
+  transition: transform .16s ease;
+}
+.expander[aria-expanded='true'] svg { transform: rotate(90deg); }
+.expander:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.expander:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary); outline-offset: -2px; }
+
+.select {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  min-width: 0;
+  padding: 4px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.select:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary); outline-offset: -2px; }
+.select:disabled { cursor: wait; opacity: .6; }
+
+.topline {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  width: 100%;
+}
+.forkBadge {
+  flex: none;
+  color: var(--dsw-alias-state-business-primary);
+  font-size: 10px;
+  line-height: 14px;
+}
+.branchChip,
+.countChip {
+  flex: none;
+  overflow: hidden;
+  max-width: 96px;
+  padding: 0 4px;
+  border-radius: 3px;
+  font-size: 10px;
+  line-height: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.branchChip {
+  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 14%, transparent);
+  color: var(--dsw-alias-state-business-primary);
+}
+.countChip {
+  background: var(--dsw-specific-tip);
+  color: var(--dsw-alias-label-tertiary);
+}
+.runningDot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--dsw-alias-state-business-primary);
+  animation: branch-rail-pulse 1.4s ease-in-out infinite;
+}
+@keyframes branch-rail-pulse {
+  0%, 100% { opacity: .35; }
+  50% { opacity: 1; }
+}
+.summary {
+  display: block;
+  overflow: hidden;
+  min-width: 0;
+  width: 100%;
+  color: var(--dsw-alias-label-primary-dimmed);
+  font-size: 12px;
+  line-height: 17px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The fork annotation is the point of the row: branch summaries get the
+   primary label color, source rows stay dimmed like ordinary list entries. */
+.row[data-branch-depth]:not([data-branch-depth='0']) .summary {
+  color: var(--dsw-alias-label-primary);
+}
+
+.empty {
+  margin: 8px 6px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .expander svg { transition: none; }
+  .runningDot { animation: none; }
+}
+
+@media (max-width: 640px) {
+  .rail {
+    width: 100%;
+    border-inline-end: 0;
+    box-shadow: none;
+  }
+}

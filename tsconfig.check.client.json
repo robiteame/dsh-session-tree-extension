@@ -2,6 +2,7 @@
   "extends": "./tsconfig.base.client.json",
   "compilerOptions": {
     "noEmit": true,
+    "exactOptionalPropertyTypes": true,
     "paths": {
       "@robiteame/dsh-pi-agent-session-tree": ["./packages/extensions/pi-agent-session-tree/src/index.ts"],
       "@robiteame/dsh-pi-agent-session-tree/client": ["./packages/extensions/pi-agent-session-tree/src/client.ts"],

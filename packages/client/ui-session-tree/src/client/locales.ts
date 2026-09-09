@@ -31,6 +31,12 @@ export const zh = {
   'node.role.tool': '工具',
   'node.summary': '摘要',
   'node.noMessage': '（无消息）',
+  'branch.rail.title': '分叉分支',
+  'branch.rail.open': '展开分叉分支栏',
+  'branch.rail.close': '收起分叉分支栏',
+  'branch.rail.empty': '还没有 /fork 创建的分叉会话。',
+  'branch.node.forkBadge': '分叉',
+  'branch.node.open': '打开该会话',
 } satisfies Record<string, string>
 
 /** The session-tree namespace key union. */
@@ -67,4 +73,10 @@ export const en = {
   'node.role.tool': 'Tool',
   'node.summary': 'Summary',
   'node.noMessage': '(no message)',
+  'branch.rail.title': 'Fork branches',
+  'branch.rail.open': 'Expand the fork branch rail',
+  'branch.rail.close': 'Collapse the fork branch rail',
+  'branch.rail.empty': 'No /fork branch sessions yet.',
+  'branch.node.forkBadge': 'fork',
+  'branch.node.open': 'Open this session',
 } satisfies Record<SessionTreeKey, string>
