@@ -6,18 +6,37 @@
 [![Harness](https://img.shields.io/badge/DeepSeek--Harness-0.1.2--alpha.3-orange)](https://github.com/deepseek-ai/deepseek-harness)
 
 Append-only, multi-branch conversation trees for
-[DeepSeek-Harness](https://github.com/deepseek-ai/deepseek-harness) — a
-PI-Agent-style SessionTree. The agent's history becomes a tree of immutable
-nodes, forkable at any historical node, with standard LLM message
-reconstruction, versioned JSON snapshots, and a WebUI tree panel.
+[DeepSeek-Harness](https://github.com/deepseek-ai/deepseek-harness) — fork any
+historical node, clone a branch into a new session, and browse the whole tree
+in a WebUI panel. Old history is never edited or deleted.
+
+Three commands:
+
+| Command | What it does |
+|---|---|
+| `/tree` | Open the session-tree panel: every node of the conversation, clickable and bindable |
+| `/fork` | Branch from any historical node — the fork appears as an inline menu under its source session |
+| `/clone` | Duplicate the current conversation into an independent new session under the same project |
+
+## Screenshots
+
+Tree panel (light and dark) with the sidebar's inline fork-branch menu:
+
+![Session tree panel, light theme](./docs/screenshots/tree-panel-light.png)
+
+![Session tree panel, dark theme](./docs/screenshots/tree-panel-dark.png)
+
+The inline `/fork` branch menu beneath its source session:
+
+![Inline fork branch menu](./docs/screenshots/fork-branches-menu.png)
 
 Published as four npm packages under the `@robiteame` scope:
 
 | Package | Role |
 |---|---|
 | [`@robiteame/dsh-session-tree`](./packages/bundle/session-tree) | Carrier Bundle: one install mounts everything below through its composition layer |
-| [`@robiteame/dsh-pi-agent-session-tree`](./packages/extensions/pi-agent-session-tree) | Host domain service: `SessionTree`/`SessionTreeStore`, JSON snapshots, the `sessionTree` Remote (`list`/`jump`/`fork`/`session`) |
-| [`@robiteame/dsh-tool-session-tree`](./packages/extensions/tool-session-tree) | Model-facing surface: the `session_tree` tool, `/tree` `/fork` `/clone` `/session` commands, system-prompt section |
+| [`@robiteame/dsh-pi-agent-session-tree`](./packages/extensions/pi-agent-session-tree) | Host domain service: the `SessionTree`/`SessionTreeStore` domain model and the `sessionTree` Remote |
+| [`@robiteame/dsh-tool-session-tree`](./packages/extensions/tool-session-tree) | Command surface: the `/tree` `/fork` `/clone` commands |
 | [`@robiteame/dsh-client-ui-session-tree`](./packages/client/ui-session-tree) | WebUI tree panel: additive right-side overlay on official builds, native details dock on patched builds |
 
 ## Install (users)
@@ -31,24 +50,12 @@ dsh plugin --profile <profile> add @robiteame/dsh-session-tree
 Prebuilt tarballs install the same way and need no build scripts:
 
 ```sh
-dsh plugin --profile <profile> add robiteame-dsh-session-tree-0.1.0.tgz
+dsh plugin --profile <profile> add robiteame-dsh-session-tree-0.2.0.tgz
 ```
 
 After installing, restart the profile. The composition gains three rows
 (`pi-agent-session-tree`, `tool-session-tree`, `ui-session-tree`) that load the
-Host service, the tool and commands, and the browser panel. Type `/tree` in the
-composer to open the panel; `/fork` opens a user-prompt selector, and `/clone`
-duplicates the current conversation into a new session under the same project.
-A selected prompt is copied through its root path into an independent Session;
-the source JSONL stays read-only. When a `/fork` lands, an inline collapsible
-menu opens directly beneath its source row in the native session list, with
-connector rails and per-level expand/collapse. The menu title comes from the
-user message preceding the selected node. It is fed by the native fork API's
-reactive parent linkage, so it updates without a refresh and leaves `/clone`
-and ordinary sessions in their original sidebar presentation. `/session` reports
-tree status (nodes/messages/branches/tokens/cost) and the active surface mode.
-
-Verify the composed layer:
+Host service, the commands, and the browser panel. Verify the composed layer:
 
 ```sh
 dsh --profile <profile> --dump-config   # should list the three session-tree rows
@@ -57,6 +64,33 @@ dsh --profile <profile> --dump-config   # should list the three session-tree row
 Requires DeepSeek-Harness `0.1.2-alpha.3` (or a compatible `0.1.2` build) and
 Cordis `^4.0.2`; the target installation provides those peers. No install
 scripts run — the tarballs ship prebuilt `lib/` artifacts.
+
+## The three commands
+
+### `/tree` — open the tree panel
+
+`/tree` opens the right-side panel listing every node of the current
+conversation — user messages, assistant replies, tool calls, model switches —
+each with its role, branch, and a preview. Click a node to bind it; branch
+commands then operate on that node. Collapse and expand subtrees to focus on
+the path you care about.
+
+### `/fork` — branch from any historical node
+
+`/fork` picks an earlier user prompt and grows a new branch from there: the
+conversation continues along the new path while the original one stays intact.
+The fork is created through the official native fork API, so it appears in the
+session list with real parent linkage — the plugin renders it as an inline
+collapsible menu directly beneath its source session's row, with connector
+rails and per-level expand/collapse. The menu updates live from the official
+reactive session list, and `/clone` children keep their ordinary sidebar
+presentation.
+
+### `/clone` — duplicate into a new session
+
+`/clone` copies the current conversation — through its root path — into an
+independent Session under the same project. The source history stays
+read-only; the clone is yours to continue separately.
 
 ## Branch switching and graceful degradation
 
@@ -75,40 +109,22 @@ optional branch-selection engine API at runtime:
   the tree projection and panel only, and the next turn keeps the canonical
   history.
 
-Every mode is honest about itself: `session_tree`'s `context`/`session`
-operations and `/tree` outputs carry a `surface` field (`native`, `stock`, or
-`projection`), and the Host log prints a one-time notice when a session runs in
-a non-native mode. Move the raw `session.jsonl.zstd` between machines together
-with the matching sidecar file, or carry the projection explicitly with
-`/tree snapshot save/load`.
+Every mode is honest about itself: the Host log prints a one-time notice when
+a session runs in a non-native mode. Move the raw `session.jsonl.zstd` between
+machines together with the matching sidecar file.
 
-## Semantics
+## How it works
 
 - **Append-only** — every node is immutable; branching and jumping only move
   the cursor. Old branches are never edited or deleted.
 - **Every entry is a node** — messages, tool calls, model switches, compaction
-  records, branch summaries, and custom entries all become typed nodes
-  (`message`, `tool_call`, `model_change`, `compaction`, `branch_summary`,
-  `custom`; `tool_result` survives only for orphan results with no matching
-  call); each has a unique `nodeId` and a `parentId` (root is `null`). A node
-  may have multiple children — that is the fork.
-- **One entry per tool interaction** — a `tool/call` and its `tool/result` fold
-  into a single `tool_call` node whose `content` carries both the call part and
-  the result part (`isError` plus the node's `error` mark failures), whether
-  the pair arrives in one event batch or across sync batches. Legacy snapshots
-  with split pairs fold on restore.
-- **Cursor navigation** — `jump(nodeId)` moves the active leaf to a historical
-  node; the next append grows a new branch from there. Sibling branches stay
-  intact. The durable Harness Session log remains the source of truth.
-- **LLM context** — `context` returns the standard `messages` array for the
-  root→cursor path only.
-- **Compaction** — surface replacement is recorded as an immutable `compaction`
-  node instead of pretending the shadowed messages were deleted.
-- **Snapshots** — `snapshot.save`/`snapshot.load` round-trip the whole tree as
-  versioned JSON (`version: 1`).
-- **Multiple trees** — one independent tree per agent session.
-- **Errors** — every operation answers `{ok: true, value}` or
-  `{ok: false, error: {code, message}}`.
+  records, and branch summaries all become typed nodes; each has a unique
+  `nodeId` and a `parentId` (root is `null`). A node may have multiple
+  children — that is the fork.
+- **Cursor navigation** — jumping moves the active leaf to a historical node;
+  the next append grows a new branch from there. Sibling branches stay intact.
+- **LLM context** — the model always receives the standard `messages` array
+  for the root→cursor path only.
 
 ## Development (contributors)
 
