@@ -1,7 +1,7 @@
 {
   "name": "@robiteame/dsh-pi-agent-session-tree",
   "description": "Append-only multi-branch session trees: the SessionTree/SessionTreeStore domain model, JSON snapshots, and the sessionTree Remote service",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "publishConfig": {
     "access": "public"
   },

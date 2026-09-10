@@ -181,6 +181,27 @@ function sourceSeqsOf(node: TreeNode): number[] {
 }
 
 /**
+ * The Session event log across Harness builds. The agent-facing Session
+ * wrapper exposes an `events` array, while the persisted core Session shipped
+ * in published Harness builds only offers `snapshotEvents()`; code paths that
+ * must run in both hosts read the log through this accessor. An unreadable
+ * log yields an empty array so tree sync degrades instead of throwing inside
+ * the gateway.
+ */
+function sessionEvents(session: Session): readonly SessionEvent[] {
+  const candidate = session as Session & {
+    events?: readonly SessionEvent[]
+    snapshotEvents?: () => readonly SessionEvent[]
+  }
+  if (Array.isArray(candidate.events)) return candidate.events
+  if (typeof candidate.snapshotEvents === 'function') {
+    const snapshot = candidate.snapshotEvents()
+    if (Array.isArray(snapshot)) return snapshot
+  }
+  return []
+}
+
+/**
  * Build a fresh-session seed from only the selected root-to-node path.
  *
  * The source Session is read through its immutable event snapshot; no append,
@@ -204,9 +225,10 @@ export function sessionPathForkSeed(
 
   // Keep the enclosing turn boundary (if any) so a user-only path remains a
   // balanced, durable Session seed; filtering removes its assistant content.
-  const boundary = source.events.find(event => event.seq >= anchorSeq && event.type === 'turn/end')?.seq ?? anchorSeq
+  const events = sessionEvents(source)
+  const boundary = events.find(event => event.seq >= anchorSeq && event.type === 'turn/end')?.seq ?? anchorSeq
   const kept: SessionEvent[] = []
-  for (const event of source.events) {
+  for (const event of events) {
     if (event.seq > boundary) break
     const isWanted = wanted.has(event.seq)
       || (event.type === 'session-tree/node' && sourceSeqsOf(event.data.node).some(seq => wanted.has(seq)))
@@ -294,10 +316,10 @@ export function syncSessionTree(agent: Agent, options: SyncSessionTreeOptions = 
   let tree = existing === undefined
     ? restored ?? new SessionTree(sessionId)
     : new SessionTree(sessionId, existing.snapshot())
-  const actualLatestSeq = agent.session.events.at(-1)?.seq ?? -1
+  const actualLatestSeq = sessionEvents(agent.session).at(-1)?.seq ?? -1
   tree.limitSessionEventSeq(actualLatestSeq)
   const lastSeq = tree.lastSessionEventSeq()
-  const freshEvents = agent.session.events.filter(event => event.seq > lastSeq)
+  const freshEvents = sessionEvents(agent.session).filter(event => event.seq > lastSeq)
   let nativeParentId = tree.cursor
   for (const event of freshEvents) {
     if (event.type === 'session-tree/snapshot') {
@@ -379,7 +401,7 @@ function selectedSurfaceSeqs(tree: SessionTree, session: Session): number[] {
     const resultSeq = node.metadata?.toolResultEventSeq
     if (typeof resultSeq === 'number') nativeSeqs.push(resultSeq)
     for (const seq of nativeSeqs) {
-      const event = session.events[seq]
+      const event = sessionEvents(session)[seq]
       if (event !== undefined && isSurfaceEvent(event)) seqs.push(seq)
     }
   }
@@ -428,7 +450,7 @@ function appendStockCursorEvent(
  */
 function canonicalSurfaceNodes(session: Session): number[] {
   const nodes: number[] = []
-  for (const event of session.events) {
+  for (const event of sessionEvents(session)) {
     if (!isSurfaceEvent(event)) continue
     if (event.surfaceOp === 'append') {
       nodes.push(event.seq)

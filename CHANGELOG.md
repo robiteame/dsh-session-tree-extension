@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.1 — 2026-09-10
+
+### Fixed
+
+- Compatibility with published Harness builds whose core `Session` class does
+  not expose the agent-facing `events` array: the tree sync, fork seed,
+  surface-seq, and canonical-surface walks now read the log through
+  `snapshotEvents()` when `events` is absent. `/tree`, `/fork`, and `/clone`
+  previously died in those hosts with
+  `gateway/internal: Cannot read properties of undefined (reading 'at')`;
+  they now run end-to-end there (verified against the packaged web profile).
+
 ## 0.2.0 — 2026-09-09
 
 ### Changed

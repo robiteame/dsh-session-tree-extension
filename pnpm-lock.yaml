@@ -111,7 +111,7 @@ importers:
         specifier: ^0.2.0
         version: link:../../client/ui-session-tree
       '@robiteame/dsh-pi-agent-session-tree':
-        specifier: ^0.2.0
+        specifier: ^0.2.1
         version: link:../../extensions/pi-agent-session-tree
       '@robiteame/dsh-tool-session-tree':
         specifier: ^0.2.0
