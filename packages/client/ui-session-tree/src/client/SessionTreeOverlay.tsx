@@ -4,6 +4,7 @@ import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { JumpView, SessionTreeForkView, SessionTreeView, TreeNode } from '@robiteame/dsh-pi-agent-session-tree/client'
 import { SessionTreePanel } from './SessionTreePanel.tsx'
+import type { SessionForkLineage } from './fork-lineage.ts'
 import css from './SessionTreePanel.module.css'
 
 export interface SessionTreeOverlayState {
@@ -89,6 +90,8 @@ export type SessionTreeOverlayProps =
     forkUserPrompt?: (sessionId: SessionId, node: TreeNode) => Promise<void>
     openSession?: (sessionId: SessionId) => void
     sendPrompt?: (sessionId: SessionId, text: string) => Promise<void>
+    /** /fork annotation registry feeding the panel's worktree branch section. */
+    lineage?: SessionForkLineage
   }
 
 /**
@@ -103,6 +106,7 @@ export function SessionTreeOverlay({
   forkUserPrompt,
   openSession,
   sendPrompt,
+  lineage,
   useSessions,
   t,
 }: SessionTreeOverlayProps) {
@@ -136,11 +140,14 @@ export function SessionTreeOverlay({
               sessionId={sessionId}
               load={remoteActions.load}
               jump={nodeId => remoteActions.jump(sessionId, nodeId)}
+              jumpSession={remoteActions.jump}
               fork={(nodeId, branch) => remoteActions.fork(sessionId, nodeId, branch)}
               {...(forkUserPrompt === undefined ? {} : { forkUserPrompt: (node: TreeNode) => forkUserPrompt(sessionId, node) })}
               mode={state.selectorOpen ? 'selectUserPrompt' : 'tree'}
               modeController={controller}
               useSessions={useSessions}
+              {...(openSession === undefined ? {} : { openSession })}
+              {...(lineage === undefined ? {} : { lineage })}
               onRefresh={callback => remoteActions.onRefresh(sessionId, callback)}
               onForkCompleted={result => {
                 if (completeFork !== undefined) completeFork(result)

@@ -1,27 +1,27 @@
 diff --git a/packages/core/session/src/index.ts b/packages/core/session/src/index.ts
-index afa2ff3604..3b3e45ab32 100644
+index 12e9ed1918..ebd8919822 100644
 --- a/packages/core/session/src/index.ts
 +++ b/packages/core/session/src/index.ts
 @@ -16,7 +16,7 @@ import type { Message } from '@deepseek-ai/dsh-llm'
- import { SESSION_FORMAT_VERSION } from './types.ts'
+ import { SESSION_FORMAT_VERSION, SessionLogOffset, SessionSeq } from './types.ts'
  import type { TypertLookup } from '@deepseek-ai/dsh-typert-protocol'
- import type { CreateSessionOptions, EpochHeader, PrepareSessionOptions, RequestContext, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SessionId, SurfaceIntent, SurfaceEventType } from './types.ts'
--import { deriveEventMessage, SurfaceManager } from './surface.ts'
-+import { deriveEventMessage, isSurfaceEvent, SurfaceManager } from './surface.ts'
+ import type { CreateSessionOptions, EpochHeader, PrepareSessionOptions, RequestContext, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SessionId, SessionSeedEventState, SurfaceIntent, SurfaceEventType } from './types.ts'
+-import { deriveEventMessage, SurfaceManager, validateSessionEventData, validateSurfaceMetadata } from './surface.ts'
++import { deriveEventMessage, isSurfaceEvent, SurfaceManager, validateSessionEventData, validateSurfaceMetadata } from './surface.ts'
  import type { SessionSurface } from './surface.ts'
  import { foldRequestHeader } from './request-header.ts'
-
-@@ -424,6 +424,9 @@ export class Session {
+ 
+@@ -447,6 +447,9 @@ export class Session {
    private log: SessionEvent[] = []
    /** Single incremental owner of surface acceptance and projection state. */
    private readonly surfaceManager = new SurfaceManager(this.log)
 +  /** Optional branch-selected message surface; undefined follows the canonical surface. */
 +  private selectedMessageSurface: number[] | undefined
 +  private selectedMessageSurfaceGeneration = 0
-
+ 
    /** The ordered surface over this session's event log. */
    get surface(): SessionSurface {
-@@ -639,6 +642,7 @@ export class Session {
+@@ -747,6 +750,7 @@ export class Session {
          callbacks = collectSessionCallbacks(entry.emitCtx, [entry.carrier, 'session/event', ...callbackArgs])
        }
        this.log.push(event as SessionEvent)
@@ -29,10 +29,10 @@ index afa2ff3604..3b3e45ab32 100644
        this.eventsSnapshot = undefined
        if (callbacks !== undefined && entry !== undefined) {
          invokeContainedSessionObservers(entry.emitCtx, 'session/event', entry.id, callbackArgs, callbacks)
-@@ -652,6 +656,74 @@ export class Session {
+@@ -760,6 +764,76 @@ export class Session {
      }
    }
-
+ 
 +  /**
 +   * Select an existing message path as the model-visible branch.
 +   *
@@ -72,7 +72,8 @@ index afa2ff3604..3b3e45ab32 100644
 +  private extendSelectedMessageSurface(event: SessionEvent): void {
 +    const selected = this.selectedMessageSurface
 +    if (selected === undefined || !isSurfaceEvent(event)) return
-+    if (event.surfaceOp === 'append') {
++    const surfaceOp = event.surfaceOp
++    if (surfaceOp === 'append') {
 +      // A navigation command itself runs as a tool call. Its result is
 +      // appended after the cursor has moved, but its assistant tool-call
 +      // message belongs to the abandoned leaf. Do not put that orphan result
@@ -83,8 +84,9 @@ index afa2ff3604..3b3e45ab32 100644
 +      this.selectedMessageSurfaceGeneration += 1
 +      return
 +    }
-+    const start = selected.indexOf(event.surfaceOp.start)
-+    const end = selected.indexOf(event.surfaceOp.end)
++    if (surfaceOp?.op !== 'replace') return
++    const start = selected.indexOf(surfaceOp.startSeq)
++    const end = selected.indexOf(surfaceOp.endSeq)
 +    if (start < 0 || end < start) return
 +    selected.splice(start, end - start + 1, event.seq)
 +    this.selectedMessageSurfaceGeneration += 1
@@ -104,15 +106,15 @@ index afa2ff3604..3b3e45ab32 100644
    /** Cached fold of the request-header events — see {@link requestHeader}. */
    private headerFold: EpochHeader | undefined
    /** Log position (events consumed) the header fold has reached. */
-@@ -702,6 +774,7 @@ export class Session {
+@@ -810,6 +884,7 @@ export class Session {
    private derivedNodes = 0
    /** {@link SurfaceManager.replaceGeneration} the cache was built under. */
    private derivedGeneration = 0
 +  private derivedSelectionGeneration = 0
-
+ 
    /**
     * Derive the LLM message history by walking the ordered sequences of
-@@ -723,12 +796,14 @@ export class Session {
+@@ -831,12 +906,14 @@ export class Session {
     */
    deriveMessages(): Message[] {
      const surface = this.surface
@@ -130,10 +132,10 @@ index afa2ff3604..3b3e45ab32 100644
      for (const seq of nodes.slice(this.derivedNodes)) {
        // Surface sequences are built from this.log — seq is always a valid
 diff --git a/packages/core/session/src/known-event-types.ts b/packages/core/session/src/known-event-types.ts
-index 774e1a55cb..52cf993b12 100644
+index dd6411240b..5ac2e33c7b 100644
 --- a/packages/core/session/src/known-event-types.ts
 +++ b/packages/core/session/src/known-event-types.ts
-@@ -47,6 +47,11 @@ export const KNOWN_SESSION_EVENT_TYPES: ReadonlySet<string> = new Set([
+@@ -50,6 +50,11 @@ export const KNOWN_SESSION_EVENT_TYPES: ReadonlySet<string> = new Set([
    'sandbox/mode',
    'schedule/change',
    'session-log-deepseek/delivery-accepted',

@@ -33,7 +33,7 @@ tree. `session_tree`'s `context`/`session` operations report the active
 
 ### Requirements
 
-- DeepSeek-Harness `0.1.2-alpha.3` or a compatible `0.1.2` build (provides the
+- DeepSeek-Harness `0.1.5-rc.2` or a compatible `0.1.5` build (provides the
   `@deepseek-ai/*` peers) and Cordis `^4.0.2`.
 - Node.js 22 or newer.
 - No `allowBuilds` entries: the packages declare no lifecycle scripts and ship

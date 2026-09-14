@@ -1,5 +1,6 @@
 /** Browser half of the session-tree extension: a right-details-sidebar panel. */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
+import { SessionSeq } from '@deepseek-ai/dsh-session/types'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import sessionTreeRemote from '@robiteame/dsh-pi-agent-session-tree/remote'
@@ -17,7 +18,7 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 import type { SessionTreeForkView, SessionTreeView, TreeNode } from '@robiteame/dsh-pi-agent-session-tree/client'
-import { nodeFullText } from './node-text.ts'
+import { nodeFullText, isInjectedUserSource } from './node-text.ts'
 import { SessionForkLineage, browserForkLineageStorage, summarizeForkPrompt } from './fork-lineage.ts'
 import type { SessionTreePanelActions } from './slots.ts'
 import { SessionTreeDock } from './SessionTreePanel.tsx'
@@ -33,6 +34,17 @@ export { SessionTreePanel, SessionTreeDock } from './SessionTreePanel.tsx'
 export { SessionTreeOverlay, SessionTreeOverlayController } from './SessionTreeOverlay.tsx'
 export type { SessionTreeOverlayProps, SessionTreeOverlayState } from './SessionTreeOverlay.tsx'
 export { SessionBranchList } from './SessionBranchList.tsx'
+export { buildBranchTreeModel, buildSessionGraphModel, visibleBranchRows } from './session-graph.ts'
+export type {
+  BranchTreeBadge,
+  BranchTreeListState,
+  BranchTreeModel,
+  BranchTreeRow,
+  SessionGraphBadge,
+  SessionGraphModel,
+  SessionGraphPlaceholder,
+  SessionGraphRow,
+} from './session-graph.ts'
 export { SessionForkLineage, summarizeForkPrompt } from './fork-lineage.ts'
 export type { SessionBranchListProps } from './SessionBranchList.tsx'
 export type { ForkLineageEntry, ForkLineageRecordInput, ForkLineageStorage } from './fork-lineage.ts'
@@ -52,6 +64,20 @@ interface NativeSessionInput {
     parseEditorState(value: unknown): unknown
     setEditorState(state: unknown): void
   }
+}
+
+interface SessionTreeLayoutActions {
+  readonly openDetails?: (panel?: string) => void
+  readonly openRightbar?: (track: boolean, fullscreen: boolean) => void
+}
+
+/** Reveal the native session-tree surface across patched and official layouts. */
+function openSessionTreePanel(layout: SessionTreeLayoutActions): void {
+  if (layout.openDetails !== undefined) {
+    layout.openDetails('session-tree')
+    return
+  }
+  layout.openRightbar?.(true, false)
 }
 
 /** Build the serialized Lexical state used to seed one native composer. */
@@ -150,7 +176,7 @@ function registerSessionTreeUi(ctx: ClientContext): void {
 
     // Ensure the source event window covers the selected node before looking
     // for the previous completed-turn boundary.
-    await source.session.loadThrough(selectedSeq)
+    await source.session.loadThrough(SessionSeq(selectedSeq))
     const entries = source.eventSource.getSnapshot().entries
     let previousUserPrompt: string | undefined
     let previousTurnEnd: number | undefined
@@ -161,6 +187,9 @@ function registerSessionTreeUi(ctx: ClientContext): void {
         && entry?.type === 'event'
         && entry.event.type === 'user/message'
         && entry.event.seq < selectedSeq
+        // The inline fork-menu title names the previous TYPED prompt; skip
+        // harness injections (skill catalog, system-prompt snapshot).
+        && !isInjectedUserSource(entry.event.data.source)
       ) {
         const text = entry.event.data.content
           .filter(part => part.type === 'text')
@@ -248,6 +277,7 @@ function registerSessionTreeUi(ctx: ClientContext): void {
       forkUserPrompt,
       sendPrompt,
       openSession: (sessionId: SessionId) => { ctx.sessions.open(sessionId) },
+      lineage: forkLineage,
     }),
   }, SessionTreeOverlay))
 
@@ -270,6 +300,7 @@ function registerSessionTreeUi(ctx: ClientContext): void {
       inject: (sessionId: SessionId): SessionTreePanelActions => ({
         load: remoteActions.load,
         jump: nodeId => remoteActions.jump(sessionId, nodeId),
+        jumpSession: remoteActions.jump,
         fork: async (nodeId, branch) => {
           const result = await remoteActions.fork(sessionId, nodeId, branch)
           completeFork(result)
@@ -278,6 +309,8 @@ function registerSessionTreeUi(ctx: ClientContext): void {
         forkUserPrompt: node => forkUserPrompt(sessionId, node),
         modeController: overlay,
         onRefresh: callback => remoteActions.onRefresh(sessionId, callback),
+        lineage: forkLineage,
+        openSession: (id: SessionId) => { ctx.sessions.open(id) },
       }),
     } as never, SessionTreeDock as never)
     overlay.setNativePanel(true)
@@ -290,7 +323,7 @@ function registerSessionTreeUi(ctx: ClientContext): void {
   ctx.on('command/executed', (sessionId: SessionId, name: string, result: CommandResult) => {
     if (name === 'tree') {
       if (overlay.getSnapshot().nativePanel) {
-        (ctx.layout.openDetails as (panel?: string) => void)('session-tree')
+        openSessionTreePanel(ctx.layout as unknown as SessionTreeLayoutActions)
       } else {
         overlay.open()
       }
@@ -311,7 +344,7 @@ function registerSessionTreeUi(ctx: ClientContext): void {
           // In the native details-dock profile, /fork must also make the dock
           // visible; the selector state alone only switches the overlay drawer.
           if (overlay.getSnapshot().nativePanel) {
-            (ctx.layout.openDetails as (panel?: string) => void)('session-tree')
+            openSessionTreePanel(ctx.layout as unknown as SessionTreeLayoutActions)
           }
         }
         else if (payload.value?.nativeForkRequired === true) {

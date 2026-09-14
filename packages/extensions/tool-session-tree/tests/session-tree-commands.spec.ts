@@ -59,7 +59,7 @@ function stubAgent(rawId: string, cwd?: string): Agent {
   const id = SessionId(rawId)
   const session = cwd === undefined
     ? Session.create(id)
-    : Session.create(id, undefined, { version: 0, id, createdAt: 0, cwd })
+    : Session.create(id, undefined, { version: 3, id, createdAt: 0, cwd, isSeeded: false })
   return {
     id: session.id,
     options: {},
@@ -137,7 +137,7 @@ function expectError(result: unknown, code: string): void {
 /** Seed one durable two-turn conversation (root user + assistant answer). */
 function seedTurns(agent: Agent): void {
   agent.session.append('user/message', { id: 'm-root', role: 'user', content: [{ type: 'text', text: 'root' }], source: { kind: 'user' } } as never, { surfaceOp: 'append' })
-  agent.session.append('assistant/message', { turn: 1, step: 1, message: { id: 'm-answer', role: 'assistant', content: [{ type: 'text', text: 'answer' }], source: { kind: 'model', provider: 'p', model: 'm' } } } as never, { surfaceOp: 'append' })
+  agent.session.append('assistant/message', { turn: 1, step: 1, stream: [], message: { id: 'm-answer', role: 'assistant', content: [{ type: 'text', text: 'answer' }], source: { kind: 'model', provider: 'p', model: 'm' } } } as never, { surfaceOp: 'append' })
 }
 
 /** A patched-Harness session: real Session plus the selected-surface API. */
@@ -151,7 +151,7 @@ function nativeLikeSession(rawId: string, seed?: readonly SessionEvent[]): Nativ
   let selected: readonly number[] | null = null
   return {
     id: real.id,
-    get events() { return real.events },
+    snapshotEvents: () => real.snapshotEvents(),
     append: real.append.bind(real) as Session['append'],
     surface: real.surface,
     requestContext: () => ({ provider: 'p', model: 'm' }),
@@ -208,12 +208,12 @@ describe('/fork command', () => {
       step: 1,
       message: { id: 'm-answer', role: 'assistant', content: [{ type: 'text', text: 'assistant only' }] },
     } as never, { surfaceOp: 'append' })
-    const sourceSurfaceEvents = structuredClone(agent.session.events.filter(event => event.type !== 'command/run' && event.type !== 'command/done'))
+    const sourceSurfaceEvents = structuredClone(agent.session.snapshotEvents().filter(event => event.type !== 'command/run' && event.type !== 'command/done'))
 
     const outcome = await command(ctx, agent, '/fork')
     expect(outcome.kind).toBe('success')
     expect(expectOk(outcome.json)).toEqual({ selectorRequired: true, userNodeCount: 0 })
-    expect(agent.session.events.filter(event => event.type !== 'command/run' && event.type !== 'command/done')).toEqual(sourceSurfaceEvents)
+    expect(agent.session.snapshotEvents().filter(event => event.type !== 'command/run' && event.type !== 'command/done')).toEqual(sourceSurfaceEvents)
     expect(service.list(agent).nodes.some(node => node.message?.role === 'user')).toBe(false)
   })
 
@@ -319,7 +319,7 @@ describe('/clone command', () => {
     const root = service.list(agent).nodes[0]!
     // A stock-mode jump writes a synthetic cursor event into the source log.
     service.jump(agent, root.nodeId)
-    expect(agent.session.events.some(event => event.type === 'assistant/message' && (event.data as { treeRestore?: unknown }).treeRestore !== undefined)).toBe(true)
+    expect(agent.session.snapshotEvents().some(event => event.type === 'system/message' && (event.data as { treeRestore?: unknown }).treeRestore !== undefined)).toBe(true)
     // A durable snapshot event whose embedded sessionId must be rewritten.
     const snapshot = treeOf('cmd-clone-seed').snapshot()
     agent.session.append('session-tree/snapshot', { snapshot } as never)
@@ -632,6 +632,7 @@ describe('sessionTree Remote service', () => {
     agent.session.append('assistant/message', {
       turn: 0,
       step: 0,
+      stream: [],
       message: {
         id: 'm-answer',
         role: 'assistant',
@@ -642,7 +643,7 @@ describe('sessionTree Remote service', () => {
     agent.session.append('turn/end', { turn: 0, reason: { kind: 'completed' } })
     const root = service.list(agent).nodes.find(node => node.message?.role === 'user')
     if (root === undefined) throw new Error('expected user root')
-    const sourceEvents = structuredClone(agent.session.events)
+    const sourceEvents = structuredClone(agent.session.snapshotEvents())
 
     const forked = await service.forkSession(agent, root.nodeId, 'seed-check')
     expect(created).toHaveLength(1)
@@ -653,7 +654,7 @@ describe('sessionTree Remote service', () => {
 
     const target = Session.create(SessionId('remote-fork-seed-replay'), created[0]?.seed)
     expect(target.deriveMessages().map(message => message.role)).toEqual(['user'])
-    expect(agent.session.events).toEqual(sourceEvents)
+    expect(agent.session.snapshotEvents()).toEqual(sourceEvents)
   })
 
   it('forks with the default branch name and throws the standard error for unknown nodes', async () => {
@@ -662,14 +663,14 @@ describe('sessionTree Remote service', () => {
     seedTurns(agent)
     const root = service.list(agent).nodes[0]!
 
-    const sourceEvents = structuredClone(agent.session.events)
+    const sourceEvents = structuredClone(agent.session.snapshotEvents())
     const forked = await service.forkSession(agent, root.nodeId, '')
     expect(forked).toMatchObject({ cursor: root.nodeId, branch: 'fork' })
     expect(forked.sessionId).toMatch(/^remote-fork-fork-/u)
     expect(forked.prompt).toBe('root')
     expect(forked.previousUserPrompt).toBeUndefined()
     // The source log is read-only: no branch marker or other event is added.
-    expect(agent.session.events).toEqual(sourceEvents)
+    expect(agent.session.snapshotEvents()).toEqual(sourceEvents)
     // The independent copy contains only the selected root-to-node path.
     const target = treeOf(forked.sessionId!)
     expect(target.list()).toHaveLength(1)
@@ -687,7 +688,7 @@ describe('sessionTree Remote service', () => {
     const { service } = await harness()
     const agent = stubAgent('remote-fork-leaf')
     agent.session.append('user/message', { id: 'm-root', role: 'user', content: [{ type: 'text', text: 'root' }], source: { kind: 'user' } } as never, { surfaceOp: 'append' })
-    agent.session.append('assistant/message', { turn: 1, step: 1, message: { id: 'm-answer', role: 'assistant', content: [{ type: 'text', text: 'answer' }] } } as never, { surfaceOp: 'append' })
+    agent.session.append('assistant/message', { turn: 1, step: 1, stream: [], message: { id: 'm-answer', role: 'assistant', content: [{ type: 'text', text: 'answer' }] } } as never, { surfaceOp: 'append' })
     const root = service.list(agent).nodes[0]!
     // Start a real alternative branch from root; the first-turn assistant is
     // a sibling, not an ancestor, of the selected retry prompt.
@@ -695,7 +696,7 @@ describe('sessionTree Remote service', () => {
     agent.session.append('user/message', { id: 'm-leaf', role: 'user', content: [{ type: 'text', text: 'retry prompt' }], source: { kind: 'user' } } as never, { surfaceOp: 'append' })
     const tree = service.list(agent)
     const leaf = tree.nodes.find(node => node.summary === 'retry prompt')!
-    const sourceEvents = structuredClone(agent.session.events)
+    const sourceEvents = structuredClone(agent.session.snapshotEvents())
 
     const forked = await service.forkSession(agent, leaf.nodeId, 'retry')
     expect(forked.prompt).toBe('retry prompt')
@@ -705,7 +706,7 @@ describe('sessionTree Remote service', () => {
     expect(target.list().some(node => node.summary === 'answer')).toBe(false)
     expect(target.cursor).toBe(leaf.nodeId)
     expect(target.activeBranch).toBe('retry')
-    expect(agent.session.events).toEqual(sourceEvents)
+    expect(agent.session.snapshotEvents()).toEqual(sourceEvents)
   })
 
   it('creates an empty tree on first read and serves session info', async () => {
@@ -772,7 +773,7 @@ describe('native surface mode (patched Harness)', () => {
     const forked = service.branchInPlace(agent, root.nodeId, 'durable-alt')
     expect(forked).toMatchObject({ cursor: root.nodeId, branch: 'durable-alt' })
     expect(session.messageSurfaceNodes()).toEqual([0])
-    const durable = session.events.filter(event => event.type.startsWith('session-tree/'))
+    const durable = session.snapshotEvents().filter(event => event.type.startsWith('session-tree/'))
     expect(durable.map(event => `${event.type}:${(event.data as { nodeId?: string }).nodeId}`)).toEqual([
       `session-tree/cursor:${root.nodeId}`,
       `session-tree/selection:${root.nodeId}`,
@@ -780,7 +781,7 @@ describe('native surface mode (patched Harness)', () => {
       `session-tree/selection:${root.nodeId}`,
     ])
     // The durable log stays replayable: canonical history survives verbatim.
-    const replayed = Session.create(SessionId('native-fork-replay'), session.events.slice())
+    const replayed = Session.create(SessionId('native-fork-replay'), session.snapshotEvents().slice())
     expect(replayed.deriveMessages()).toHaveLength(2)
   })
 
@@ -801,7 +802,7 @@ describe('native surface mode (patched Harness)', () => {
     expect(expectedSurface).toHaveLength(2)
 
     // Fresh process: a new session replays the same durable log.
-    const revivedSession = nativeLikeSession('native-resume-2', source.events.slice())
+    const revivedSession = nativeLikeSession('native-resume-2', source.snapshotEvents().slice())
     const revived = withSession(stubAgent('native-resume-2'), revivedSession)
     const tree = syncSessionTree(revived)
     const alt = tree.list().find(node => node.summary === 'alt turn')
@@ -822,10 +823,10 @@ describe('native surface mode (patched Harness)', () => {
     seedTurns(agent)
     const root = service.list(agent).nodes[0]!
     service.jump(agent, root.nodeId)
-    const durable = source.events.filter(event => event.type.startsWith('session-tree/'))
+    const durable = source.snapshotEvents().filter(event => event.type.startsWith('session-tree/'))
     expect(durable.map(event => event.type)).toEqual(['session-tree/cursor', 'session-tree/selection'])
 
-    const revivedSession = nativeLikeSession('native-jump-resume-2', source.events.slice())
+    const revivedSession = nativeLikeSession('native-jump-resume-2', source.snapshotEvents().slice())
     const revived = withSession(stubAgent('native-jump-resume-2'), revivedSession)
     const tree = syncSessionTree(revived)
     expect(tree.cursor).toBe(root.nodeId)

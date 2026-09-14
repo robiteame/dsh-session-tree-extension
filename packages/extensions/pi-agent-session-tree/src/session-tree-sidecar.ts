@@ -14,7 +14,15 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { SessionTree } from './session-tree.ts'
 import type { SessionTreeSnapshot } from './types.ts'
 
-const SIDECAR_VERSION = 1
+/**
+ * Sidecar format version.
+ * - 1 — initial projection cache.
+ * - 2 — user-message nodes carry `metadata.injected` for harness-injected
+ *   context (skill prompts, system-prompt snapshots). Older caches hold
+ *   unmarked injected nodes, so they fail validation and the tree re-projects
+ *   deterministically from the native Session log.
+ */
+const SIDECAR_VERSION = 2
 
 /** One sidecar artifact: versioned ownership plus the latest tree snapshot. */
 interface SessionTreeSidecarRecord {

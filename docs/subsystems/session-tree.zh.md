@@ -76,6 +76,25 @@ interface JumpView {
 }
 ```
 
+## 合并的 WebUI 图
+
+生产环境中的右侧面板把当前 Session 的谱系展示为一张 git 风格分叉图，而不是
+“单个 Session + 独立分支摘要”。会话层拓扑来自官方响应式会话列表的
+`parentId`，以仍存在的最早祖先为根按 DFS 前序展开，并排除
+`origin === 'subagent'` 的 Session。节点层拓扑则通过
+`sessionTree.list(sessionId)` 对谱系中的每个 Session 做只读拉取。
+
+原生 `/fork` 与 `/clone` 会复制源日志前缀并保留事件 seq，因此构建器只对
+根路径上 `nodeId` 与 `sessionEventSeq` 同时一致的最长共享前缀去重。分叉点
+之后的节点保留 Session 限定身份，兄弟分支即使复用同一 seq 也不会
+重复渲染。分叉点行显示主会话/分叉/克隆徽标；当前 Session 及其路径使用活动
+高亮；分支与节点收起状态都使用 Session 限定 key。
+
+加载过程会去抖并通过 `Promise.allSettled` 扇出。成功视图会保留，会话列表
+或 lineage 变化会触发重新读取，单个 Session 失败只会生成局部错误占位，
+不影响图的其余部分。点击其他 Session 的节点会先打开该 Session，再跳到
+目标节点。图形栏固定为 44px 并复用五条 lane，因此树深不会撑宽行内容。
+
 ## 持久化
 
 Harness Session 事件是持久化真源，树存储是增量同步的投影。
@@ -130,7 +149,7 @@ type TreeResult<T> =
 - `session_tree` 工具（`@robiteame/dsh-tool-session-tree`）：`create`、`append`、`list`、`branches`、`tree`、`jump`、`fork`、`clone`、`context`、`session`、`branch`、`branch.summary`、`snapshot.save`、`snapshot.load`、`sessions`。
 - `/tree` 命令族：`list`、`branches`、`tree`、`context`、`jump <nodeId>`、`branch <nodeId> <name>`、`snapshot save`、`snapshot load <json>`。`/fork` 打开用户消息选择器并把选中路径复制到同项目新 session；`/clone` 把当前会话完整复制到同项目新 session。
 - `sessionTree` Remote 服务（`@robiteame/dsh-pi-agent-session-tree`）：`list(agent)`、`jump(agent, nodeId)`、`fork(agent, nodeId, branch)`、`forkSession(agent, nodeId, branch)` 与 `session(agent)` 驱动浏览器面板；`forkSession` 是用户面的独立副本操作。
-- `@robiteame/dsh-client-ui-session-tree`：在打补丁的源码集成中占用原生右侧详情栏的 `conversation.details.panel`；在官方 Web profile 中使用叠加式 `shell.overlay`。`/tree` 打开或刷新视图，节点点击绑定命令上下文；固定图形栏不会随树深度横向增长。第二个 `shell.overlay` 条目（`session-tree-branches`）把可折叠分叉菜单直接挂载到原父会话的原生列表项之后：`/fork` 子会话以连接轨道和逐级展开/收起嵌套展示，子会话标题取选中节点上一条用户消息；拓扑来自原生分叉 API 写入的响应式 `parentId`，UI 层标注注册表只区分 `/fork` 与 `/clone`，clone 会话保持原有侧边栏展示。
+- `@robiteame/dsh-client-ui-session-tree`：在打补丁的源码集成中占用原生右侧详情栏的 `conversation.details.panel`；在官方 Web profile 中使用叠加式 `shell.overlay`。`/tree` 打开或刷新视图，节点点击绑定命令上下文。面板把当前谱系中所有非 subagent 会话合并为一张图，高亮当前打开会话的路径，并把图形栏固定为 44px。第二个 `shell.overlay` 条目（`session-tree-branches`）则独立把可折叠分叉菜单挂载到原父会话的原生列表项之后；拓扑来自原生分叉 API 写入的响应式 `parentId`，UI 层标注注册表区分 `/fork` 与 `/clone`。
 
 ## Cordis API
 

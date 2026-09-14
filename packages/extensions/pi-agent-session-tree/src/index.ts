@@ -19,15 +19,16 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { SessionId as toSessionId } from '@deepseek-ai/dsh-session'
+import { SessionId as toSessionId, SessionSeq } from '@deepseek-ai/dsh-session'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { Session } from '@deepseek-ai/dsh-session'
 import { isSurfaceEvent } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionEventMap } from '@deepseek-ai/dsh-session/types'
 import { TypertRemoteService, Remote } from '@deepseek-ai/dsh-typert-protocol'
 import { SessionTree, sessionTreeStore } from './session-tree.ts'
-import { attachToolResult, sessionEventsToTreeNodes, toolResultOf } from './session-event-adapter.ts'
+import { attachToolResult, isInjectedUserNode, sessionEventsToTreeNodes, toolResultOf } from './session-event-adapter.ts'
 import { getSessionTreeSidecar, persistSessionTree } from './session-tree-sidecar.ts'
+import { isSessionTreeRestoreEvent } from './session-tree-marker.ts'
 import type {
   JumpView,
   SessionTreeForkView,
@@ -38,7 +39,7 @@ import type {
 
 export { SessionTree, SessionTreeStore, sessionTreeStore } from './session-tree.ts'
 export type * from './types.ts'
-export { attachToolResult, sessionEventsToTreeNodes, toolResultOf, type ProjectedToolResult } from './session-event-adapter.ts'
+export { attachToolResult, isInjectedUserNode, isInjectedUserSource, sessionEventsToTreeNodes, toolResultOf, type ProjectedToolResult } from './session-event-adapter.ts'
 export { getSessionTreeSidecar, persistSessionTree, setSessionTreeSidecar, SessionTreeSidecar } from './session-tree-sidecar.ts'
 export { isSessionTreeRestoreEvent, sessionTreeMarkerOf, type SessionTreeRestoreMarker } from './session-tree-marker.ts'
 
@@ -239,7 +240,7 @@ export function sessionPathForkSeed(
   return kept.map((event, index) => {
     seedIndexBySourceSeq.set(event.seq, index)
     const record = JSON.parse(JSON.stringify(event)) as SessionEvent
-    record.seq = index
+    record.seq = SessionSeq(index)
     // A copied subset cannot keep replace ranges that point at omitted source
     // seqs. All retained path events become appends in the target's own space.
     if (isSurfaceEvent(record)) {
@@ -391,6 +392,13 @@ export function syncSessionTree(agent: Agent, options: SyncSessionTreeOptions = 
 /** Surface event seqs making up the tree's current root-to-cursor path. */
 function selectedSurfaceSeqs(tree: SessionTree, session: Session): number[] {
   const seqs: number[] = []
+  // The tree projection intentionally omits system messages, but the active
+  // system prompt remains the protected head of the model surface.
+  for (const rawSeq of session.surface.nodes) {
+    const seq = rawSeq as number
+    const event = sessionEvents(session)[seq]
+    if (event?.type === 'system/message' && !isSessionTreeRestoreEvent(event)) seqs.push(seq)
+  }
   for (const node of tree.currentPath()) {
     // A merged tool node carries two native seqs: the call (metadata-only, not
     // a surface event) and the result (a real surface event that must stay on
@@ -412,33 +420,37 @@ function selectedSurfaceSeqs(tree: SessionTree, session: Session): number[] {
 function appendStockCursorEvent(
   session: Session,
   tree: SessionTree,
-  logSurfaceNodes: readonly number[],
-): SessionEvent<'assistant/message'> | undefined {
+  logSurfaceNodes: readonly SessionSeq[],
+): SessionEvent<'system/message'> | undefined {
   if (logSurfaceNodes.length === 0) return undefined
-  const context = session.requestContext()
   const marker = { kind: 'cursor' as const, nodeId: tree.cursor }
   const data = {
     turn: 0,
     step: 0,
     message: {
-      role: 'assistant' as const,
+      role: 'system' as const,
       content: [],
       id: `session-tree-cursor-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
       source: {
-        kind: 'model' as const,
-        provider: context?.provider ?? 'session-tree',
-        model: context?.model ?? 'cursor',
+        kind: 'plugin' as const,
+        plugin: '@robiteame/dsh-pi-agent-session-tree',
       },
     },
     treeRestore: marker,
-  } as unknown as SessionEventMap['assistant/message']
+  } as unknown as SessionEventMap['system/message']
   // The replace range must be expressed against the surface a fresh replay of
   // the log would build: the live node list was rewritten in place by earlier
   // navigations, so ranges taken from it reference seqs the replayed surface
   // no longer contains and make the stored session fail resume validation.
-  return session.append('assistant/message', data, {
-    surfaceOp: { op: 'replace', start: logSurfaceNodes[0]!, end: logSurfaceNodes[logSurfaceNodes.length - 1]! },
-    sourceEventSeqs: [...logSurfaceNodes],
+  // A system head is protected by Harness and may only be replaced on its own;
+  // all later surface nodes can be replaced together by this empty marker.
+  const firstEvent = sessionEvents(session)[logSurfaceNodes[0] as number]
+  const startIndex = firstEvent?.type === 'system/message' && logSurfaceNodes.length > 1 ? 1 : 0
+  const startSeq = logSurfaceNodes[startIndex]!
+  const endSeq = logSurfaceNodes[logSurfaceNodes.length - 1]!
+  return session.append('system/message', data, {
+    surfaceOp: { op: 'replace', startSeq, endSeq },
+    sourceEventSeqs: logSurfaceNodes.slice(startIndex),
   })
 }
 
@@ -448,8 +460,8 @@ function appendStockCursorEvent(
  * diverges from the log after the first navigation; this walk reconstructs the
  * replayed truth so every emitted replace event stays resume-valid.
  */
-function canonicalSurfaceNodes(session: Session): number[] {
-  const nodes: number[] = []
+function canonicalSurfaceNodes(session: Session): SessionSeq[] {
+  const nodes: SessionSeq[] = []
   for (const event of sessionEvents(session)) {
     if (!isSurfaceEvent(event)) continue
     if (event.surfaceOp === 'append') {
@@ -457,8 +469,8 @@ function canonicalSurfaceNodes(session: Session): number[] {
       continue
     }
     if (event.surfaceOp !== undefined && event.surfaceOp.op === 'replace') {
-      const start = nodes.indexOf(event.surfaceOp.start)
-      const end = nodes.indexOf(event.surfaceOp.end)
+      const start = nodes.indexOf(event.surfaceOp.startSeq)
+      const end = nodes.indexOf(event.surfaceOp.endSeq)
       if (start < 0 || end < start) continue
       nodes.splice(start, end - start + 1, event.seq)
     }
@@ -699,7 +711,6 @@ export class SessionTreeService extends TypertRemoteService {
         ...(seed.length === 0 ? {} : { seed }),
         meta: {
           parentSession: source.id,
-          seedLength: seed.length,
           // Harness history/list only serves ordinary Sessions with a cwd.
           // Inherit the source project so the fork is a usable real Session
           // instead of a store-only id that fails session/not-found.
@@ -721,10 +732,12 @@ export class SessionTreeService extends TypertRemoteService {
     persistSessionTree(targetTree)
     // Unlike legacy fork(), the source tree is not branched or selected.
     const forkCount = tree.list().filter(node => node.parentId === nodeId).length
+    // The fork-menu title names the previous TYPED prompt; harness injections
+    // (skill catalog, system-prompt snapshot) on the path never qualify.
     const previousUser = path
       .slice(0, -1)
       .reverse()
-      .find(node => node.message?.role === 'user')
+      .find(node => node.message?.role === 'user' && !isInjectedUserNode(node))
     return {
       cursor: nodeId,
       branch: branchName,

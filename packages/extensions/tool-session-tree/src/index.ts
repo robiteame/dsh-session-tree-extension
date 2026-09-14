@@ -17,12 +17,12 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import { SessionId as toSessionId } from '@deepseek-ai/dsh-session'
+import { SessionId as toSessionId, SessionSeq } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-agent'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
-import { appendSessionTreeEvent, applyTreeCursorToSession, isSessionTreeRestoreEvent, persistSessionTree, SessionTree, sessionTreeStore, sessionTreeSurfaceMode, supportsDurableSessionTreeEvents, syncSessionTree } from '@robiteame/dsh-pi-agent-session-tree'
+import { appendSessionTreeEvent, applyTreeCursorToSession, isInjectedUserNode, isSessionTreeRestoreEvent, persistSessionTree, SessionTree, sessionTreeStore, sessionTreeSurfaceMode, supportsDurableSessionTreeEvents, syncSessionTree } from '@robiteame/dsh-pi-agent-session-tree'
 import type { JsonValue } from '@robiteame/dsh-pi-agent-session-tree'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 import type {} from '@deepseek-ai/dsh-system-prompt'
@@ -296,7 +296,9 @@ function runForkCommand(invocation: CommandInvocation): CommandResult {
   // cursor/branch marker or otherwise mutate the source Session. The selector
   // load is what safely projects an existing tree before the user chooses.
   const tree = syncSessionTree(invocation.agent, { applySurface: false, persist: false })
-  const userNodeCount = tree.list().filter(node => node.message?.role === 'user').length
+  // Only typed human prompts are forkable; harness-injected user-role events
+  // (skill prompts, system-prompt snapshots) never count as selection targets.
+  const userNodeCount = tree.list().filter(node => node.message?.role === 'user' && !isInjectedUserNode(node)).length
   return jsonCommand({
     ok: true,
     value: { selectorRequired: true, userNodeCount },
@@ -311,7 +313,7 @@ async function cloneActiveSession(ctx: Context, agent: NonNullable<ToolRunContex
   // durable event log verbatim; the shared store then projects the identical
   // tree. Snapshot events are rewritten so their embedded sessionId matches the
   // target (otherwise a resumed clone would reject the seed as foreign).
-  const seed: SessionEvent[] = agent.session.events
+  const seed: SessionEvent[] = [...agent.session.snapshotEvents()]
     // Synthetic stock-mode cursor events exist only to invalidate the SOURCE
     // session's deriveMessages cache; replayed inside a clone they would empty
     // its rebuilt surface. The clone's tree projection comes from the store
@@ -322,21 +324,21 @@ async function cloneActiveSession(ctx: Context, agent: NonNullable<ToolRunContex
       if (record.type === 'session-tree/snapshot') {
         record.data = { ...record.data, snapshot: { ...record.data.snapshot, sessionId: toSessionId(target) } }
       }
-      record.seq = index
+      record.seq = SessionSeq(index)
       return record
     })
   const seedTime = Date.now()
   if (supportsDurableSessionTreeEvents(agent.session)) {
     seed.push({
       type: 'session-tree/cursor',
-      seq: seed.length,
+      seq: SessionSeq(seed.length),
       time: seedTime + seed.length,
       data: { nodeId: focusId },
     })
     if (focusId !== null) {
       seed.push({
         type: 'session-tree/selection',
-        seq: seed.length,
+        seq: SessionSeq(seed.length),
         time: seedTime + seed.length,
         data: { nodeId: focusId },
       })
@@ -349,7 +351,6 @@ async function cloneActiveSession(ctx: Context, agent: NonNullable<ToolRunContex
       sessionId: toSessionId(target),
       seed,
       meta: {
-        seedLength: seed.length,
         // Keep the clone in the source's project so the Host history/list
         // services can serve it as an ordinary Session.
         cwd: agent.session.header.cwd ?? process.cwd(),

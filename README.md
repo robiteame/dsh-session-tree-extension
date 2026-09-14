@@ -3,19 +3,19 @@
 [![npm](https://img.shields.io/npm/v/@robiteame/dsh-session-tree)](https://www.npmjs.com/package/@robiteame/dsh-session-tree)
 [![CI](https://github.com/robiteame/dsh-session-tree-extension/actions/workflows/ci.yml/badge.svg)](https://github.com/robiteame/dsh-session-tree-extension/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
-[![Harness](https://img.shields.io/badge/DeepSeek--Harness-0.1.2--alpha.3-orange)](https://github.com/deepseek-ai/deepseek-harness)
+[![Harness](https://img.shields.io/badge/DeepSeek--Harness-0.1.5--rc.2-orange)](https://github.com/deepseek-ai/deepseek-harness)
 
 Append-only, multi-branch conversation trees for
 [DeepSeek-Harness](https://github.com/deepseek-ai/deepseek-harness) — fork any
-historical node, clone a branch into a new session, and browse the whole tree
-in a WebUI panel. Old history is never edited or deleted.
+historical node, clone a branch into a new session, and browse the whole
+lineage as one merged WebUI graph. Old history is never edited or deleted.
 
 Three commands:
 
 | Command | What it does |
 |---|---|
-| `/tree` | Open the session-tree panel: every node of the conversation, clickable and bindable |
-| `/fork` | Branch from any historical node — the fork appears as an inline menu under its source session |
+| `/tree` | Open the merged lineage graph: every non-subagent session and node, clickable and bindable |
+| `/fork` | Branch from any historical node — the fork appears in the graph and as an inline menu under its source session |
 | `/clone` | Duplicate the current conversation into an independent new session under the same project |
 
 ## Screenshots
@@ -50,7 +50,7 @@ dsh plugin --profile <profile> add @robiteame/dsh-session-tree
 Prebuilt tarballs install the same way and need no build scripts:
 
 ```sh
-dsh plugin --profile <profile> add robiteame-dsh-session-tree-0.2.0.tgz
+dsh plugin --profile <profile> add robiteame-dsh-session-tree-0.3.0.tgz
 ```
 
 After installing, restart the profile. The composition gains three rows
@@ -61,7 +61,7 @@ Host service, the commands, and the browser panel. Verify the composed layer:
 dsh --profile <profile> --dump-config   # should list the three session-tree rows
 ```
 
-Requires DeepSeek-Harness `0.1.2-alpha.3` (or a compatible `0.1.2` build) and
+Requires DeepSeek-Harness `0.1.5-rc.2` (or a compatible `0.1.5` build) and
 Cordis `^4.0.2`; the target installation provides those peers. No install
 scripts run — the tarballs ship prebuilt `lib/` artifacts.
 
@@ -69,22 +69,24 @@ scripts run — the tarballs ship prebuilt `lib/` artifacts.
 
 ### `/tree` — open the tree panel
 
-`/tree` opens the right-side panel listing every node of the current
-conversation — user messages, assistant replies, tool calls, model switches —
-each with its role, branch, and a preview. Click a node to bind it; branch
-commands then operate on that node. Collapse and expand subtrees to focus on
-the path you care about.
+`/tree` opens the right-side panel as one merged graph for the current
+session's lineage: ancestors, forks, and clones appear in a single git-style
+view, with user messages, assistant replies, tool calls, and model switches
+shown as connected nodes. Shared copied prefixes are deduplicated, fork points
+carry session badges, and the current session's path stays highlighted. Click
+a node to bind it; clicking a node owned by another session opens that session
+first. Collapse individual subtrees or whole session branches to focus the
+graph.
 
 ### `/fork` — branch from any historical node
 
 `/fork` picks an earlier user prompt and grows a new branch from there: the
 conversation continues along the new path while the original one stays intact.
 The fork is created through the official native fork API, so it appears in the
-session list with real parent linkage — the plugin renders it as an inline
-collapsible menu directly beneath its source session's row, with connector
-rails and per-level expand/collapse. The menu updates live from the official
-reactive session list, and `/clone` children keep their ordinary sidebar
-presentation.
+session list with real parent linkage. The plugin adds the new branch to the
+merged graph and also renders it as an inline collapsible menu directly beneath
+its source session's row. Both views follow the official reactive session list,
+so new branches appear without a refresh.
 
 ### `/clone` — duplicate into a new session
 
@@ -137,7 +139,7 @@ pnpm verify      # build + typecheck (host & client) + pack dry-run + vitest
 pnpm pack:all    # produce the four tarballs
 ```
 
-Tests run against the published Harness packages (`0.1.2-alpha.3`) — the
+Tests run against the published Harness packages (`0.1.5-rc.2`) — the
 stock-mode paths — with `vitest` from the repository root. The browser spec in
 `packages/client/ui-session-tree` needs the Harness client test runtime and
 runs inside a source-integrated checkout.

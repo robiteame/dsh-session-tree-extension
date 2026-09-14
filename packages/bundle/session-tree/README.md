@@ -26,7 +26,7 @@ dsh plugin --profile <profile> add robiteame-dsh-session-tree-0.1.0.tgz
 This package carries no code of its own: `dependencies` pulls the three
 implementation packages into the profile workspace and `dsh.bundle.patch`
 points the composition loader at them. Requires DeepSeek-Harness
-`0.1.2-alpha.3` or a compatible `0.1.2` build and Cordis `^4.0.2`; the
+`0.1.5-rc.2` or a compatible `0.1.5` build and Cordis `^4.0.2`; the
 target installation provides those peers.
 
 See the [repository README](https://github.com/robiteame/dsh-session-tree-extension)

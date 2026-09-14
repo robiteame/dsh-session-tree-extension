@@ -211,6 +211,10 @@
   background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 12%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--dsw-alias-state-business-primary) 34%, transparent);
 }
+.nodePath {
+  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 7%, transparent);
+}
+.nodePlaceholder { opacity: .7; }
 
 .expander,
 .expanderPlaceholder {
@@ -256,6 +260,8 @@
   stroke-width: 1.25;
 }
 .edge { stroke: var(--dsw-alias-label-tertiary); }
+.railActive,
+.edgeActive { stroke: var(--dsw-alias-state-business-primary); }
 .dot {
   fill: var(--dsw-alias-bg-base);
   stroke: var(--dsw-alias-label-secondary);
@@ -267,6 +273,83 @@
   stroke-width: 2;
 }
 .dotCore { fill: var(--dsw-alias-state-business-primary); }
+
+.nodeContent {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+}
+
+.branchBadgeLine {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding: 3px 4px 0;
+}
+
+.branchBadgeButton,
+.branchBadgeStatic {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 1px 0;
+}
+
+.branchBadgeButton {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.branchBadgeButton:hover { opacity: .78; }
+.branchBadgeButton:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: -2px;
+}
+
+.mainBadge,
+.forkBadge,
+.cloneBadge,
+.currentChip {
+  flex: none;
+  font-size: 10px;
+  line-height: 14px;
+}
+.mainBadge { color: var(--dsw-alias-label-secondary); }
+.forkBadge { color: var(--dsw-alias-state-business-primary); }
+.cloneBadge { color: var(--dsw-alias-state-warning-primary, var(--dsw-alias-state-business-primary)); }
+.currentChip {
+  padding: 0 4px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 14%, transparent);
+  color: var(--dsw-alias-state-business-primary);
+}
+.branchChip {
+  flex: none;
+  overflow: hidden;
+  max-width: 96px;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--dsw-specific-tip);
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 10px;
+  line-height: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.runningDot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--dsw-alias-state-success-primary, var(--dsw-alias-state-business-primary));
+}
 
 .select {
   display: flex;
@@ -331,10 +414,10 @@
   white-space: nowrap;
 }
 /* Keep rows compact normally, but never discard the underlying message text.
-   Hovering the row or keyboard-focusing its select button reveals the complete
-   content inside a bounded scroll area, avoiding native-tooltip length limits. */
-.node:hover .summary,
-.select:focus-visible .summary {
+   Clicking the row (or activating it with the keyboard — the same click path)
+   reveals the complete content inside a bounded scroll area; hovering never
+   expands anything, avoiding native-tooltip length limits. */
+.nodeMessageOpen .summary {
   overflow-x: hidden;
   overflow-y: auto;
   max-height: min(60vh, 560px);
@@ -349,6 +432,11 @@
   padding: 0;
   border-radius: 6px;
   font-size: 14px;
+}
+.forkActionPlaceholder {
+  align-self: center;
+  width: 28px;
+  height: 26px;
 }
 
 .empty,

@@ -13,6 +13,7 @@ import {
   type SessionTreeRemoteActions,
 } from '../src/client/SessionTreeOverlay.tsx'
 import { SessionBranchList } from '../src/client/SessionBranchList.tsx'
+import { buildBranchTreeModel, buildSessionGraphModel } from '../src/client/session-graph.ts'
 import { SessionForkLineage, FORK_LINEAGE_STORAGE_KEY } from '../src/client/fork-lineage.ts'
 import { apply, inject } from '../src/client/index.ts'
 import type { SessionTreePanelActions } from '../src/client/slots.ts'
@@ -23,8 +24,13 @@ const t = (key: string): string => zh[key as keyof typeof zh] ?? key
 function node(nodeId: string, parentId: string | null, summary: string, branch = 'main'): TreeNode {
   return { nodeId, parentId, branch, summary, createdAt: `2026-01-01T00:00:0${nodeId.length}.000Z`, message: { role: 'user', content: summary } }
 }
-function view(cursor: string | null, nodes: TreeNode[], selectedNodeId: string | null = cursor): SessionTreeView {
-  return { sessionId: sid('s1'), cursor, selectedNodeId, activeBranch: 'main', nodes, branches: [{ name: 'main', headId: nodes.at(-1)?.nodeId ?? '', nodeIds: nodes.map(item => item.nodeId) }] }
+function view(
+  cursor: string | null,
+  nodes: TreeNode[],
+  selectedNodeId: string | null = cursor,
+  sessionId: SessionId = sid('s1'),
+): SessionTreeView {
+  return { sessionId, cursor, selectedNodeId, activeBranch: 'main', nodes, branches: [{ name: 'main', headId: nodes.at(-1)?.nodeId ?? '', nodeIds: nodes.map(item => item.nodeId) }] }
 }
 
 interface TestEditor {
@@ -269,6 +275,19 @@ describe('session tree browser plugin', () => {
         },
       },
       { type: 'event', event: { type: 'turn/end', seq: 5 } },
+      // Harness injection after the previous typed prompt: it is the nearest
+      // user/message before the selection, but must never become the fork title.
+      {
+        type: 'event',
+        event: {
+          type: 'user/message',
+          seq: 6,
+          data: {
+            content: [{ type: 'text', text: '<system-reminder>skill catalog</system-reminder>' }],
+            source: { kind: 'skill-catalog' },
+          },
+        },
+      },
       { type: 'event', event: { type: 'user/message', seq: 8 } },
       { type: 'event', event: { type: 'turn/end', seq: 9 } },
     ]
@@ -585,23 +604,65 @@ describe('session tree browser plugin', () => {
     expect(container.querySelector('[data-node-id="tool-failed"]')?.getAttribute('class')).toContain('nodeError')
   })
 
-  it('keeps the complete long message in the row and hover title', async () => {
+  it('expands the complete long message on click instead of hover', async () => {
     const full = `begin-${'x'.repeat(4200)}-end`
     const longNode: TreeNode = {
       nodeId: 'long', parentId: null, type: 'message', branch: 'main',
       summary: `${full.slice(0, 297)}...`, createdAt: '2026-01-01T00:00:01.000Z',
       message: { role: 'user', content: full },
     }
+    const jump = vi.fn(async (nodeId: string | null) => ({ cursor: nodeId, messages: [] }))
     const Panel = SessionTreeDock as unknown as ComponentType<Record<string, unknown>>
     const { container } = render(<Panel
       sessionId={sid('long')} panel="session-tree" closeDetails={vi.fn()} t={t}
       load={async () => view('long', [longNode], 'long')}
-      jump={vi.fn()} fork={vi.fn()}
+      jump={jump} fork={vi.fn()}
     />)
     await waitFor(() => { expect(container.querySelector('[data-node-id="long"]')).not.toBeNull() })
-    const fullText = container.querySelector('[data-node-id="long"] span[title]')
-    expect(fullText?.textContent).toBe(full)
-    expect(fullText?.getAttribute('title')).toBe(full)
+    // The complete text always lives in the row; no hover affordance (native
+    // title tooltip) previews it, and the row starts collapsed.
+    const summary = container.querySelector('[data-node-id="long"] [class*="summary"]')
+    expect(summary?.textContent).toBe(full)
+    expect(summary?.hasAttribute('title')).toBe(false)
+    expect(container.querySelector('[data-node-id="long"]')?.getAttribute('class')).not.toContain('nodeMessageOpen')
+
+    fireEvent.click(screen.getByLabelText(`${zh['panel.select']} — ${full.slice(0, 297)}...`))
+    await waitFor(() => { expect(jump).toHaveBeenCalledWith('long') })
+    expect(container.querySelector('[data-node-id="long"]')?.getAttribute('class')).toContain('nodeMessageOpen')
+
+    fireEvent.click(screen.getByLabelText(`${zh['panel.select']} — ${full.slice(0, 297)}...`))
+    expect(container.querySelector('[data-node-id="long"]')?.getAttribute('class')).not.toContain('nodeMessageOpen')
+  })
+
+  it('hides harness-injected user messages from the tree and the fork selector', async () => {
+    const injected: TreeNode = {
+      ...node('skill-catalog', null, '<system-reminder>skill catalog</system-reminder>'),
+      metadata: { injected: true },
+    }
+    const typed = node('prompt', 'skill-catalog', 'typed prompt')
+    const assistant: TreeNode = {
+      ...node('answer', 'prompt', 'assistant answer'),
+      message: { role: 'assistant', content: 'assistant answer' },
+    }
+    const Panel = SessionTreeDock as unknown as ComponentType<Record<string, unknown>>
+    const { rerender } = render(<Panel
+      sessionId={sid('filter')} panel="session-tree" closeDetails={vi.fn()} t={t}
+      load={async () => view('answer', [injected, typed, assistant], 'answer')}
+      jump={vi.fn()} fork={vi.fn()}
+    />)
+    await screen.findByText('typed prompt')
+    expect(screen.queryByText('<system-reminder>skill catalog</system-reminder>')).toBeNull()
+    expect(document.querySelectorAll('[data-node-id]')).toHaveLength(2)
+
+    rerender(<Panel
+      sessionId={sid('filter')} panel="session-tree" mode="selectUserPrompt"
+      closeDetails={vi.fn()} t={t}
+      load={async () => view('answer', [injected, typed, assistant], 'answer')}
+      jump={vi.fn()} fork={vi.fn()} forkUserPrompt={vi.fn(async () => {})}
+    />)
+    await screen.findByText('typed prompt')
+    expect(screen.queryByText('assistant answer')).toBeNull()
+    expect(document.querySelectorAll('[data-node-id]')).toHaveLength(1)
   })
 
   it('collapses descendants from the left-side expander without shifting the title', async () => {
@@ -661,6 +722,26 @@ describe('session tree browser plugin', () => {
       jump={vi.fn()} fork={vi.fn()}
     />)
     await screen.findByText(zh['fork.selector.empty'])
+  })
+
+  it('lists every typed prompt in the fork selector, not only the tree root', async () => {
+    const first = node('prompt-1', null, 'first prompt')
+    const answer: TreeNode = {
+      ...node('answer-1', 'prompt-1', 'hidden answer'),
+      message: { role: 'assistant', content: 'hidden answer' },
+    }
+    const second = node('prompt-2', 'answer-1', 'second prompt')
+    const Panel = SessionTreeDock as unknown as ComponentType<Record<string, unknown>>
+    const { container } = render(<Panel
+      sessionId={sid('selector-chain')} panel="session-tree" mode="selectUserPrompt"
+      closeDetails={vi.fn()} t={t}
+      load={async () => view('prompt-2', [first, answer, second], 'prompt-2')}
+      jump={vi.fn()} fork={vi.fn()} forkUserPrompt={vi.fn(async () => {})}
+    />)
+    await screen.findByText('first prompt')
+    expect(screen.queryByText('hidden answer')).toBeNull()
+    expect(container.querySelector('[data-node-id="prompt-2"]')).not.toBeNull()
+    expect(document.querySelectorAll('[data-node-id]')).toHaveLength(2)
   })
 
   it('portals an inline /fork menu after its source row and restores native rows', async () => {
@@ -907,5 +988,360 @@ describe('session tree browser plugin', () => {
   it('shows the required friendly state when the host reports no selection', async () => {
     const result = { ok: false, error: { code: 'INVALID_ARGUMENT', message: '请先在右侧会话树选中目标节点' } }
     expect(JSON.stringify(result)).toContain('请先在右侧会话树选中目标节点')
+  })
+})
+
+describe('right-sidebar merged Session graph', () => {
+  function sequencedNode(
+    nodeId: string,
+    parentId: string | null,
+    seq: number,
+    summary: string,
+  ): TreeNode {
+    return {
+      ...node(nodeId, parentId, summary),
+      createdAt: `2026-01-01T00:00:${String(seq).padStart(2, '0')}.000Z`,
+      metadata: { sessionEventSeq: seq },
+    }
+  }
+
+  /**
+   * Shared three-level fixture. Every copied prefix keeps both its node id and
+   * event sequence, while c1/c2 deliberately reuse `session-event-3`.
+   */
+  function worktreeFixture() {
+    const lineage = new SessionForkLineage()
+    lineage.record({ childId: sid('c1'), parentId: sid('s1'), summary: 'first fork', branch: 'alt', createdAt: 1 })
+    lineage.record({ childId: sid('g1'), parentId: sid('c1'), summary: 'fork of fork', createdAt: 3 })
+
+    const root = sequencedNode('session-event-1', null, 1, 'root prompt')
+    const answer = sequencedNode('session-event-2', root.nodeId, 2, 'main answer')
+    const c1Tip = sequencedNode('session-event-3', answer.nodeId, 3, 'first fork node')
+    const g1Tip = sequencedNode('session-event-4', c1Tip.nodeId, 4, 'grandchild node')
+    const c2Tip = sequencedNode('session-event-3', answer.nodeId, 3, 'clone node')
+    const views = new Map<SessionId, SessionTreeView>([
+      [sid('s1'), view(answer.nodeId, [root, answer], answer.nodeId, sid('s1'))],
+      [sid('c1'), view(c1Tip.nodeId, [root, answer, c1Tip], c1Tip.nodeId, sid('c1'))],
+      [sid('g1'), view(g1Tip.nodeId, [root, answer, c1Tip, g1Tip], g1Tip.nodeId, sid('g1'))],
+      [sid('c2'), view(c2Tip.nodeId, [root, answer, c2Tip], c2Tip.nodeId, sid('c2'))],
+    ])
+    let state = fakeListState(
+      [sid('s1'), sid('c1'), sid('c2'), sid('g1')],
+      Object.fromEntries([
+        fakeRow(sid('s1'), 'Source chat'),
+        fakeRow(sid('c1'), 'c1', sid('s1')),
+        [sid('c2'), {
+          id: sid('c2'),
+          displayTitle: 'cloned copy',
+          parentId: sid('s1'),
+          running: false,
+          blank: false,
+          updatedAt: 5,
+        }] as [string, FakeListRow],
+        fakeRow(sid('g1'), 'g1', sid('c1')),
+      ]),
+      sid('g1'),
+    )
+    const useSessions = (<T,>(select: (value: typeof state) => T): T => select(state))
+    const load = vi.fn(async (sessionId: SessionId): Promise<SessionTreeView> => {
+      const loaded = views.get(sessionId)
+      if (loaded === undefined) throw new Error(`missing fixture view for ${sessionId}`)
+      return loaded
+    })
+    return {
+      lineage,
+      views,
+      load,
+      get state() { return state },
+      set state(next: typeof state) { state = next },
+      useSessions,
+    }
+  }
+
+  function renderWorktreePanel(
+    fixture: ReturnType<typeof worktreeFixture>,
+    overrides: Record<string, unknown> = {},
+  ) {
+    const events: string[] = []
+    const opened: SessionId[] = []
+    const openSession = (id: SessionId): void => {
+      opened.push(id)
+      events.push(`open:${id}`)
+    }
+    const jumpSession = vi.fn(async (id: SessionId, nodeId: string | null) => {
+      events.push(`jump:${id}:${nodeId ?? ''}`)
+      return { cursor: nodeId, messages: [] }
+    })
+    const jump = vi.fn(async (nodeId: string | null) => ({ cursor: nodeId, messages: [] }))
+    const fork = vi.fn()
+    const buildProps = (): Record<string, unknown> => ({
+      sessionId: sid('s1'), panel: 'session-tree', closeDetails: vi.fn(), t,
+      load: fixture.load, jump, jumpSession, fork,
+      useSessions: fixture.useSessions,
+      lineage: fixture.lineage,
+      openSession,
+    })
+    const Panel = SessionTreeDock as unknown as ComponentType<Record<string, unknown>>
+    const rendered = render(<Panel {...buildProps()} {...overrides} />)
+    // Rerender with the same component type and stable hook identities, so the
+    // store's new snapshot flows in without remounting (collapse state keeps).
+    const refresh = (): void => { rendered.rerender(<Panel {...buildProps()} {...overrides} />) }
+    return { ...rendered, events, opened, openSession, jumpSession, jump, refresh }
+  }
+
+  const graphRows = (): HTMLElement[] =>
+    [...document.querySelectorAll<HTMLElement>('[data-session-tree-row]')]
+  const graphRow = (key: string): HTMLElement | null =>
+    document.querySelector<HTMLElement>(`[data-session-tree-row="${key}"]`)
+
+  it('builds placeholder rows before any Session view has loaded', () => {
+    const fixture = worktreeFixture()
+    const topology = buildBranchTreeModel(sid('s1'), fixture.state, new Map())
+    expect(topology).not.toBeNull()
+    const model = buildSessionGraphModel(topology!, new Map(), new Set())
+    expect(model.rows.map(row => [row.owners[0], row.placeholder])).toEqual([
+      [sid('s1'), 'loading'],
+      [sid('c1'), 'loading'],
+      [sid('g1'), 'loading'],
+      [sid('c2'), 'loading'],
+    ])
+  })
+
+  it('merges three-level forks in DFS order with badges, active-path styling, and no duplicates', async () => {
+    const fixture = worktreeFixture()
+    renderWorktreePanel(fixture)
+    await screen.findByText('grandchild node')
+
+    const keys = [
+      `${sid('s1')}:session-event-1`,
+      `${sid('s1')}:session-event-2`,
+      `${sid('c1')}:session-event-3`,
+      `${sid('g1')}:session-event-4`,
+      `${sid('c2')}:session-event-3`,
+    ]
+    expect(graphRows().map(row => row.getAttribute('data-session-tree-row'))).toEqual(keys)
+    expect(new Set(keys).size).toBe(5)
+    expect(graphRows().map(row => row.getAttribute('data-session-owners')?.split(' ') ?? [])).toEqual([
+      [sid('s1'), sid('c1'), sid('g1'), sid('c2')],
+      [sid('s1'), sid('c1'), sid('g1'), sid('c2')],
+      [sid('c1'), sid('g1')],
+      [sid('g1')],
+      [sid('c2')],
+    ])
+
+    // Copied prefixes are deduplicated, while sibling branches that reuse the
+    // same event id stay separate session-qualified rows.
+    const reused = graphRows().filter(row => row.getAttribute('data-node-id') === 'session-event-3')
+    expect(reused.map(row => row.getAttribute('data-session-tree-row'))).toEqual([
+      `${sid('c1')}:session-event-3`, `${sid('c2')}:session-event-3`,
+    ])
+
+    const rootRow = graphRow(keys[0]!)!
+    const c1Row = graphRow(keys[2]!)!
+    const g1Row = graphRow(keys[3]!)!
+    const c2Row = graphRow(keys[4]!)!
+    expect(rootRow.querySelector('[class*="mainBadge"]')?.textContent).toBe(zh['branch.tree.main'])
+    expect(c1Row.querySelector('[class*="forkBadge"]')?.textContent).toBe(zh['branch.node.forkBadge'])
+    expect(c1Row.querySelector('[class*="branchChip"]')?.textContent).toBe('alt')
+    expect(g1Row.querySelector('[class*="forkBadge"]')?.textContent).toBe(zh['branch.node.forkBadge'])
+    expect(c2Row.querySelector('[class*="cloneBadge"]')?.textContent).toBe(zh['branch.tree.cloneBadge'])
+
+    expect(g1Row.className).toContain('nodeSelected')
+    expect(g1Row.querySelector('[class*="currentChip"]')?.textContent).toBe(zh['branch.tree.current'])
+    for (const row of [rootRow, graphRow(keys[1]!)!, c1Row]) {
+      expect(row.className).toContain('nodePath')
+    }
+    expect(c2Row.className).not.toContain('nodePath')
+
+    // Every row uses the same fixed 44px graph gutter; depth never adds
+    // horizontal layout to the row itself.
+    expect(graphRows()).toHaveLength(5)
+    expect(graphRows().every(row =>
+      row.style.marginLeft === ''
+      && row.style.paddingLeft === ''
+      && row.querySelector('svg[viewBox="0 0 44 38"]') !== null,
+    )).toBe(true)
+  })
+
+  it('opens a cross-Session row before jumping to its node', async () => {
+    const fixture = worktreeFixture()
+    const rendered = renderWorktreePanel(fixture)
+    await screen.findByText('clone node')
+
+    fireEvent.click(screen.getByLabelText(`${zh['panel.select']} — clone node`))
+    await waitFor(() => {
+      expect(rendered.events).toEqual([
+        `open:${sid('c2')}`,
+        `jump:${sid('c2')}:session-event-3`,
+      ])
+    })
+    expect(rendered.jumpSession).toHaveBeenCalledWith(sid('c2'), 'session-event-3')
+    expect(rendered.jump).not.toHaveBeenCalled()
+  })
+
+  it('collapses one Session branch while retaining sibling branches', async () => {
+    const fixture = worktreeFixture()
+    renderWorktreePanel(fixture)
+    await screen.findByText('grandchild node')
+
+    fireEvent.click(screen.getByLabelText(`${zh['branch.tree.collapse']} — first fork`))
+    expect(graphRow(`${sid('c1')}:session-event-3`)).not.toBeNull()
+    expect(screen.queryByText('grandchild node')).toBeNull()
+    expect(screen.getByText('clone node')).not.toBeNull()
+    expect(graphRows()).toHaveLength(4)
+
+    fireEvent.click(screen.getByLabelText(`${zh['branch.tree.expand']} — first fork`))
+    expect(screen.getByText('grandchild node')).not.toBeNull()
+    expect(graphRows()).toHaveLength(5)
+
+    fireEvent.click(screen.getByLabelText(`${zh['branch.tree.collapse']} — Source chat`))
+    expect(graphRows().map(row => row.getAttribute('data-session-tree-row')))
+      .toEqual([`${sid('s1')}:session-event-1`])
+
+    fireEvent.click(screen.getByLabelText(`${zh['branch.tree.expand']} — Source chat`))
+    expect(graphRows()).toHaveLength(5)
+  })
+
+  it('reveals the ancestor path when the open Session switches', async () => {
+    const fixture = worktreeFixture()
+    fixture.state = { ...fixture.state, current: sid('c2') }
+    const { refresh } = renderWorktreePanel(fixture)
+    await screen.findByText('clone node')
+
+    fireEvent.click(screen.getByLabelText(`${zh['branch.tree.collapse']} — Source chat`))
+    expect(graphRows()).toHaveLength(1)
+
+    fixture.state = { ...fixture.state, current: sid('g1') }
+    refresh()
+    await screen.findByText('grandchild node')
+    expect(graphRows()).toHaveLength(5)
+    expect(graphRow(`${sid('g1')}:session-event-4`)?.className).toContain('nodeSelected')
+    expect(graphRow(`${sid('s1')}:session-event-1`)?.className).toContain('nodePath')
+    expect(graphRow(`${sid('c1')}:session-event-3`)?.className).toContain('nodePath')
+    expect(graphRow(`${sid('c2')}:session-event-3`)?.className).not.toContain('nodePath')
+  })
+
+  it('appends a live clone row without duplicating reused event ids', async () => {
+    const fixture = worktreeFixture()
+    const { refresh } = renderWorktreePanel(fixture)
+    await screen.findByText('grandchild node')
+    expect(graphRows()).toHaveLength(5)
+
+    const cloneId = sid('live-clone')
+    fixture.views.set(cloneId, view(
+      'session-event-3',
+      [
+        sequencedNode('session-event-1', null, 1, 'root prompt'),
+        sequencedNode('session-event-2', 'session-event-1', 2, 'main answer'),
+        sequencedNode('session-event-3', 'session-event-2', 3, 'live clone node'),
+      ],
+      'session-event-3',
+      cloneId,
+    ))
+    fixture.state = {
+      ...fixture.state,
+      ids: [...fixture.state.ids, cloneId],
+      byId: {
+        ...fixture.state.byId,
+        [cloneId]: {
+          id: cloneId,
+          displayTitle: 'live clone',
+          parentId: sid('s1'),
+          running: false,
+          blank: false,
+          updatedAt: 9,
+        },
+      },
+    }
+    refresh()
+    await screen.findByText('live clone node')
+
+    const keys = graphRows().map(row => row.getAttribute('data-session-tree-row'))
+    expect(keys).toEqual([
+      `${sid('s1')}:session-event-1`,
+      `${sid('s1')}:session-event-2`,
+      `${sid('c1')}:session-event-3`,
+      `${sid('g1')}:session-event-4`,
+      `${sid('c2')}:session-event-3`,
+      `${cloneId}:session-event-3`,
+    ])
+    expect(new Set(keys).size).toBe(keys.length)
+  })
+
+  it('isolates one failed Session behind an error placeholder', async () => {
+    const fixture = worktreeFixture()
+    const load = vi.fn(async (sessionId: SessionId) => {
+      if (sessionId === sid('c1')) throw new Error('c1 unavailable')
+      return fixture.load(sessionId)
+    })
+    renderWorktreePanel(fixture, { load })
+
+    const placeholder = await waitFor(() => {
+      const row = graphRow(`${sid('c1')}:__session-tree-error__`)
+      expect(row).not.toBeNull()
+      return row!
+    })
+    expect(placeholder.getAttribute('data-placeholder')).toBe('error')
+    expect(placeholder.textContent).toContain(zh['panel.graph.error'])
+    expect(graphRow(`${sid('s1')}:session-event-1`)).not.toBeNull()
+    expect(graphRow(`${sid('c2')}:session-event-3`)).not.toBeNull()
+    await waitFor(() => { expect(load).toHaveBeenCalledWith(sid('g1')) })
+  })
+
+  it('leaves the parent Session load payload unchanged', async () => {
+    const fixture = worktreeFixture()
+    const source = fixture.views.get(sid('s1'))!
+    const snapshot = JSON.stringify(source)
+    const rendered = renderWorktreePanel(fixture)
+    await rendered.findByText('grandchild node')
+
+    fireEvent.click(rendered.getByLabelText(`${zh['panel.select']} — clone node`))
+    await waitFor(() => { expect(rendered.events).toHaveLength(2) })
+    expect(fixture.views.get(sid('s1'))).toBe(source)
+    expect(JSON.stringify(source)).toBe(snapshot)
+  })
+
+  it('falls back to the legacy single-Session view without a Session-addressed jump', async () => {
+    const fixture = worktreeFixture()
+    const rendered = renderWorktreePanel(fixture, { jumpSession: undefined })
+    await rendered.findByText('main answer')
+
+    expect(graphRows().map(row => row.getAttribute('data-session-tree-row'))).toEqual([
+      'session-event-1', 'session-event-2',
+    ])
+    expect(fixture.load).toHaveBeenCalledWith(sid('s1'))
+    expect(rendered.jumpSession).not.toHaveBeenCalled()
+  })
+
+  it('derives rows defensively from corrupt parent links', () => {
+    const cyclic = fakeListState(
+      [sid('a'), sid('b')],
+      Object.fromEntries([
+        [sid('a'), { id: sid('a'), displayTitle: 'a', parentId: sid('b'), running: false, blank: false, updatedAt: 1 }],
+        [sid('b'), { id: sid('b'), displayTitle: 'b', parentId: sid('a'), running: false, blank: false, updatedAt: 1 }],
+      ]),
+      sid('a'),
+    )
+    const model = buildBranchTreeModel(sid('a'), cyclic, new Map())
+    expect(model?.rows.map(row => [row.sessionId, row.depth])).toEqual([[sid('b'), 0], [sid('a'), 1]])
+
+    const selfLinked = fakeListState(
+      [sid('x')],
+      Object.fromEntries([[sid('x'), { id: sid('x'), displayTitle: 'x', parentId: sid('x'), running: false, blank: false, updatedAt: 1 }]]),
+      sid('x'),
+    )
+    expect(buildBranchTreeModel(sid('x'), selfLinked, new Map())?.rows).toHaveLength(1)
+    expect(buildBranchTreeModel(sid('missing'), selfLinked, new Map())).toBeNull()
+  })
+
+  it('wires the worktree data into both right-panel mounts', async () => {
+    const b = await bench()
+    await b.fiber.await()
+    const actions = ((b.entry() as unknown as { inject: (id: SessionId) => SessionTreePanelActions }).inject)(sid('s1'))
+    expect(actions.lineage).toBeInstanceOf(SessionForkLineage)
+    actions.openSession?.(sid('s9'))
+    expect(b.openedSessions).toEqual([sid('s9')])
+    const overlayInjected = b.overlayEntry()?.inject?.() as { lineage?: SessionForkLineage }
+    expect(overlayInjected.lineage).toBeInstanceOf(SessionForkLineage)
   })
 })

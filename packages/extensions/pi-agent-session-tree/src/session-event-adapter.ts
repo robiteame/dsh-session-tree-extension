@@ -35,6 +35,33 @@ export function toolResultOf(event: SessionEvent): ProjectedToolResult | undefin
 }
 
 /**
+ * Whether one `user/message` source marks harness-injected context instead of
+ * a typed human prompt. Producers declare themselves through `source.kind`:
+ * `'user'` is a direct human prompt, while `'plugin'` (skill content,
+ * system-prompt snapshots, file-change notices, approvals, …) and
+ * plugin-extended kinds (`'skill-catalog'`, …) are synthetic `agent.inject()`
+ * context. Legacy logs carry a plain string source or none at all; both
+ * predate injection bookkeeping and stay presented as human input.
+ */
+export function isInjectedUserSource(source: unknown): boolean {
+  if (typeof source !== 'object' || source === null) return false
+  const kind = (source as { kind?: unknown }).kind
+  return typeof kind === 'string' && kind !== 'user'
+}
+
+/**
+ * Whether one tree node records harness-injected context rather than a typed
+ * human prompt (see {@link isInjectedUserSource}). Injected nodes stay in the
+ * append-only projection — jump/fork re-select the model-visible surface from
+ * the tree path, so dropping them would strip the skill catalog and
+ * system-prompt snapshots from later model turns — but every user-facing
+ * surface hides them.
+ */
+export function isInjectedUserNode(node: TreeNode): boolean {
+  return node.metadata?.injected === true
+}
+
+/**
  * Fold one projected tool result into its tool-call node so the call and its
  * result read as a single tree entry (matching the model-visible pair). The
  * function is pure and idempotent: an already-merged node is returned as-is.
@@ -118,6 +145,12 @@ function projectEvent(event: SessionEvent, parentId: string | null): TreeNode | 
     message = { role: 'user', content: textOf(event.data.content) }
     content = partsOf(event.data.content)
     summary = message.content
+    // Harness injections (skill prompts, system-prompt snapshots, context
+    // notices) ride the same event type; the producer-declared source tells
+    // them apart from a typed human prompt.
+    if (isInjectedUserSource(event.data.source)) {
+      metadata = { ...metadata, injected: true }
+    }
   } else if (event.type === 'assistant/message') {
     type = 'message'
     message = { role: 'assistant', content: textOf(event.data.message.content) }
@@ -155,14 +188,16 @@ function projectEvent(event: SessionEvent, parentId: string | null): TreeNode | 
   // messages were deleted from the append-only tree.
   const surfaceOp = (event as { surfaceOp?: unknown }).surfaceOp
   if (typeof surfaceOp === 'object' && surfaceOp !== null && (surfaceOp as { op?: unknown }).op === 'replace') {
-    const replacement = surfaceOp as { start?: unknown; end?: unknown }
+    const replacement = surfaceOp as { start?: unknown; end?: unknown; startSeq?: unknown; endSeq?: unknown }
     const sourceEventSeqs = (event as { sourceEventSeqs?: unknown }).sourceEventSeqs
+    const replaceStart = replacement.startSeq ?? replacement.start
+    const replaceEnd = replacement.endSeq ?? replacement.end
     type = 'compaction'
     metadata = {
       ...metadata,
       surfaceReplacement: true,
-      ...(typeof replacement.start === 'number' ? { replaceStart: replacement.start } : {}),
-      ...(typeof replacement.end === 'number' ? { replaceEnd: replacement.end } : {}),
+      ...(typeof replaceStart === 'number' ? { replaceStart } : {}),
+      ...(typeof replaceEnd === 'number' ? { replaceEnd } : {}),
       sourceEventSeqs: Array.isArray(sourceEventSeqs) ? sourceEventSeqs.filter((seq): seq is number => typeof seq === 'number') : [],
     }
     summary = `compaction: ${summary}`

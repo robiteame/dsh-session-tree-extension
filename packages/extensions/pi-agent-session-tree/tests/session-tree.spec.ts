@@ -6,7 +6,7 @@
  */
 
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
@@ -17,7 +17,7 @@ import type { ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
-import { Session, SessionId } from '@deepseek-ai/dsh-session'
+import { Session, SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import SessionTreeService, {
   appendSessionTreeEvent,
@@ -54,7 +54,7 @@ function stubAgent(rawId: string, cwd?: string): Agent {
   const id = SessionId(rawId)
   const session = cwd === undefined
     ? Session.create(id)
-    : Session.create(id, undefined, { version: 0, id, createdAt: 0, cwd })
+    : Session.create(id, undefined, { version: 3, id, createdAt: 0, cwd, isSeeded: false })
   return {
     id: session.id,
     options: {},
@@ -322,6 +322,20 @@ describe('session_tree tool: append-only history', () => {
     expect(cloneTree?.cursor).toBe(root.nodeId)
   })
 
+  it('marks harness-injected user messages while keeping typed prompts unmarked', () => {
+    const nodes = sessionEventsToTreeNodes([
+      { type: 'user/message', seq: 0, time: 1, data: { id: 'm0', role: 'user', content: [{ type: 'text', text: 'typed one' }], source: { kind: 'user' } }, surfaceOp: 'append' },
+      { type: 'user/message', seq: 1, time: 2, data: { id: 'm1', role: 'user', content: [{ type: 'text', text: 'runtime snapshot' }], source: { kind: 'plugin', plugin: '@deepseek-ai/dsh-system-prompt', form: 'snapshot' } }, surfaceOp: 'append' },
+      { type: 'user/message', seq: 2, time: 3, data: { id: 'm2', role: 'user', content: [{ type: 'text', text: '<system-reminder>catalog</system-reminder>' }], source: { kind: 'skill-catalog', form: 'catalog' } }, surfaceOp: 'append' },
+      { type: 'user/message', seq: 3, time: 4, data: { role: 'user', content: 'legacy string source', source: 'human' } },
+      { type: 'user/message', seq: 4, time: 5, data: { role: 'user', content: 'legacy missing source' } },
+    ] as never[])
+    // Injected events stay in the append-only projection (jump/fork re-select
+    // the model-visible surface from the tree path); only the marker differs.
+    expect(nodes).toHaveLength(5)
+    expect(nodes.map(node => node.metadata?.injected === true)).toEqual([false, true, true, false, false])
+  })
+
   it('projects Harness message and tool events into a parent-linked tree', () => {
     const nodes = sessionEventsToTreeNodes([
       { type: 'user/message', seq: 0, time: 1000, data: { role: 'user', content: 'hello', source: 'human' } },
@@ -364,6 +378,55 @@ describe('session_tree tool: append-only history', () => {
     expect(nodes).toHaveLength(1)
     expect(nodes[0]?.error).toBe('Sandbox: EPERM')
     expect(nodes[0]?.content?.some(part => part.type === 'tool_result' && part.isError === true)).toBe(true)
+  })
+
+  it('counts only typed prompts as forkable user nodes', async () => {
+    const { ctx } = await harness()
+    const agent = stubAgent('tree-fork-count')
+    agent.session.append('user/message', { id: 'm0', role: 'user', content: [{ type: 'text', text: 'typed one' }], source: { kind: 'user' } } as never, { surfaceOp: 'append' })
+    agent.session.append('user/message', { id: 'm1', role: 'user', content: [{ type: 'text', text: 'skill catalog' }], source: { kind: 'skill-catalog' } } as never, { surfaceOp: 'append' })
+    agent.session.append('user/message', { id: 'm2', role: 'user', content: [{ type: 'text', text: 'typed two' }], source: { kind: 'user' } } as never, { surfaceOp: 'append' })
+    const executed = await ctx.commands.execute(agent, '/fork', [], new AbortController().signal)
+    expect(executed?.result.kind).toBe('success')
+    expect(JSON.parse(executed?.result.text ?? '{}')).toMatchObject({
+      ok: true,
+      value: { selectorRequired: true, userNodeCount: 2 },
+    })
+  })
+
+  it('names the previous typed prompt when forking, skipping injected context', async () => {
+    const { ctx, service } = await harness()
+    ctx.agents.setFactory({
+      createAgent: async (_ownerCtx, options) => ({ agent: stubAgent(String(options.sessionId)), dispose: () => Promise.resolve() }),
+      resume: async () => { throw new Error('resume is unused in this test') },
+    })
+    const agent = stubAgent('tree-fork-previous')
+    agent.session.append('user/message', { id: 'm0', role: 'user', content: [{ type: 'text', text: '<system-reminder>skill catalog</system-reminder>' }], source: { kind: 'skill-catalog' } } as never, { surfaceOp: 'append' })
+    agent.session.append('user/message', { id: 'm1', role: 'user', content: [{ type: 'text', text: 'first typed' }], source: { kind: 'user' } } as never, { surfaceOp: 'append' })
+    agent.session.append('assistant/message', { turn: 1, step: 1, message: { id: 'm2', role: 'assistant', content: [{ type: 'text', text: 'answer' }], source: { kind: 'model', provider: 'p', model: 'm' } } } as never, { surfaceOp: 'append' })
+    agent.session.append('user/message', { id: 'm3', role: 'user', content: [{ type: 'text', text: 'second typed' }], source: { kind: 'user' } } as never, { surfaceOp: 'append' })
+
+    const view = service.list(agent)
+    const injected = view.nodes.find(node => node.summary.includes('skill catalog'))
+    expect(injected?.metadata?.injected).toBe(true)
+    const target = view.nodes.find(node => node.summary === 'second typed')
+    expect(target).toBeDefined()
+
+    const result = await service.forkSession(agent, target!.nodeId, 'fork-branch')
+    expect(result.prompt).toBe('second typed')
+    expect(result.previousUserPrompt).toBe('first typed')
+  })
+
+  it('ignores version-1 sidecar caches so unmarked injected nodes re-project', () => {
+    const sessionId = SessionId('tree-sidecar-v1')
+    const path = join(testSidecarRoot, `${sessionId.replaceAll(/[^A-Za-z0-9._-]/g, '_')}.json`)
+    writeFileSync(path, JSON.stringify({
+      version: 1,
+      sessionId,
+      savedAt: 1,
+      snapshot: { version: 1, sessionId, cursor: null, activeBranch: 'main', nodes: [] },
+    }))
+    expect(getSessionTreeSidecar().load(sessionId)).toBeUndefined()
   })
 
   it('keeps a standalone result only when no matching call was projected', () => {
@@ -573,6 +636,7 @@ describe('session_tree plugin surfaces', () => {
     agent.session.append('assistant/message', {
       turn: 1,
       step: 1,
+      stream: [],
       message: { role: 'assistant', content: [{ type: 'text', text: 'main answer' }] },
     } as never, { surfaceOp: 'append' })
 
@@ -593,7 +657,7 @@ describe('session_tree plugin surfaces', () => {
     const { ctx, service } = await harness()
     const agent = stubAgent('tree-command-selection')
     agent.session.append('user/message', { role: 'user', content: 'root', source: 'human' } as never, { surfaceOp: 'append' })
-    agent.session.append('assistant/message', { turn: 1, step: 1, message: { role: 'assistant', content: [{ type: 'text', text: 'answer' }] } } as never, { surfaceOp: 'append' })
+    agent.session.append('assistant/message', { turn: 1, step: 1, stream: [], message: { role: 'assistant', content: [{ type: 'text', text: 'answer' }] } } as never, { surfaceOp: 'append' })
     const before = await ctx.commands.execute(agent, '/fork', [], new AbortController().signal)
     expect(before?.result.kind).toBe('success')
     expect(JSON.parse(before?.result.text ?? '{}')).toMatchObject({
@@ -620,7 +684,7 @@ describe('session_tree plugin surfaces', () => {
     const { service } = await harness()
     const agent = stubAgent('tree-fork-parent')
     agent.session.append('user/message', { role: 'user', content: 'root', source: 'human' } as never, { surfaceOp: 'append' })
-    agent.session.append('assistant/message', { turn: 1, step: 1, message: { role: 'assistant', content: [{ type: 'text', text: 'answer' }] } } as never, { surfaceOp: 'append' })
+    agent.session.append('assistant/message', { turn: 1, step: 1, stream: [], message: { role: 'assistant', content: [{ type: 'text', text: 'answer' }] } } as never, { surfaceOp: 'append' })
 
     const selected = service.list(agent).nodes[0]!
     service.jump(agent, selected.nodeId)
@@ -648,7 +712,7 @@ describe('session_tree plugin surfaces', () => {
     })
     const agent = stubAgent('tree-clone-content', '/workspace/clone-pi')
     agent.session.append('user/message', { id: 'm-root', role: 'user', content: [{ type: 'text', text: 'root' }], source: { kind: 'user' } } as never, { surfaceOp: 'append' })
-    agent.session.append('assistant/message', { turn: 1, step: 1, message: { id: 'm-answer', role: 'assistant', content: [{ type: 'text', text: 'answer' }], source: { kind: 'model', provider: 'p', model: 'm' } } } as never, { surfaceOp: 'append' })
+    agent.session.append('assistant/message', { turn: 1, step: 1, stream: [], message: { id: 'm-answer', role: 'assistant', content: [{ type: 'text', text: 'answer' }], source: { kind: 'model', provider: 'p', model: 'm' } } } as never, { surfaceOp: 'append' })
 
     const selected = service.list(agent).nodes[0]!
     service.jump(agent, selected.nodeId)
@@ -678,7 +742,7 @@ describe('session_tree plugin surfaces', () => {
       turn: 1,
       step: 1,
       message: { role: 'user', content: [{ type: 'tool-result', toolCallId: 'call-9', content: [{ type: 'text', text: 'ok output' }] }] },
-    } as never, { surfaceOp: 'append', sourceEventSeqs: [1] })
+    } as never, { surfaceOp: 'append', sourceEventSeqs: [SessionSeq(1)] })
     const after = service.list(agent)
     expect(after.nodes).toHaveLength(2)
     const merged = after.nodes.find(node => node.type === 'tool_call')
@@ -768,7 +832,7 @@ describe('stock Harness Session compatibility (no harness.patch)', () => {
     const original = agent.session
     ;(agent as { session: Session }).session = {
       id: original.id,
-      events: [...original.events],
+      events: [...original.snapshotEvents()],
       surface: { nodes: [] as number[] },
     } as unknown as Session
     expect(supportsSelectedMessageSurface(agent.session)).toBe(false)
@@ -819,8 +883,8 @@ describe('stock Harness Session compatibility (no harness.patch)', () => {
 
     expect(surfaceNodes).toEqual([0])
     const cursorEvent = events[2]
-    expect(cursorEvent?.type).toBe('assistant/message')
-    expect((cursorEvent as unknown as { surfaceOp?: unknown } | undefined)?.surfaceOp).toEqual({ op: 'replace', start: 0, end: 1 })
+    expect(cursorEvent?.type).toBe('system/message')
+    expect((cursorEvent as unknown as { surfaceOp?: unknown } | undefined)?.surfaceOp).toEqual({ op: 'replace', startSeq: 0, endSeq: 1 })
     expect((cursorEvent as unknown as { sourceEventSeqs?: number[] } | undefined)?.sourceEventSeqs).toEqual([0, 1])
     expect((cursorEvent?.data as Record<string, unknown>).treeRestore).toEqual({ kind: 'cursor', nodeId: root.nodeId })
 
@@ -855,7 +919,7 @@ describe('stock Harness Session compatibility (no harness.patch)', () => {
     // The durable log must still rebuild through a fresh Session: replace
     // ranges are computed against the replayed surface, not the live spliced
     // one, so repeated navigation cannot corrupt the stored history.
-    const seed = session.events.slice()
+    const seed = session.snapshotEvents().slice()
     expect(() => Session.create(SessionId('tree-stock-replay-check'), seed)).not.toThrow()
     const replayed = Session.create(SessionId('tree-stock-replay-check'), seed)
     if (supportsSelectedMessageSurface(session)) {
@@ -872,7 +936,7 @@ describe('stock Harness Session compatibility (no harness.patch)', () => {
   it('keeps synthetic cursor events out of the tree projection', () => {
     const nodes = sessionEventsToTreeNodes([
       { type: 'user/message', seq: 0, time: 1, data: { role: 'user', content: 'one', source: { kind: 'user' } }, surfaceOp: 'append' },
-      { type: 'assistant/message', seq: 1, time: 2, data: { turn: 0, step: 0, message: { role: 'assistant', content: [], id: 'cursor', source: { kind: 'model', provider: 'mock', model: 'mock' } }, treeRestore: { kind: 'cursor', nodeId: 'n1' } }, surfaceOp: { op: 'replace', start: 0, end: 0 }, sourceEventSeqs: [0] },
+      { type: 'system/message', seq: 1, time: 2, data: { turn: 0, step: 0, message: { role: 'system', content: [], id: 'cursor', source: { kind: 'plugin', plugin: '@robiteame/dsh-pi-agent-session-tree' } }, treeRestore: { kind: 'cursor', nodeId: 'n1' } }, surfaceOp: { op: 'replace', startSeq: 0, endSeq: 0 }, sourceEventSeqs: [0] },
     ] as never[])
     expect(nodes).toHaveLength(1)
     expect(nodes[0]?.type).toBe('message')
