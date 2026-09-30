@@ -26,6 +26,7 @@ import {
   type SessionGraphRow,
 } from './session-graph.ts'
 import css from './SessionTreePanel.module.css'
+import { currentSessionId } from './session-list.ts'
 
 const ROLE_LABELS: Record<LlmRole, SessionTreeKey> = {
   system: 'node.role.system',
@@ -757,7 +758,7 @@ function LegacySessionTreePanel({
     const byId = state.byId ?? {}
     return [
       state.phase ?? '',
-      state.current ?? '',
+      currentSessionId(state) ?? '',
       ids.join('\n'),
       ids.map(id => {
         const row = byId[id]

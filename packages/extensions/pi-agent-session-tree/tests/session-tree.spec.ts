@@ -54,7 +54,7 @@ function stubAgent(rawId: string, cwd?: string): Agent {
   const id = SessionId(rawId)
   const session = cwd === undefined
     ? Session.create(id)
-    : Session.create(id, undefined, { version: 3, id, createdAt: 0, cwd, isSeeded: false })
+    : Session.create(id, undefined, { version: 4, id, createdAt: 0, cwd, isSeeded: false })
   return {
     id: session.id,
     options: {},
@@ -936,7 +936,7 @@ describe('stock Harness Session compatibility (no harness.patch)', () => {
   it('keeps synthetic cursor events out of the tree projection', () => {
     const nodes = sessionEventsToTreeNodes([
       { type: 'user/message', seq: 0, time: 1, data: { role: 'user', content: 'one', source: { kind: 'user' } }, surfaceOp: 'append' },
-      { type: 'system/message', seq: 1, time: 2, data: { turn: 0, step: 0, message: { role: 'system', content: [], id: 'cursor', source: { kind: 'plugin', plugin: '@robiteame/dsh-pi-agent-session-tree' } }, treeRestore: { kind: 'cursor', nodeId: 'n1' } }, surfaceOp: { op: 'replace', startSeq: 0, endSeq: 0 }, sourceEventSeqs: [0] },
+      { type: 'system/message', seq: 1, time: 2, data: { turn: 0, step: 0, message: { role: 'system', content: [], id: 'cursor', source: { kind: 'system-prompt' } }, treeRestore: { kind: 'cursor', nodeId: 'n1' } }, surfaceOp: { op: 'replace', startSeq: 0, endSeq: 0 }, sourceEventSeqs: [0] },
     ] as never[])
     expect(nodes).toHaveLength(1)
     expect(nodes[0]?.type).toBe('message')

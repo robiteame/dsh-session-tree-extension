@@ -133,7 +133,7 @@ async function bench(tree = view(null, []), nativePanel = true) {
   const children = {
     'details': { kind: 'single', scope: 'session' },
     'shell.overlay': { kind: 'list', scope: 'root' },
-    ...(nativePanel ? { 'conversation.details.panel': { kind: 'list', scope: 'session' } } : {}),
+    ...(nativePanel ? { 'sidebar.right.pane.tab': { kind: 'keyed', scope: 'session' } } : {}),
   }
   slots.register({ name: 'root', children } as never, (() => null) as never)
   const toolDetails = (() => null) as never
@@ -142,9 +142,22 @@ async function bench(tree = view(null, []), nativePanel = true) {
   ctx.provide('sessions', {
     binding: (id: SessionId) => bindings.get(id),
     fork: nativeFork,
-    open,
     refresh,
   } as never)
+  ctx.provide('uiWorkspace', { openSession: open } as never)
+  if (nativePanel) {
+    const tabRegistrations: Array<Record<string, unknown>> = []
+    ctx.provide('sidebarRightTabs', {
+      register: (definition: Record<string, unknown>) => {
+        tabRegistrations.push(definition)
+        return () => {}
+      },
+    } as never)
+    ctx.provide('sidebarRight', {
+      openTab: (kind: string) => { opened.push(kind) },
+    } as never)
+    ctx.effect(() => () => { tabRegistrations.length = 0 }, 'test sidebar registrations')
+  }
   const inputFor = vi.fn((actx: unknown) => ({ editor: editors.get(actx), setDraft: drafts }))
   ctx.provide('conversation', {
     input: {
@@ -154,7 +167,7 @@ async function bench(tree = view(null, []), nativePanel = true) {
   const fiber = ctx.plugin({ inject: [...inject], apply })
   return {
     ctx, calls, opened, openedSessions, drafts, editors, inputFor, bindings, nativeFork, open, refresh, fiber, toolDetails,
-    entry: () => ctx.slots.entries('conversation.details.panel' as never)[0],
+    entry: () => ctx.slots.entries(nativePanel ? 'sidebar.right.pane.tab' : 'conversation.details.panel' as never)[0],
     overlayEntry: () => ctx.slots.entries('shell.overlay' as never)[0],
     branchEntry: () => ctx.slots.entries('shell.overlay' as never)[1],
   }
@@ -213,10 +226,10 @@ function renderNativeSessionRows(
 }
 
 describe('session tree browser plugin', () => {
-  it('uses the patched named details panel when available without replacing Tool details', async () => {
+  it('uses the 0.2 native right-Sidebar tab without replacing Tool details', async () => {
     const b = await bench()
     await b.fiber.await()
-    expect(b.entry()?.options).toMatchObject({ id: 'session-tree', order: 10 })
+    expect(b.entry()?.options).toMatchObject({ key: '@robiteame/dsh-client-ui-session-tree' })
     expect(b.overlayEntry()?.options).toMatchObject({ id: 'session-tree', order: 10 })
     expect(b.ctx.slots.entries('details' as never)[0]?.component).toBe(b.toolDetails)
     expect(b.ctx.slots.entries('conversation.input.dock' as never)).toHaveLength(0)

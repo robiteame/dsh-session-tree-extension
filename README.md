@@ -3,7 +3,7 @@
 [![npm](https://img.shields.io/npm/v/@robiteame/dsh-session-tree)](https://www.npmjs.com/package/@robiteame/dsh-session-tree)
 [![CI](https://github.com/robiteame/dsh-session-tree-extension/actions/workflows/ci.yml/badge.svg)](https://github.com/robiteame/dsh-session-tree-extension/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
-[![Harness](https://img.shields.io/badge/DeepSeek--Harness-0.1.5--rc.2-orange)](https://github.com/deepseek-ai/deepseek-harness)
+[![Harness](https://img.shields.io/badge/DeepSeek--Harness-0.2.0--rc.2-orange)](https://github.com/deepseek-ai/deepseek-harness)
 
 Append-only, multi-branch conversation trees for
 [DeepSeek-Harness](https://github.com/deepseek-ai/deepseek-harness) — fork any
@@ -50,7 +50,7 @@ dsh plugin --profile <profile> add @robiteame/dsh-session-tree
 Prebuilt tarballs install the same way and need no build scripts:
 
 ```sh
-dsh plugin --profile <profile> add robiteame-dsh-session-tree-0.3.0.tgz
+dsh plugin --profile <profile> add robiteame-dsh-session-tree-0.4.0.tgz
 ```
 
 After installing, restart the profile. The composition gains three rows
@@ -61,8 +61,8 @@ Host service, the commands, and the browser panel. Verify the composed layer:
 dsh --profile <profile> --dump-config   # should list the three session-tree rows
 ```
 
-Requires DeepSeek-Harness `0.1.5-rc.2` (or a compatible `0.1.5` build) and
-Cordis `^4.0.2`; the target installation provides those peers. No install
+Requires DeepSeek-Harness `0.2.0-rc.2` (or a compatible `0.2.0` build) and
+Cordis `~4.0.4`; the target installation provides those peers. No install
 scripts run — the tarballs ship prebuilt `lib/` artifacts.
 
 ## The three commands
@@ -139,14 +139,14 @@ pnpm verify      # build + typecheck (host & client) + pack dry-run + vitest
 pnpm pack:all    # produce the four tarballs
 ```
 
-Tests run against the published Harness packages (`0.1.5-rc.2`) — the
+Tests run against the published Harness packages (`0.2.0-rc.2`) — the
 stock-mode paths — with `vitest` from the repository root. The browser spec in
-`packages/client/ui-session-tree` needs the Harness client test runtime and
-runs inside a source-integrated checkout.
+`packages/client/ui-session-tree` exercises both the 0.2 native right-Sidebar
+registration and the older overlay fallback in the standalone suite.
 
 ### Source integration against a Harness checkout
 
-For debugging against Harness source (native mode, native details dock):
+For debugging against a legacy `0.1.5` Harness source checkout (native mode and its details dock):
 
 ```sh
 dev/install.sh /path/to/deepseek-harness     # applies both dev patches + copies packages

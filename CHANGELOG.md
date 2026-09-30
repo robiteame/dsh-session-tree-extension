@@ -1,3 +1,29 @@
+## 0.4.0 — 2026-09-30
+
+### Changed
+
+- Targeted the latest DeepSeek-Harness release line, `0.2.0-rc.2`, including
+  Session format v4 and Cordis `~4.0.4`.
+- The WebUI now registers the tree as a native page in Harness 0.2's extensible
+  right Sidebar. `/tree` opens and focuses that persistent tab; older stock
+  builds continue to use the additive overlay fallback.
+- Session selection follows the 0.2 `mainView` retain model, while remaining
+  compatible with the previous `SessionListState.current` shape.
+
+### Fixed
+
+- Tool-result projection understands Harness 0.2's first-class tool message
+  (`toolCallId` / `isError` on the message) and still reads older nested
+  `tool-result` blocks from stored logs.
+- Stock-surface cursor markers now use the system-prompt message source required
+  by Session format v4, so repeated navigation remains resume-valid.
+
+### Verified
+
+- Full repository gate against the published `0.2.0-rc.2` Harness packages:
+  build, host/client type checks, packed artifact validation, and the complete
+  unit/browser test suite.
+
 # Changelog
 
 ## 0.3.0 — 2026-09-14

@@ -4,6 +4,12 @@ Everything in this directory exists only for contributor workflows against a
 [DeepSeek-Harness](https://github.com/deepseek-ai/deepseek-harness) source
 checkout. None of it ships in the published npm packages.
 
+> **Version scope:** these source patches target the legacy `0.1.5` checkout
+> layout. On DeepSeek-Harness `0.2.0-rc.2`, use the published carrier bundle:
+> the WebUI registers through the official extensible right Sidebar and needs
+> no engine/UI patch. The repository test gate runs against the published
+> `0.2.0-rc.2` packages.
+
 ## `session-branch-surface.patch` — optional engine capability
 
 Adds two things to `packages/core/session`:

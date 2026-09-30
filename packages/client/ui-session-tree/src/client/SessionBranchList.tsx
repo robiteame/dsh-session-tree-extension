@@ -23,6 +23,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SessionTreeKey } from './locales.ts'
 import type { ForkLineageEntry, SessionForkLineage } from './fork-lineage.ts'
 import css from './SessionBranchList.module.css'
+import { currentSessionId } from './session-list.ts'
 
 const BRANCH_HOST = '[data-session-tree-branch-host]'
 const HIDDEN_ATTRIBUTE = 'data-session-tree-branch-hidden'
@@ -109,7 +110,7 @@ function branchGroups(
           childCount: childrenByParent.get(entry.childId)?.length ?? 0,
           title: entry.summary ?? summary?.displayTitle ?? entry.childId,
           running: summary?.running === true,
-          current: state.current === entry.childId,
+          current: currentSessionId(state) === entry.childId,
         })
         const nextAncestors = new Set(ancestors)
         nextAncestors.add(entry.childId)
@@ -173,12 +174,13 @@ function matchNativeRows(
     remaining.delete(id)
   }
 
-  if (state.current !== undefined && remaining.has(state.current)) {
+  const current = currentSessionId(state)
+  if (current !== undefined && remaining.has(current)) {
     const currentRow = rows.find(row =>
       !matched.has(row) && row.getAttribute('aria-selected') === 'true')
     if (currentRow !== undefined) {
-      matched.set(currentRow, state.current)
-      remaining.delete(state.current)
+      matched.set(currentRow, current)
+      remaining.delete(current)
     }
   }
 

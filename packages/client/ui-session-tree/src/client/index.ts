@@ -7,9 +7,11 @@ import sessionTreeRemote from '@robiteame/dsh-pi-agent-session-tree/remote'
 import type {} from '@deepseek-ai/dsh-client-ui-chat/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
+import type {} from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
+import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type { CommandResult } from '@deepseek-ai/dsh-commands/types'
 
 declare module '@deepseek-ai/cordis' {
@@ -22,6 +24,7 @@ import { nodeFullText, isInjectedUserSource } from './node-text.ts'
 import { SessionForkLineage, browserForkLineageStorage, summarizeForkPrompt } from './fork-lineage.ts'
 import type { SessionTreePanelActions } from './slots.ts'
 import { SessionTreeDock } from './SessionTreePanel.tsx'
+import { SessionTreeSidebarTab } from './SessionTreeSidebarTab.tsx'
 import { SessionBranchList } from './SessionBranchList.tsx'
 import {
   SessionTreeOverlay,
@@ -71,8 +74,21 @@ interface SessionTreeLayoutActions {
   readonly openRightbar?: (track: boolean, fullscreen: boolean) => void
 }
 
+/** Open a Session through 0.2 Workspace navigation, or the legacy sessions face. */
+function revealSession(ctx: ClientContext, sessionId: SessionId): void {
+  if (Reflect.has(ctx, 'uiWorkspace')) {
+    ctx.uiWorkspace.openSession(sessionId)
+    return
+  }
+  ;(ctx.sessions as unknown as { open(id: SessionId): void }).open(sessionId)
+}
+
 /** Reveal the native session-tree surface across patched and official layouts. */
-function openSessionTreePanel(layout: SessionTreeLayoutActions): void {
+function openSessionTreePanel(ctx: ClientContext, layout: SessionTreeLayoutActions): void {
+  if (Reflect.has(ctx, 'sidebarRight')) {
+    ctx.sidebarRight.openTab('session-tree')
+    return
+  }
   if (layout.openDetails !== undefined) {
     layout.openDetails('session-tree')
     return
@@ -142,7 +158,7 @@ function registerSessionTreeUi(ctx: ClientContext): void {
   const completeFork = (result: SessionTreeForkView): void => {
     if (result.sessionId === undefined) return
     if (result.prompt !== undefined) writeNativePrompt(result.sessionId, result.prompt)
-    ctx.sessions.open(result.sessionId)
+    revealSession(ctx, result.sessionId)
   }
 
   /** Fork through the same native session service used by the sidebar menu. */
@@ -157,7 +173,7 @@ function registerSessionTreeUi(ctx: ClientContext): void {
   /** Fork and reveal a child without an editable prompt. */
   const openNativeFork = async (sessionId: SessionId, atSeq?: number): Promise<SessionId> => {
     const childId = await forkNative(sessionId, atSeq)
-    ctx.sessions.open(childId)
+    revealSession(ctx, childId)
     return childId
   }
 
@@ -221,7 +237,7 @@ function registerSessionTreeUi(ctx: ClientContext): void {
       ...(previousUserPrompt === undefined ? {} : { summary: summarizeForkPrompt(previousUserPrompt) }),
     })
     writeNativePrompt(childId, nodeFullText(node))
-    ctx.sessions.open(childId)
+    revealSession(ctx, childId)
     overlay.closeSelector()
   }
 
@@ -265,6 +281,45 @@ function registerSessionTreeUi(ctx: ClientContext): void {
     },
   }
 
+  /** Compose the action face shared by the 0.2 right-Sidebar tab and legacy dock. */
+  const panelActions = (sessionId: SessionId): SessionTreePanelActions => ({
+    load: remoteActions.load,
+    jump: nodeId => remoteActions.jump(sessionId, nodeId),
+    jumpSession: remoteActions.jump,
+    fork: async (nodeId, branch) => {
+      const result = await remoteActions.fork(sessionId, nodeId, branch)
+      completeFork(result)
+      return result
+    },
+    forkUserPrompt: node => forkUserPrompt(sessionId, node),
+    modeController: overlay,
+    onRefresh: callback => remoteActions.onRefresh(sessionId, callback),
+    lineage: forkLineage,
+    openSession: (id: SessionId) => { revealSession(ctx, id) },
+  })
+
+  if (Reflect.has(ctx, 'sidebarRightTabs') && Reflect.has(ctx, 'sidebarRight')) {
+    // DeepSeek-Harness 0.2 ships an extensible right Sidebar. Register a page
+    // type there so /tree docks into the product's own persistent surface.
+    const SESSION_TREE_TAB_ID = '@robiteame/dsh-client-ui-session-tree'
+    const translate = typeof ctx.locale.bind === 'function'
+      ? ctx.locale.bind(NS)
+      : (key: SessionTreeKey) => zh[key]
+    const title = translate('panel.title')
+    ctx.effect(() => ctx.sidebarRightTabs.register({
+      id: SESSION_TREE_TAB_ID,
+      kind: 'session-tree',
+      priority: 'extension',
+      keepMounted: true,
+      title: () => title,
+    }), 'ui-session-tree: right-sidebar type')
+    ctx.effect(() => ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
+      name: 'sidebar.right.pane.tab', key: SESSION_TREE_TAB_ID, locale: NS,
+      inject: panelActions,
+    }, SessionTreeSidebarTab)), 'ui-session-tree: right-sidebar body')
+    overlay.setNativePanel(true)
+  }
+
   // Every supported official Web profile declares this additive root slot.
   // It remains a dormant fallback when the legacy source patch supplies the
   // richer named details-panel slot below.
@@ -276,7 +331,7 @@ function registerSessionTreeUi(ctx: ClientContext): void {
       completeFork,
       forkUserPrompt,
       sendPrompt,
-      openSession: (sessionId: SessionId) => { ctx.sessions.open(sessionId) },
+      openSession: (sessionId: SessionId) => { revealSession(ctx, sessionId) },
       lineage: forkLineage,
     }),
   }, SessionTreeOverlay))
@@ -288,7 +343,7 @@ function registerSessionTreeUi(ctx: ClientContext): void {
     name: 'shell.overlay', id: 'session-tree-branches', order: 11, locale: NS,
     inject: () => ({
       lineage: forkLineage,
-      openSession: (sessionId: SessionId) => { ctx.sessions.open(sessionId) },
+      openSession: (sessionId: SessionId) => { revealSession(ctx, sessionId) },
     }),
   }, SessionBranchList))
 
@@ -297,21 +352,7 @@ function registerSessionTreeUi(ctx: ClientContext): void {
   ctx.slots.inject('conversation.details.panel' as never, () => {
     const disposePanel = ctx.slots.register({
       name: 'conversation.details.panel', id: 'session-tree', order: 10, locale: NS,
-      inject: (sessionId: SessionId): SessionTreePanelActions => ({
-        load: remoteActions.load,
-        jump: nodeId => remoteActions.jump(sessionId, nodeId),
-        jumpSession: remoteActions.jump,
-        fork: async (nodeId, branch) => {
-          const result = await remoteActions.fork(sessionId, nodeId, branch)
-          completeFork(result)
-          return result
-        },
-        forkUserPrompt: node => forkUserPrompt(sessionId, node),
-        modeController: overlay,
-        onRefresh: callback => remoteActions.onRefresh(sessionId, callback),
-        lineage: forkLineage,
-        openSession: (id: SessionId) => { ctx.sessions.open(id) },
-      }),
+      inject: panelActions,
     } as never, SessionTreeDock as never)
     overlay.setNativePanel(true)
     return () => {
@@ -323,7 +364,7 @@ function registerSessionTreeUi(ctx: ClientContext): void {
   ctx.on('command/executed', (sessionId: SessionId, name: string, result: CommandResult) => {
     if (name === 'tree') {
       if (overlay.getSnapshot().nativePanel) {
-        openSessionTreePanel(ctx.layout as unknown as SessionTreeLayoutActions)
+        openSessionTreePanel(ctx, ctx.layout as unknown as SessionTreeLayoutActions)
       } else {
         overlay.open()
       }
@@ -344,7 +385,7 @@ function registerSessionTreeUi(ctx: ClientContext): void {
           // In the native details-dock profile, /fork must also make the dock
           // visible; the selector state alone only switches the overlay drawer.
           if (overlay.getSnapshot().nativePanel) {
-            openSessionTreePanel(ctx.layout as unknown as SessionTreeLayoutActions)
+            openSessionTreePanel(ctx, ctx.layout as unknown as SessionTreeLayoutActions)
           }
         }
         else if (payload.value?.nativeForkRequired === true) {

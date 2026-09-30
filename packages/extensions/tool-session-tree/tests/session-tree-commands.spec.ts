@@ -59,7 +59,7 @@ function stubAgent(rawId: string, cwd?: string): Agent {
   const id = SessionId(rawId)
   const session = cwd === undefined
     ? Session.create(id)
-    : Session.create(id, undefined, { version: 3, id, createdAt: 0, cwd, isSeeded: false })
+    : Session.create(id, undefined, { version: 4, id, createdAt: 0, cwd, isSeeded: false })
   return {
     id: session.id,
     options: {},

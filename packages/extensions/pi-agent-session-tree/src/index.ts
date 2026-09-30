@@ -431,10 +431,7 @@ function appendStockCursorEvent(
       role: 'system' as const,
       content: [],
       id: `session-tree-cursor-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-      source: {
-        kind: 'plugin' as const,
-        plugin: '@robiteame/dsh-pi-agent-session-tree',
-      },
+      source: { kind: 'system-prompt' as const },
     },
     treeRestore: marker,
   } as unknown as SessionEventMap['system/message']

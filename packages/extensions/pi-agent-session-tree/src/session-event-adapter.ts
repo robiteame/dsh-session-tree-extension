@@ -22,13 +22,22 @@ export interface ProjectedToolResult {
 /** Extract the call correlation and outcome of one `tool/result` event. */
 export function toolResultOf(event: SessionEvent): ProjectedToolResult | undefined {
   if (event.type !== 'tool/result') return undefined
-  const block = event.data.message.content.find(part => part.type === 'tool-result')
-  if (block?.type !== 'tool-result') return undefined
+  const message = event.data.message
   const failure = event.data.error
-  const isError = block.isError === true || failure !== undefined
+  // 0.2 represents the result as a first-class tool message. Older logs wrap
+  // the same payload in a `tool-result` content block; accept both so stored
+  // histories remain readable after the Harness upgrade.
+  const legacy = Array.isArray(message.content)
+    ? message.content.find(part => (part as { type?: unknown }).type === 'tool-result') as
+      | { toolCallId?: unknown; content?: unknown; isError?: unknown }
+      | undefined
+    : undefined
+  const callId = message.toolCallId ?? legacy?.toolCallId
+  if (callId === undefined) return undefined
+  const isError = message.isError === true || legacy?.isError === true || failure !== undefined
   return {
-    callId: String(block.toolCallId),
-    text: textOf(block.content),
+    callId: String(callId),
+    text: textOf(legacy?.content ?? message.content),
     isError,
     ...(isError ? { error: failure !== undefined ? `${failure.name}: ${failure.code}` : 'tool call failed' } : {}),
   }

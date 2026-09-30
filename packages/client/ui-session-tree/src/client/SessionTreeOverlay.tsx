@@ -6,6 +6,7 @@ import type { JumpView, SessionTreeForkView, SessionTreeView, TreeNode } from '@
 import { SessionTreePanel } from './SessionTreePanel.tsx'
 import type { SessionForkLineage } from './fork-lineage.ts'
 import css from './SessionTreePanel.module.css'
+import { currentSessionId } from './session-list.ts'
 
 export interface SessionTreeOverlayState {
   open: boolean
@@ -112,7 +113,7 @@ export function SessionTreeOverlay({
 }: SessionTreeOverlayProps) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot)
   const sessionId = useSessions((sessions) => {
-    const current = sessions.current
+    const current = currentSessionId(sessions)
     return current !== undefined && sessions.byId[current]?.blank === false ? current : undefined
   })
   const previousSession = useRef<SessionId | undefined>(sessionId)
