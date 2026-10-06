@@ -22,8 +22,8 @@ const checks = [
     dir: PI, name: PI_NAME,
     files: [
       'package.json', 'README.md',
-      'lib/index.js', 'lib/invariant.js',
-      'lib/types/index.d.ts', 'lib/types/invariant.d.ts', 'lib/types/types.d.ts', 'lib/types/client.d.ts',
+      'lib/index.js',
+      'lib/types/index.d.ts', 'lib/types/types.d.ts', 'lib/types/client.d.ts',
       'lib/typert.host.js', 'lib/typert.host.d.ts',
       'lib/typert.remote-client.js', 'lib/typert.remote-client.d.ts',
     ],
@@ -42,7 +42,7 @@ const checks = [
     dir: TOOL, name: TOOL_NAME,
     files: [
       'package.json', 'README.md',
-      'lib/index.js', 'lib/invariant.js', 'lib/types/index.d.ts', 'lib/types/invariant.d.ts',
+      'lib/index.js', 'lib/types/index.d.ts',
     ],
     markers: {
       'lib/index.js': ['name: "session_tree"', 'name: "tree"', 'name: "fork"', 'name: "clone"', 'name: "session"', 'isSessionTreeRestoreEvent', 'sessionTreeSurfaceMode'],
@@ -57,7 +57,7 @@ const checks = [
     dir: UI, name: UI_NAME,
     files: [
       'package.json', 'README.md',
-      'lib/index.js', 'lib/invariant.js', 'lib/client.js', 'lib/types/index.d.ts', 'lib/types/client/index.d.ts',
+      'lib/index.js', 'lib/client.js', 'lib/types/index.d.ts', 'lib/types/client/index.d.ts',
     ],
     markers: {
       'lib/client.js': ['window.__ModuleLoader__.load({', `id: "${UI_NAME}"`, 'shell.overlay', 'data-session-tree-overlay', 'conversation.details.panel', 'sessionTree'],

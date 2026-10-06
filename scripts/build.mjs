@@ -61,7 +61,6 @@ async function buildHostEntry(entry, outfile, external = hostExternal) {
 async function buildPi() {
   rmSync(resolve(PI, 'lib'), { recursive: true, force: true })
   await buildHostEntry(resolve(PI, 'src/index.ts'), resolve(PI, 'lib/index.js'))
-  await buildHostEntry(resolve(PI, 'src/invariant.ts'), resolve(PI, 'lib/invariant.js'))
   // The Typert contracts are generator output frozen in-tree; the package name
   // inside them already matches this package, so they ship verbatim.
   writeFileSync(resolve(PI, 'lib/typert.host.js'), readFileSync(resolve(PI, 'src/typert.host.template.js'), 'utf8'))
@@ -74,7 +73,6 @@ async function buildPi() {
 async function buildTool() {
   rmSync(resolve(TOOL, 'lib'), { recursive: true, force: true })
   await buildHostEntry(resolve(TOOL, 'src/index.ts'), resolve(TOOL, 'lib/index.js'))
-  await buildHostEntry(resolve(TOOL, 'src/invariant.ts'), resolve(TOOL, 'lib/invariant.js'))
   emitDeclarations(TOOL)
 }
 
@@ -126,7 +124,6 @@ const remoteStubPlugin = {
 async function buildUi() {
   rmSync(resolve(UI, 'lib'), { recursive: true, force: true })
   await buildHostEntry(resolve(UI, 'src/index.ts'), resolve(UI, 'lib/index.js'), [...hostExternal, 'react', 'react-dom'])
-  await buildHostEntry(resolve(UI, 'src/invariant.ts'), resolve(UI, 'lib/invariant.js'))
   emitDeclarations(UI)
 
   const clientCjs = resolve(TEMP, 'client.cjs')

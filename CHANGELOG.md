@@ -1,3 +1,28 @@
+## 0.5.0 — 2026-10-06
+
+### Changed
+
+- Targeted the latest DeepSeek-Harness release line, `0.2.1-alpha.1`, and
+  Cordis `~4.0.5-alpha.1`; the `@deepseek-ai/*` peer ranges moved accordingly.
+- Adapted to Harness 0.2.1's new session events (`llm/retry`,
+  `llm/retry-started`) and the additive right-Sidebar / client-contract
+  changes: the tree projection ignores unknown event types it does not model,
+  so retry diagnostics never disturb node identity or the append-only log.
+
+### Removed
+
+- The `./invariant` companion exports from all three implementation packages.
+  Harness 0.2.1 removed the runtime invariant plugins and the
+  `@deepseek-ai/dsh-invariants` package from its dependency tree; the
+  companions were empty registrations that the composition never mounted, so
+  dropping them keeps installs clean on 0.2.1 hosts.
+
+### Verified
+
+- Full repository gate against the published `0.2.1-alpha.1` Harness packages:
+  build, host/client type checks, packed artifact validation, and the complete
+  unit/browser test suite (111 tests).
+
 ## 0.4.0 — 2026-09-30
 
 ### Changed
