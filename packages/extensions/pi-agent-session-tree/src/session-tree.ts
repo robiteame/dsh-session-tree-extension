@@ -134,6 +134,24 @@ export class SessionTree {
     options: { branch?: string; summary?: string; content?: readonly ContentPart[]; model?: string; usage?: Record<string, JsonValue>; cost?: number; error?: string; metadata?: Record<string, JsonValue> } = {},
   ): TreeResult<TreeNode> {
     if (!isMessage(message)) return fail('INVALID_ARGUMENT', 'message.role and message.content are required')
+    if (options.content !== undefined && (!Array.isArray(options.content) || options.content.some(part => !isContentPart(part)))) {
+      return fail('INVALID_ARGUMENT', 'content must be an array of valid content parts')
+    }
+    if (options.usage !== undefined && !isJsonRecord(options.usage)) {
+      return fail('INVALID_ARGUMENT', 'usage must be a JSON object')
+    }
+    if (options.metadata !== undefined && !isJsonRecord(options.metadata)) {
+      return fail('INVALID_ARGUMENT', 'metadata must be a JSON object')
+    }
+    if (options.model !== undefined && typeof options.model !== 'string') {
+      return fail('INVALID_ARGUMENT', 'model must be a string')
+    }
+    if (options.cost !== undefined && !Number.isFinite(options.cost)) {
+      return fail('INVALID_ARGUMENT', 'cost must be finite')
+    }
+    if (options.error !== undefined && typeof options.error !== 'string') {
+      return fail('INVALID_ARGUMENT', 'error must be a string')
+    }
     const branch = options.branch === undefined ? this.activeBranchName : options.branch.trim()
     if (branch.length === 0) return fail('INVALID_ARGUMENT', 'branch must not be empty')
     const node: TreeNode = {
@@ -480,13 +498,17 @@ export class SessionTreeStore {
     const activeNodes = snapshot.nodes.filter(node => activeIds.has(node.nodeId))
     const ids = new Map<string, string>()
     for (const node of activeNodes) ids.set(node.nodeId, nodeId())
+    const cursor = snapshot.cursor === null ? null : ids.get(snapshot.cursor) ?? null
+    const branchHeads = Object.fromEntries(Object.entries(snapshot.branchHeads ?? {})
+      .map(([name, head]) => [name, ids.get(head)])
+      .filter((entry): entry is [string, string] => entry[1] !== undefined))
+    if (cursor !== null) branchHeads[snapshot.activeBranch] = cursor
     const cloned: SessionTreeSnapshot = {
       ...snapshot,
       sessionId: targetSessionId,
-      cursor: snapshot.cursor === null ? null : ids.get(snapshot.cursor) ?? null,
-      branchHeads: Object.fromEntries(Object.entries(snapshot.branchHeads ?? {})
-        .map(([name, head]) => [name, ids.get(head)])
-        .filter((entry): entry is [string, string] => entry[1] !== undefined)),
+      cursor,
+      branchHeads,
+      selectedNodeId: snapshot.selectedNodeId == null ? null : ids.get(snapshot.selectedNodeId) ?? null,
       nodes: activeNodes.map(node => ({
         ...node,
         nodeId: ids.get(node.nodeId) ?? nodeId(),
@@ -527,6 +549,8 @@ function isMessage(value: unknown): value is LlmMessage {
   return typeof record.role === 'string'
     && ['system', 'user', 'assistant', 'tool'].includes(record.role)
     && typeof record.content === 'string'
+    && (record.name === undefined || typeof record.name === 'string')
+    && (record.toolCallId === undefined || typeof record.toolCallId === 'string')
 }
 
 /** Validate one restored snapshot: version, ownership, nodes, and cursor. */
@@ -554,17 +578,19 @@ function isSnapshot(value: unknown, sessionId: SessionId): value is SessionTreeS
 function isNode(value: unknown): value is TreeNode {
   if (typeof value !== 'object' || value === null) return false
   const record = value as Record<string, unknown>
-  if (typeof record.nodeId !== 'string'
+  if (typeof record.nodeId !== 'string' || record.nodeId.length === 0
     || (record.parentId !== null && typeof record.parentId !== 'string')
-    || typeof record.branch !== 'string'
+    || typeof record.branch !== 'string' || record.branch.length === 0
     || typeof record.summary !== 'string'
     || typeof record.createdAt !== 'string') return false
   if (record.type !== undefined && !['message', 'tool_call', 'tool_result', 'model_change', 'compaction', 'branch_summary', 'custom'].includes(record.type as string)) return false
   if (record.forkCount !== undefined && (typeof record.forkCount !== 'number' || !Number.isInteger(record.forkCount) || record.forkCount < 0)) return false
   if (record.message !== undefined && !isMessage(record.message)) return false
   if (record.content !== undefined && (!Array.isArray(record.content) || record.content.some(part => !isContentPart(part)))) return false
+  if (record.model !== undefined && typeof record.model !== 'string') return false
   if (record.cost !== undefined && (typeof record.cost !== 'number' || !Number.isFinite(record.cost))) return false
   if (record.usage !== undefined && !isJsonRecord(record.usage)) return false
+  if (record.metadata !== undefined && !isJsonRecord(record.metadata)) return false
   return record.error === undefined || typeof record.error === 'string'
 }
 
@@ -585,7 +611,11 @@ function isJsonValue(value: unknown): value is JsonValue {
   if (value === null || typeof value === 'string' || typeof value === 'boolean') return true
   if (typeof value === 'number') return Number.isFinite(value)
   if (Array.isArray(value)) return value.every(isJsonValue)
-  if (typeof value === 'object') return Object.values(value).every(isJsonValue)
+  if (typeof value === 'object') {
+    const prototype = Object.getPrototypeOf(value)
+    return (prototype === Object.prototype || prototype === null)
+      && Object.values(value).every(isJsonValue)
+  }
   return false
 }
 

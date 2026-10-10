@@ -56,10 +56,31 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-  include: [
-    'packages/extensions/**/tests/**/*.spec.ts',
-    'packages/client/ui-session-tree/tests/**/*.spec.ts',
-    'packages/client/ui-session-tree/tests/**/*.spec.tsx',
-  ],
+    include: [
+      'packages/extensions/**/tests/**/*.spec.ts',
+      'packages/client/ui-session-tree/tests/**/*.spec.ts',
+      'packages/client/ui-session-tree/tests/**/*.spec.tsx',
+    ],
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'json-summary'],
+      reportsDirectory: 'coverage',
+      include: [
+        'packages/extensions/*/src/**/*.{ts,tsx,js}',
+        'packages/client/ui-session-tree/src/**/*.{ts,tsx,js}',
+      ],
+      exclude: [
+        '**/*.d.ts',
+        '**/css-modules.d.ts',
+        'packages/extensions/pi-agent-session-tree/src/client.ts',
+        'packages/extensions/pi-agent-session-tree/src/typert.*.template.js',
+      ],
+      thresholds: {
+        statements: 80,
+        branches: 70,
+        functions: 80,
+        lines: 85,
+      },
+    },
   },
 })

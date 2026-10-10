@@ -13,8 +13,9 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --project tsconfig.check.host.json && tsc --project tsconfig.check.client.json",
-    "verify": "pnpm build && pnpm typecheck && node scripts/verify-bundle.mjs --pack && pnpm test",
+    "verify": "pnpm build && pnpm typecheck && node scripts/verify-bundle.mjs --pack && pnpm test:coverage",
     "pack:all": "pnpm build && node scripts/verify-bundle.mjs && pnpm --filter @robiteame/dsh-pi-agent-session-tree pack && pnpm --filter @robiteame/dsh-tool-session-tree pack && pnpm --filter @robiteame/dsh-client-ui-session-tree pack && pnpm --filter @robiteame/dsh-session-tree pack"
   },
   "devDependencies": {
@@ -47,6 +48,7 @@
     "@types/node": "^22.20.0",
     "@types/react": "~18.3.1",
     "@types/react-dom": "~18.3.0",
+    "@vitest/coverage-v8": "4.1.11",
     "esbuild": "^0.28.0",
     "jsdom": "29.1.1",
     "react": "^18.2.0",

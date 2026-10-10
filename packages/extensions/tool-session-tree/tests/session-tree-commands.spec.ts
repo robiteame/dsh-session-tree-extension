@@ -324,7 +324,7 @@ describe('/clone command', () => {
     const snapshot = treeOf('cmd-clone-seed').snapshot()
     agent.session.append('session-tree/snapshot', { snapshot } as never)
 
-    const outcome = await command(ctx, agent, '/tree clone')
+    const outcome = await command(ctx, agent, '/tree clone cmd-clone-seed-target')
     expect(outcome.kind).toBe('success')
     expect(created).toHaveLength(1)
     expect(created[0]?.meta).toMatchObject({ cwd: '/workspace/clone-target' })
@@ -351,10 +351,11 @@ describe('/clone command', () => {
     const root = service.list(agent).nodes[0]!
     service.jump(agent, root.nodeId)
 
-    const outcome = await command(ctx, agent, '/tree clone')
+    const outcome = await command(ctx, agent, '/tree clone cmd-clone-factory-error-target')
     expect(outcome.kind).toBe('error')
     expectError(outcome.json, 'INVALID_ARGUMENT')
     expect(outcome.text).toContain('boom: capacity exhausted')
+    expect(sessionTreeStore.get(SessionId('cmd-clone-factory-error-target'))).toBeUndefined()
   })
 
   it('validates tool clone arguments and accepts an empty-tree clone', async () => {
@@ -582,6 +583,35 @@ describe('session_tree tool argument validation', () => {
     expectError(await runTool(ctx, agent, { operation: 'branch', nodeId: 'n' }), 'INVALID_ARGUMENT')
     expectError(await runTool(ctx, agent, { operation: 'branch.summary', nodeId: 'n' }), 'INVALID_ARGUMENT')
     expectError(await runTool(ctx, agent, { operation: 'snapshot.load' }), 'INVALID_ARGUMENT')
+    expectError(await runTool(ctx, agent, { operation: 'snapshot.load', snapshot: null }), 'INVALID_SNAPSHOT')
+    expectError(await runTool(ctx, agent, { operation: 'snapshot.load', snapshot: 123 }), 'INVALID_SNAPSHOT')
+  })
+
+  it('rejects unsafe clone targets and malformed structured append arguments', async () => {
+    const { ctx } = await harness()
+    const agent = stubAgent('tool-hardening')
+    seedTurns(agent)
+    await runTool(ctx, agent, { operation: 'session' })
+    const before = treeOf('tool-hardening').list().length
+
+    expectError(await runTool(ctx, agent, { operation: 'clone', targetSessionId: '' }), 'INVALID_ARGUMENT')
+    expectError(await runTool(ctx, agent, { operation: 'clone', targetSessionId: agent.session.id }), 'INVALID_ARGUMENT')
+    expectError(await runTool(ctx, agent, {
+      operation: 'append',
+      message: { role: 'user', content: 'bad metadata' },
+      metadata: [],
+    }), 'INVALID_ARGUMENT')
+    expectError(await runTool(ctx, agent, {
+      operation: 'append',
+      message: { role: 'user', content: 'bad content' },
+      content: [{ type: 'text' }],
+    }), 'INVALID_ARGUMENT')
+    expectError(await runTool(ctx, agent, {
+      operation: 'append',
+      message: { role: 'user', content: 'bad usage' },
+      usage: [],
+    }), 'INVALID_ARGUMENT')
+    expect(treeOf('tool-hardening').list()).toHaveLength(before)
   })
 
   it('serves context for an explicit node instead of the cursor', async () => {

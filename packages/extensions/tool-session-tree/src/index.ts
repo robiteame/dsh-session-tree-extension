@@ -132,14 +132,16 @@ async function runToolOperation(ctx: Context, args: SessionTreeToolArgs, exec: T
       if (args.snapshot === undefined) {
         return { ok: false, error: { code: 'INVALID_ARGUMENT', message: 'snapshot is required' } }
       }
-      const snapshot = args.snapshot as unknown as Parameters<typeof sessionTreeStore.load>[0]
-      if (snapshot.sessionId !== sessionId) {
-        return { ok: false, error: { code: 'INVALID_SNAPSHOT', message: `snapshot session '${snapshot.sessionId}' does not match the calling session '${sessionId}'` } }
+      const snapshot = args.snapshot as unknown
+      if (typeof snapshot !== 'object' || snapshot === null || (snapshot as { sessionId?: unknown }).sessionId !== sessionId) {
+        const snapshotSession = typeof snapshot === 'object' && snapshot !== null ? (snapshot as { sessionId?: unknown }).sessionId : undefined
+        return { ok: false, error: { code: 'INVALID_SNAPSHOT', message: `snapshot session '${String(snapshotSession)}' does not match the calling session '${sessionId}'` } }
       }
+      const typedSnapshot = snapshot as Parameters<typeof sessionTreeStore.load>[0]
       if (sessionId !== exec.agent.session.id) return { ok: false, error: { code: 'INVALID_ARGUMENT', message: 'snapshot.load requires the calling agent session' } }
-      const candidate = newSessionTreeFromSnapshot(sessionId, snapshot)
+      const candidate = newSessionTreeFromSnapshot(sessionId, typedSnapshot)
       if (!candidate.ok) return { ok: false, error: { code: 'INVALID_SNAPSHOT', message: candidate.error } }
-      const event = appendSessionTreeEvent(exec.agent.session, 'session-tree/snapshot', { snapshot })
+      const event = appendSessionTreeEvent(exec.agent.session, 'session-tree/snapshot', { snapshot: typedSnapshot })
       if (event !== undefined) candidate.value.markSessionEventSeq(event.seq)
       sessionTreeStore.replace(sessionId, candidate.value)
       applyTreeCursorToSession(exec.agent, candidate.value)
@@ -306,6 +308,9 @@ function runForkCommand(invocation: CommandInvocation): CommandResult {
 }
 
 async function cloneActiveSession(ctx: Context, agent: NonNullable<ToolRunContext['agent']>, target: string, nodeId?: string): Promise<unknown> {
+  if (target.trim() === '') throw new Error('targetSessionId must not be empty')
+  if (target === agent.session.id) throw new Error('targetSessionId must differ from the source session')
+  if (sessionTreeStore.get(toSessionId(target)) !== undefined) throw new Error(`session '${target}' already exists`)
   const tree = syncSessionTree(agent)
   const focusId = nodeId ?? tree.cursor
   // A clone must inherit the WHOLE conversation the source agent can see, not
@@ -345,7 +350,6 @@ async function cloneActiveSession(ctx: Context, agent: NonNullable<ToolRunContex
     }
   }
 
-  seedCloneTree(toSessionId(target), tree, focusId, Math.max(seed.length - 1, 0))
   try {
     await ctx.agents.create({
       sessionId: toSessionId(target),
@@ -365,6 +369,7 @@ async function cloneActiveSession(ctx: Context, agent: NonNullable<ToolRunContex
       throw error
     }
   }
+  seedCloneTree(toSessionId(target), tree, focusId, Math.max(seed.length - 1, 0))
   return { ok: true, value: { sessionId: target } }
 }
 
@@ -511,13 +516,15 @@ async function runTreeCommand(ctx: Context, invocation: CommandInvocation): Prom
         return { kind: 'error', text: JSON.stringify({ ok: false, error: { code: 'INVALID_ARGUMENT', message: 'snapshot JSON is required' } }) }
       }
       try {
-        const snapshot = JSON.parse(raw) as Parameters<typeof sessionTreeStore.load>[0]
-        if (snapshot.sessionId !== sessionId) {
-          return json({ ok: false, error: { code: 'INVALID_SNAPSHOT', message: `snapshot session '${snapshot.sessionId}' does not match the calling session '${sessionId}'` } })
+        const snapshot = JSON.parse(raw) as unknown
+        if (typeof snapshot !== 'object' || snapshot === null || (snapshot as { sessionId?: unknown }).sessionId !== sessionId) {
+          const snapshotSession = typeof snapshot === 'object' && snapshot !== null ? (snapshot as { sessionId?: unknown }).sessionId : undefined
+          return json({ ok: false, error: { code: 'INVALID_SNAPSHOT', message: `snapshot session '${String(snapshotSession)}' does not match the calling session '${sessionId}'` } })
         }
-        const candidate = new SessionTree(sessionId, snapshot)
+        const typedSnapshot = snapshot as Parameters<typeof sessionTreeStore.load>[0]
+        const candidate = new SessionTree(sessionId, typedSnapshot)
         try {
-          const event = appendSessionTreeEvent(invocation.agent.session, 'session-tree/snapshot', { snapshot })
+          const event = appendSessionTreeEvent(invocation.agent.session, 'session-tree/snapshot', { snapshot: typedSnapshot })
           if (event !== undefined) candidate.markSessionEventSeq(event.seq)
           sessionTreeStore.replace(sessionId, candidate)
           applyTreeCursorToSession(invocation.agent, candidate)

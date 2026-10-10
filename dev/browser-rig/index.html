@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>dsh-session-tree · 实机 GUI 测试台</title>
+  <link rel="stylesheet" href="/rig.css" />
+</head>
+<body>
+  <div id="app">
+    <header id="topbar">
+      <div class="brand">dsh-session-tree <span class="tag">实机 GUI 测试台 v0.5.0</span></div>
+      <div class="brand-sub">命令模拟按钮在下方中部「测试台控制」面板（顶部区域被浏览器窗格工具条覆盖，不可点击）</div>
+    </header>
+    <main id="layout">
+      <aside id="sessions-pane">
+        <h2>会话（原生列表）</h2>
+        <div id="native-session-list" role="tree" aria-label="会话列表"></div>
+        <p class="hint">原生会话列表由测试台以纯 DOM 渲染（非 React），模拟真实 Harness 宿主；插件的内联分叉菜单将 portal 到对应行之后。</p>
+      </aside>
+      <section id="chat-pane">
+        <div class="rig-card">
+          <h2>测试台控制（模拟 Harness 命令）</h2>
+          <div class="controls" id="rig-controls">
+            <button id="btn-cmd-tree" title="模拟命令 /tree：打开右侧会话树面板">/tree</button>
+            <button id="btn-cmd-fork" title="模拟命令 /fork：打开用户消息分叉选择器">/fork</button>
+            <button id="btn-cmd-clone" title="模拟命令 /clone：克隆当前会话为新会话">/clone</button>
+            <button id="btn-theme" title="切换明/暗主题">主题</button>
+          </div>
+          <p class="hint">真实 Harness 中此处为消息流。本测试台聚焦右侧栏插件面板与会话列表的交互。</p>
+        </div>
+      </section>
+      <aside id="right-pane">
+        <h2>右侧栏 · DetailsPanel 座位</h2>
+        <div id="dock" class="dock"></div>
+        <div id="calllog">
+          <h2>Remote 调用日志（插件 → Host）</h2>
+          <ol id="calllog-list"></ol>
+        </div>
+      </aside>
+    </main>
+  </div>
+  <script type="module" src="/main.tsx"></script>
+</body>
+</html>
