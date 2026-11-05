@@ -1,7 +1,7 @@
 {
   "name": "@robiteame/dsh-client-ui-session-tree",
   "description": "Session-tree WebUI panel: a native tab in the Harness 0.2 right Sidebar, with an additive overlay fallback for older stock builds",
-  "version": "0.7.0",
+  "version": "0.7.2",
   "publishConfig": {
     "access": "public"
   },

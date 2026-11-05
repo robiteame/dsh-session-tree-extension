@@ -3,7 +3,7 @@
 [![npm](https://img.shields.io/npm/v/@robiteame/dsh-session-tree)](https://www.npmjs.com/package/@robiteame/dsh-session-tree)
 [![CI](https://github.com/robiteame/dsh-session-tree-extension/actions/workflows/ci.yml/badge.svg)](https://github.com/robiteame/dsh-session-tree-extension/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
-[![Harness](https://img.shields.io/badge/DeepSeek--Harness-0.2.1--rc.3-orange)](https://github.com/deepseek-ai/deepseek-harness)
+[![Harness](https://img.shields.io/badge/DeepSeek--Harness-0.2.1--rc.5-orange)](https://github.com/deepseek-ai/deepseek-harness)
 
 Append-only, multi-branch conversation trees for
 [DeepSeek-Harness](https://github.com/deepseek-ai/deepseek-harness) — fork any
@@ -50,7 +50,7 @@ the three rows (`pi-agent-session-tree`, `tool-session-tree`,
 `ui-session-tree`) that load the Host service, the commands, and the browser
 panel.
 
-The desktop app currently bundles the `0.2.1-rc.2` CLI, whose `dsh plugin`
+On older desktop builds bundling the `0.2.1-rc.2` CLI, the `dsh plugin`
 command only forwards to pnpm and does not activate a newly installed bundle.
 Use the in-app market there; after the restart, `/tree` opens the panel.
 
@@ -66,7 +66,7 @@ dsh plugin --profile <profile> add @robiteame/dsh-session-tree
 Prebuilt tarballs install the same way and need no build scripts:
 
 ```sh
-dsh plugin --profile <profile> add robiteame-dsh-session-tree-0.7.0.tgz
+dsh plugin --profile <profile> add robiteame-dsh-session-tree-0.7.2.tgz
 ```
 
 After installing, restart the profile. Verify the composed layer:
@@ -75,9 +75,9 @@ After installing, restart the profile. Verify the composed layer:
 dsh --profile <profile> --dump-config   # should list the three session-tree rows
 ```
 
-Requires DeepSeek-Harness `0.2.1-rc.2` through `0.2.1-rc.3` (the latest
-published `next` is `0.2.1-rc.3`; the current desktop build is `0.2.1-rc.2`) and
-Cordis `~4.0.5`; the target installation provides those peers. No install
+Requires DeepSeek-Harness `^0.2.1-rc.2` and Cordis `~4.0.5`; the target
+installation provides those peers. The current development and verification
+baseline is the published `0.2.1-rc.5` release. No install
 scripts run — the tarballs ship prebuilt `lib/` artifacts.
 
 ## The three commands
@@ -154,16 +154,17 @@ pnpm verify      # build + typecheck (host & client) + pack dry-run + vitest
 pnpm pack:all    # produce the four tarballs
 ```
 
-Tests run against the published Harness packages (`0.2.1-rc.3`) — the
-stock-mode paths — with `vitest` from the repository root. The same suite is
-green against `0.2.1-rc.2`, the version bundled by the current desktop build. The
+Tests run against the published Harness packages (`0.2.1-rc.5`) — the
+stock-mode paths — with `vitest` from the repository root. Earlier releases
+were also verified against `0.2.1-rc.2` and `0.2.1-rc.3`. The
 browser spec in `packages/client/ui-session-tree` exercises both the 0.2 native
 right-Sidebar registration and the older overlay fallback in the standalone
 suite.
 
 ### Source integration against a Harness checkout
 
-For debugging against a `0.2.1` Harness source checkout (native branch switching and source integration):
+For debugging against the `dsh-v0.2.1-rc.2` Harness source tag (native branch
+switching and source integration):
 
 ```sh
 dev/install.sh /path/to/deepseek-harness     # applies both dev patches + copies packages
@@ -171,7 +172,8 @@ cd /path/to/deepseek-harness && pnpm install && pnpm run build
 ```
 
 See [`dev/README.md`](./dev/README.md) for what each patch does. This flow is
-for contributors only — user installs never touch a Harness checkout.
+for contributors only; the source patches have not been validated against
+`0.2.1-rc.5`. User installs never touch a Harness checkout.
 
 ## License
 

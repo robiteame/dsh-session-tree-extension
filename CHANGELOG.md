@@ -1,3 +1,46 @@
+## 0.7.2 — 2026-11-03
+
+### Changed
+
+- Updated all Harness development dependencies and the lockfile to
+  `0.2.1-rc.5`, the published `latest` and `next` release. Cordis remains
+  `4.0.5`; the existing `^0.2.1-rc.2` peer ranges accept the new host.
+- Updated installation and development documentation to use the rc.5
+  verification baseline and 0.7.2 package examples. Contributor source
+  patches remain scoped to `dsh-v0.2.1-rc.2`.
+
+### Verified
+
+- `pnpm verify` passes against the published rc.5 packages: standalone build,
+  Host and Client type checks, all four packed artifacts, and all 125 tests.
+  Coverage: 84.80% statements, 76.32% branches, 89.00% functions, and 90.77%
+  lines.
+- Installed the four local 0.7.2 tarballs through the published rc.5 CLI
+  plugin manager in an isolated profile. The bundle activates and composes
+  all three rows; the WebUI boots and `/tree` opens the native right-Sidebar
+  tab without browser warnings or errors. No model API request was needed.
+  [Smoke screenshot](./gui-test-screenshots/harness-rc5-session-tree.png).
+
+## 0.7.1 — 2026-10-25
+
+### Fixed
+
+- The WebUI client half no longer probes optional `sidebarRight`,
+  `sidebarRightTabs`, and `uiWorkspace` services with `Reflect.has(ctx, name)`
+  before reading them. Cordis 4.0.5 rejects that pair with
+  `cannot get property "sidebarRightTabs" without inject`, so the client entry
+  failed to activate during web boot and the desktop UI stayed on the boot
+  screen. The optional faces are now read through the inject-free `ctx.get()`,
+  preserving the legacy details-panel fallback when the services are absent.
+- Verified against the desktop 0.2.1-rc.3 host with a real 422-node session:
+  the profile boots, the right-sidebar Session Tree tab renders the merged
+  graph, and `/tree` opens the panel without a web-boot failure.
+
+### Verified
+
+- Full suite: 125 tests pass; host/client type checks and the packed-artifact
+  gate pass against the published 0.2.1-rc.3 packages.
+
 ## 0.7.0 — 2026-10-24
 
 ### Changed

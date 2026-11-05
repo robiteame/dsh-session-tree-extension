@@ -4,12 +4,12 @@ Everything in this directory exists only for contributor workflows against a
 [DeepSeek-Harness](https://github.com/deepseek-ai/deepseek-harness) source
 checkout. None of it ships in the published npm packages.
 
-> **Version scope:** these source patches target the `dsh-v0.2.1-rc.2` tag —
-> the current desktop release line. The published packages support official
-> `0.2.1-rc.2` and `0.2.1-rc.3` builds without a source patch; the WebUI
-> registers through the official extensible right Sidebar. The repository test
-> gate runs against the published `0.2.1-rc.3` packages, and the same suite is
-> green against `0.2.1-rc.2`.
+> **Version scope:** these source patches target the `dsh-v0.2.1-rc.2` tag and
+> have not been validated against `0.2.1-rc.5`. Published packages use the peer
+> range `^0.2.1-rc.2` and require no source patch; the WebUI registers through
+> the official extensible right Sidebar. The repository's development and test
+> baseline is the published `0.2.1-rc.5` packages. Earlier releases were also
+> verified against `0.2.1-rc.2` and `0.2.1-rc.3`.
 
 ## `session-branch-surface.patch` — optional engine capability
 

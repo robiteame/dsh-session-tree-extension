@@ -59,6 +59,9 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 }
 
 const NS = 'session-tree'
+// Optional 0.2 right-Sidebar and Workspace faces are read through `ctx.get()`;
+// Cordis 4 rejects probing an undeclared service with `Reflect.has(ctx, name)`
+// and then reading it, even when the service is present.
 export const inject = ['slots', 'sessions', 'conversation', 'remote', 'locale', 'layout']
 
 /** Runtime-only editor face exposed by the native SessionInput shell. */
@@ -74,10 +77,15 @@ interface SessionTreeLayoutActions {
   readonly openRightbar?: (track: boolean, fullscreen: boolean) => void
 }
 
-/** Open a Session through 0.2 Workspace navigation, or the legacy sessions face. */
+/**
+ * Open a Session through 0.2 Workspace navigation, or the legacy sessions face.
+ * `ctx.get` is the inject-free lookup for a service this plugin treats as
+ * optional; Cordis' proxy throws on `Reflect.has` + property reads otherwise.
+ */
 function revealSession(ctx: ClientContext, sessionId: SessionId): void {
-  if (Reflect.has(ctx, 'uiWorkspace')) {
-    ctx.uiWorkspace.openSession(sessionId)
+  const workspace = ctx.get('uiWorkspace')
+  if (workspace !== undefined) {
+    workspace.openSession(sessionId)
     return
   }
   ;(ctx.sessions as unknown as { open(id: SessionId): void }).open(sessionId)
@@ -85,8 +93,9 @@ function revealSession(ctx: ClientContext, sessionId: SessionId): void {
 
 /** Reveal the native session-tree surface across patched and official layouts. */
 function openSessionTreePanel(ctx: ClientContext, layout: SessionTreeLayoutActions): void {
-  if (Reflect.has(ctx, 'sidebarRight')) {
-    ctx.sidebarRight.openTab('session-tree')
+  const sidebarRight = ctx.get('sidebarRight')
+  if (sidebarRight !== undefined) {
+    sidebarRight.openTab('session-tree')
     return
   }
   if (layout.openDetails !== undefined) {
@@ -298,7 +307,9 @@ function registerSessionTreeUi(ctx: ClientContext): void {
     openSession: (id: SessionId) => { revealSession(ctx, id) },
   })
 
-  if (Reflect.has(ctx, 'sidebarRightTabs') && Reflect.has(ctx, 'sidebarRight')) {
+  const sidebarRightTabs = ctx.get('sidebarRightTabs')
+  const sidebarRight = ctx.get('sidebarRight')
+  if (sidebarRightTabs !== undefined && sidebarRight !== undefined) {
     // DeepSeek-Harness 0.2 ships an extensible right Sidebar. Register a page
     // type there so /tree docks into the product's own persistent surface.
     const SESSION_TREE_TAB_ID = '@robiteame/dsh-client-ui-session-tree'
@@ -306,7 +317,7 @@ function registerSessionTreeUi(ctx: ClientContext): void {
       ? ctx.locale.bind(NS)
       : (key: SessionTreeKey) => zh[key]
     const title = translate('panel.title')
-    ctx.effect(() => ctx.sidebarRightTabs.register({
+    ctx.effect(() => sidebarRightTabs.register({
       id: SESSION_TREE_TAB_ID,
       kind: 'session-tree',
       priority: 'extension',

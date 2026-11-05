@@ -9,7 +9,7 @@ Open **Settings → Plugins → Market**, search for
 plugin manager activates the carrier bundle and composes its three rows; after
 the restart, `/tree` opens the panel.
 
-The desktop app bundles the `0.2.1-rc.2` CLI, whose `dsh plugin` command only
+Older desktop builds bundle the `0.2.1-rc.2` CLI, whose `dsh plugin` command only
 forwards to pnpm and does not activate a new bundle. Use the in-app market
 there.
 
@@ -26,7 +26,7 @@ or, fully offline, with the prebuilt tarball (no install scripts, no build
 step):
 
 ```sh
-dsh plugin --profile <profile> add robiteame-dsh-session-tree-0.7.0.tgz
+dsh plugin --profile <profile> add robiteame-dsh-session-tree-0.7.2.tgz
 ```
 
 The carrier package pulls its three implementation packages
@@ -47,8 +47,9 @@ tree. `session_tree`'s `context`/`session` operations report the active
 
 ### Requirements
 
-- DeepSeek-Harness `0.2.1-rc.2` through `0.2.1-rc.3` (latest published `next` is
-  `0.2.1-rc.3`; the current desktop build is `0.2.1-rc.2`) and Cordis `~4.0.5`.
+- DeepSeek-Harness `^0.2.1-rc.2` and Cordis `~4.0.5`. The current development
+  and verification baseline is published `0.2.1-rc.5`; earlier releases were
+  also verified against `0.2.1-rc.2` and `0.2.1-rc.3`.
 - Node.js 22 or newer.
 - No `allowBuilds` entries: the packages declare no lifecycle scripts and ship
   prebuilt artifacts.
@@ -74,7 +75,7 @@ pnpm install
 pnpm verify     # build + typecheck + pack dry-run + vitest (stock packages)
 ```
 
-To run inside a DeepSeek-Harness source checkout (native branch switching via
+To run inside a DeepSeek-Harness `dsh-v0.2.1-rc.2` source checkout (native branch switching via
 `Session.selectMessageSurface()` and source integration):
 
 ```sh
@@ -87,5 +88,6 @@ pnpm run build
 The script applies `dev/session-branch-surface.patch` (optional engine
 capability; skip with `ST_NO_SURFACE=1`) and `dev/harness.patch` (composition and TypeScript registration), then
 copies the three packages and docs. See
-[`dev/README.md`](./dev/README.md). The current official WebUI already exposes
+[`dev/README.md`](./dev/README.md). These source patches have not been validated
+against `0.2.1-rc.5`. The current official WebUI already exposes
 the extensible right Sidebar, so no UI or generated catalog patch is required.
