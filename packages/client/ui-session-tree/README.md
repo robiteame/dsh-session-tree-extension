@@ -10,12 +10,13 @@ available. The tree stays in the sidebar; the latest-prompt editor uses the
 native composer extension slots and creates no standalone page.
 
 - `/tree` opens or refreshes the right sidebar.
-- **Edit latest prompt** beside the composer stops the current run before
+- **Edit** beside **Copy** on the latest user bubble stops the current run before
   opening an editor above the composer. **Resend** starts a corrected child
   branch with the prior history and original attachments. Cancel leaves the
   source stopped. Ctrl/Cmd+Enter resends; normal Enter inserts a newline.
-  Both desktop and browser use the same additive `conversation.input.right`
-  and `conversation.input.dock` slots, preserving the ordinary composer draft.
+  Both desktop and browser use the additive `conversation.input.dock` slot
+  and a session-scoped portal beside the native copy control, preserving
+  the original message renderer and ordinary composer draft.
   A newer prompt still waiting in the queue is edited through the native
   queue controls; the plugin reports this case instead of editing an older turn.
 - `/fork` shows only user-prompt nodes and, once one is chosen, opens an

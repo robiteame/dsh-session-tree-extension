@@ -14,7 +14,7 @@ import {
 } from '../src/client/SessionTreeOverlay.tsx'
 import { SessionBranchList } from '../src/client/SessionBranchList.tsx'
 import type { LatestPromptEditController } from '../src/client/LatestPromptEditor.tsx'
-import { LatestPromptEditButtonSlot, LatestPromptEditorSlot } from '../src/client/LatestPromptEditSlots.tsx'
+import { LatestPromptEditorSlot } from '../src/client/LatestPromptEditSlots.tsx'
 import { buildBranchTreeModel, buildSessionGraphModel } from '../src/client/session-graph.ts'
 import { SessionForkLineage, FORK_LINEAGE_STORAGE_KEY } from '../src/client/fork-lineage.ts'
 import { apply, inject } from '../src/client/index.ts'
@@ -271,18 +271,15 @@ describe('session tree browser plugin', () => {
     expect(b.refresh).not.toHaveBeenCalled()
   })
 
-  it.each([true, false])('edits through shared composer slots and opens the accepted child (native sidebar: %s)', async nativeSidebar => {
+  it.each([true, false])('edits the selected bubble through the shared dock and opens the accepted child (native sidebar: %s)', async nativeSidebar => {
     const b = await bench(undefined, nativeSidebar)
     await b.fiber.await()
-    const buttonEntry = b.ctx.slots.entries('conversation.input.right' as never)[0] as unknown as TestSlotEntry
+    expect(b.ctx.slots.entries('conversation.input.right' as never)).toHaveLength(0)
     const dockEntry = b.ctx.slots.entries('conversation.input.dock' as never)[0] as unknown as TestSlotEntry
-    expect(buttonEntry.component).toBe(LatestPromptEditButtonSlot)
     expect(dockEntry.component).toBe(LatestPromptEditorSlot)
-    const injected = buttonEntry.inject!() as { controller: LatestPromptEditController }
-    const dockInjected = dockEntry.inject!() as { controller: LatestPromptEditController }
-    expect(dockInjected.controller).toBe(injected.controller)
-    await injected.controller.begin(sid('s1'))
-    expect(b.sessionTree.beginEdit).toHaveBeenCalledWith(sid('s1'), undefined)
+    const injected = dockEntry.inject!() as { controller: LatestPromptEditController }
+    await injected.controller.begin(sid('s1'), 'session-event-42')
+    expect(b.sessionTree.beginEdit).toHaveBeenCalledWith(sid('s1'), 'session-event-42')
     injected.controller.update(sid('s1'), 'corrected prompt')
     await injected.controller.submit(sid('s1'))
     expect(b.sessionTree.submitEdit).toHaveBeenCalledWith(sid('s1'), 'edit-1', 'corrected prompt')

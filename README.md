@@ -57,8 +57,8 @@ uninstall: [INSTALL.md](./INSTALL.md).
 
 ## Edit the latest prompt
 
-In the browser or desktop app, choose **Edit latest prompt** beside the
-composer. The host cancels the current run and its running subagents before
+In the browser or desktop app, choose **Edit** beside **Copy** on the latest
+user message. The host cancels the current run and its running subagents before
 opening the editor, and parks queued input. Edit the text and choose
 **Resend** (or press Ctrl/Cmd+Enter). The corrected turn starts in a child
 session with the preceding history and original attachments. The original

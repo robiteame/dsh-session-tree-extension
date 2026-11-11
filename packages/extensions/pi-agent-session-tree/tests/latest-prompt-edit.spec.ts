@@ -100,6 +100,30 @@ describe('latest prompt editing', () => {
     expect(fork.cancel).not.toHaveBeenCalled()
   })
 
+  it('keeps each concurrent bubble target checked while sharing the stop operation', async () => {
+    const { service, created } = await harness()
+    const agent = stub()
+    prompt(agent, 'older prompt')
+    prompt(agent, 'latest prompt')
+    const nodes = service.list(agent).nodes
+    const older = nodes.find(node => node.summary === 'older prompt')!
+    const latest = nodes.find(node => node.summary === 'latest prompt')!
+    let idle!: () => void
+    vi.mocked(agent.whenIdle).mockImplementation(() => new Promise(resolve => { idle = resolve }))
+    const accepted = service.beginEdit(agent, latest.nodeId)
+    const rejected = expect(service.beginEdit(agent, older.nodeId)).rejects.toThrow('only the latest')
+    const duplicate = service.beginEdit(agent, latest.nodeId)
+    expect(agent.cancel).toHaveBeenCalledTimes(1)
+    idle()
+    const edit = await accepted
+    expect(edit.nodeId).toBe(latest.nodeId)
+    expect(edit.prompt).toBe('latest prompt')
+    await rejected
+    expect(await duplicate).toEqual(edit)
+    expect(agent.whenIdle).toHaveBeenCalledTimes(1)
+    expect(created).toHaveLength(0)
+  })
+
   it('ignores injected prompts and refuses pending user input rather than editing the wrong message', async () => {
     const { service } = await harness()
     const agent = stub()

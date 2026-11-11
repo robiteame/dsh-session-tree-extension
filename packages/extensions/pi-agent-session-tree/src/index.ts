@@ -483,7 +483,13 @@ export class SessionTreeService extends TypertRemoteService {
       return Promise.reject(new Error('INVALID_ARGUMENT: the corrected prompt is being submitted'))
     }
     const beginning = this.beginningEdits.get(agent)
-    if (beginning !== undefined) return beginning
+    if (beginning !== undefined) return beginning.then(value => {
+      // Each bubble keeps its own target even when stopping work is shared.
+      if (nodeId !== undefined && value.nodeId !== nodeId) {
+        throw new Error('INVALID_ARGUMENT: only the latest user prompt can be edited')
+      }
+      return value
+    })
     // Invoke cancellation before the first await: the provider/tool signal is
     // aborted as soon as the edit request reaches the Host. Pending work stays
     // parked until the user explicitly wakes this Session again.

@@ -104,6 +104,11 @@ body {
 #calllog-list .t { color: var(--dsw-alias-label-tertiary); margin-right: 4px; }
 .edit-demo { display: grid; gap: 10px; min-width: 0; }
 .edit-demo p { margin: 0; overflow-wrap: anywhere; }
+.demo-user-row { display: grid; justify-items: end; gap: 8px; margin-block: 8px 16px; }
+.demo-user-bubble { max-width: 90%; padding: 12px 16px; border-radius: 16px; background: var(--dsw-alias-interactive-bg-hover); white-space: pre-wrap; overflow-wrap: anywhere; }
+.demo-user-actions { display: flex; align-items: center; gap: 8px; color: var(--dsw-alias-label-primary-dimmed); }
+.demo-user-actions > span:first-child { font-size: 12px; margin-right: 8px; }
+.demo-user-actions > button { min-height: 28px; padding: 4px 6px; border: 0; border-radius: 6px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
 .edit-demo > textarea { width: 100%; padding: 8px; font: inherit; background: transparent; color: inherit; border: 1px solid var(--dsw-alias-border-l); border-radius: 6px; }
 @media (max-width: 760px) {
   #layout { grid-template-columns: 1fr; }

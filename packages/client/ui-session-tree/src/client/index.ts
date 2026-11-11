@@ -27,7 +27,7 @@ import { SessionTreeDock } from './SessionTreePanel.tsx'
 import { SessionTreeSidebarTab } from './SessionTreeSidebarTab.tsx'
 import { SessionBranchList } from './SessionBranchList.tsx'
 import { LatestPromptEditController } from './LatestPromptEditor.tsx'
-import { LatestPromptEditButtonSlot, LatestPromptEditorSlot } from './LatestPromptEditSlots.tsx'
+import { LatestPromptEditorSlot } from './LatestPromptEditSlots.tsx'
 import {
   SessionTreeOverlay,
   SessionTreeOverlayController,
@@ -156,13 +156,13 @@ function registerSessionTreeUi(ctx: ClientContext): void {
   const forkLineage = new SessionForkLineage(browserForkLineageStorage())
   ctx.effect(() => () => { forkLineage.dispose() }, 'ui-session-tree: fork lineage')
 
-  // Both the desktop WebView and browser use the same additive composer slots.
+  // The shared dock owns the editor and an action beside the native bubble's copy.
   // The Host stops the source before exposing a draft; resending starts a child
   // from the history before that prompt, preserving the original conversation.
   const latestPromptEdit = new LatestPromptEditController({
-    begin: async sessionId => {
+    begin: async (sessionId, nodeId) => {
       // Typert checks positional arity even for optional wire parameters.
-      const answered = await ctx.remote.sessionTree.beginEdit(sessionId, undefined)
+      const answered = await ctx.remote.sessionTree.beginEdit(sessionId, nodeId)
       if (!answered.ok) throw new Error(`${answered.error.code}: ${answered.error.message}`)
       return answered.value
     },
@@ -191,10 +191,6 @@ function registerSessionTreeUi(ctx: ClientContext): void {
     },
   })
   ctx.effect(() => () => { latestPromptEdit.dispose() }, 'ui-session-tree: latest prompt edit')
-  ctx.slots.inject('conversation.input.right', () => ctx.slots.register({
-    name: 'conversation.input.right', id: 'session-tree-edit-latest', order: 10, locale: NS,
-    inject: () => ({ controller: latestPromptEdit }),
-  }, LatestPromptEditButtonSlot))
   ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({
     name: 'conversation.input.dock', id: 'session-tree-edit-latest', order: 10, locale: NS,
     inject: () => ({ controller: latestPromptEdit }),

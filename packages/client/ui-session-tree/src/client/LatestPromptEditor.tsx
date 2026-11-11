@@ -6,7 +6,7 @@ import type { SessionTreeKey } from './locales.ts'
 import css from './LatestPromptEditor.module.css'
 
 export interface LatestPromptEditActions {
-  begin(sessionId: SessionId): Promise<SessionTreeEditView>
+  begin(sessionId: SessionId, nodeId?: string): Promise<SessionTreeEditView>
   submit(sessionId: SessionId, editId: string, prompt: string): Promise<SessionTreeEditSubmitView>
   onComplete?(sourceSessionId: SessionId, result: SessionTreeEditSubmitView): void
 }
@@ -25,6 +25,7 @@ const errorText = (cause: unknown): string => cause instanceof Error ? cause.mes
 /** Each Session owns its draft and pending operation; navigation never reassigns a result. */
 export class LatestPromptEditController {
   private readonly states = new Map<SessionId, LatestPromptEditState>()
+  private readonly expectedNodeIds = new Map<SessionId, string | undefined>()
   private readonly listeners = new Set<() => void>()
   private readonly focusTargets = new Map<SessionId, Set<() => void>>()
   private disposed = false
@@ -47,14 +48,17 @@ export class LatestPromptEditController {
     }
   }
 
-  async begin(sessionId: SessionId): Promise<void> {
+  async begin(sessionId: SessionId, nodeId?: string): Promise<void> {
     if (this.disposed) return
     const current = this.getSnapshot(sessionId)
     if (current.phase !== 'idle' && !(current.phase === 'error' && current.editId === null)) return
+    // Retrying must keep the original bubble even if the rendered latest node changes.
+    if (current.phase === 'idle') this.expectedNodeIds.set(sessionId, nodeId)
+    const expectedNodeId = this.expectedNodeIds.get(sessionId)
     const pending: LatestPromptEditState = { ...IDLE, phase: 'loading' }
     this.set(sessionId, pending)
     try {
-      const result = await this.actions.begin(sessionId)
+      const result = await this.actions.begin(sessionId, expectedNodeId)
       if (this.disposed || this.getSnapshot(sessionId) !== pending) return
       this.set(sessionId, { phase: 'editing', editId: result.editId, text: result.prompt, error: null, attachmentCount: result.attachmentCount })
     } catch (cause) {
@@ -72,6 +76,7 @@ export class LatestPromptEditController {
   cancel(sessionId: SessionId): void {
     if (this.disposed || this.getSnapshot(sessionId).phase === 'sending') return
     this.states.delete(sessionId)
+    this.expectedNodeIds.delete(sessionId)
     this.notify()
     // Wait for React to enable the opener before returning keyboard focus.
     const focus = [...(this.focusTargets.get(sessionId) ?? [])].at(-1)
@@ -95,6 +100,7 @@ export class LatestPromptEditController {
     // Retire an accepted submission before navigation: navigation failure must
     // never offer another send of an already-running corrected prompt.
     this.states.delete(sessionId)
+    this.expectedNodeIds.delete(sessionId)
     this.notify()
     this.actions.onComplete?.(sessionId, result)
   }
@@ -102,6 +108,7 @@ export class LatestPromptEditController {
   dispose(): void {
     this.disposed = true
     this.states.clear()
+    this.expectedNodeIds.clear()
     this.listeners.clear()
     this.focusTargets.clear()
   }
@@ -121,12 +128,17 @@ export interface LatestPromptEditorProps {
   disabled?: boolean
 }
 
+export interface LatestPromptEditButtonProps extends LatestPromptEditorProps {
+  nodeId?: string
+  className?: string
+}
+
 function useEditState(controller: LatestPromptEditController, sessionId: SessionId): LatestPromptEditState {
   return useSyncExternalStore(controller.subscribe, () => controller.getSnapshot(sessionId))
 }
 
 /** Compact native toolbar entry, available while a generation is running. */
-export function LatestPromptEditButton({ sessionId, controller, t, disabled }: LatestPromptEditorProps) {
+export function LatestPromptEditButton({ sessionId, nodeId, controller, t, disabled, className }: LatestPromptEditButtonProps) {
   const state = useEditState(controller, sessionId)
   const button = useRef<HTMLButtonElement>(null)
   useEffect(() => controller.registerFocusTarget(sessionId, () => {
@@ -137,12 +149,12 @@ export function LatestPromptEditButton({ sessionId, controller, t, disabled }: L
     <button
       ref={button}
       type="button"
-      className={css.editButton}
+      className={[css.editButton, className].filter(Boolean).join(' ')}
       title={t('edit.latest.open')}
       aria-label={t('edit.latest.open')}
       aria-expanded={open}
       disabled={disabled || open}
-      onClick={() => { void controller.begin(sessionId) }}
+      onClick={() => { void controller.begin(sessionId, nodeId) }}
     >
       <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
         <path d="m16 3 5 5M4 20l4-1 12-12a2 2 0 0 0-4-4L4 15l-1 6 5-2" />

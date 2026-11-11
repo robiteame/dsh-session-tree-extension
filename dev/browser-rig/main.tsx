@@ -22,7 +22,8 @@ import { SessionBranchList } from '../../packages/client/ui-session-tree/src/cli
 import { SessionForkLineage } from '../../packages/client/ui-session-tree/src/client/fork-lineage.ts'
 import { SessionTreeDock } from '../../packages/client/ui-session-tree/src/client/SessionTreePanel.tsx'
 import { zh } from '../../packages/client/ui-session-tree/src/client/locales.ts'
-import { LatestPromptEditButton, LatestPromptEditor, LatestPromptEditController } from '../../packages/client/ui-session-tree/src/client/LatestPromptEditor.tsx'
+import { LatestPromptEditor, LatestPromptEditController } from '../../packages/client/ui-session-tree/src/client/LatestPromptEditor.tsx'
+import { LatestPromptBubbleAction } from '../../packages/client/ui-session-tree/src/client/LatestPromptBubbleAction.tsx'
 
 /* ------------------------------------------------------------------ fixtures */
 
@@ -290,16 +291,17 @@ const t = (key: string): string => (zh as unknown as Record<string, string>)[key
 const editFixtures = new Map<string, { sourceId: string; node: TreeNode; prefix: TreeNode[] }>()
 let editCounter = 0
 const promptEditor = new LatestPromptEditController({
-  begin: async sessionId => {
+  begin: async (sessionId, nodeId) => {
     const source = views.get(sessionId)
     const selected = source?.nodes.filter(node => node.message?.role === 'user' && node.metadata?.injected !== true).at(-1)
     if (source === undefined || selected === undefined) throw new Error('没有可编辑的用户消息')
+    if (nodeId !== `session-event-${selected.metadata?.sessionEventSeq}`) throw new Error('只能修改最新用户消息')
     log(`beginEdit(${sessionId}) → 停止当前生成，保持队列暂停（模拟 Host）`)
     const sourceRow = listState.byId[sessionId]!
     setListState({ ...listState, byId: { ...listState.byId, [sessionId]: { ...sourceRow, running: false } } })
     const editId = `edit-${++editCounter}`
     editFixtures.set(editId, { sourceId: sessionId, node: selected, prefix: source.nodes.slice(0, source.nodes.indexOf(selected)) })
-    return { editId, nodeId: selected.nodeId, prompt: selected.message!.content, attachmentCount: 0 }
+    return { editId, nodeId, prompt: selected.message!.content, attachmentCount: 0 }
   },
   submit: async (sessionId, editId, prompt) => {
     const fixture = editFixtures.get(editId)
@@ -321,12 +323,17 @@ const promptEditor = new LatestPromptEditController({
 function PromptEditDemo() {
   const state = useStore()
   const row = state.byId[state.current]
-  return <section aria-label="最新提示词编辑测试" className="edit-demo">
+  const latest = views.get(state.current)?.nodes.filter(node => node.message?.role === 'user' && node.metadata?.injected !== true).at(-1)
+  return <section aria-label="最新提示词编辑测试" className="edit-demo" data-conversation-content="" data-conversation-session={state.current}>
     <p>当前会话：{row?.displayTitle} · {row?.running ? '生成中' : '已停止'}</p>
+    {latest === undefined ? null : <div className="demo-user-row" data-chat-node-key={latest.nodeId} data-chat-flow-kind="user">
+      <div className="demo-user-bubble">{latest.message!.content}</div>
+      <div className="demo-user-actions" data-clock="start"><span>10:14</span><button type="button" onClick={() => { log('复制最新消息（模拟原生操作）') }}>复制</button></div>
+    </div>}
+    {latest === undefined ? null : <LatestPromptBubbleAction sessionId={state.current} nodeKey={latest.nodeId} nodeId={`session-event-${latest.metadata?.sessionEventSeq}`} controller={promptEditor} t={t} />}
     <LatestPromptEditor sessionId={state.current} controller={promptEditor} t={t} />
     <label htmlFor="ordinary-draft">原输入框草稿（测试保留）</label>
     <textarea id="ordinary-draft" defaultValue="这份未发送的草稿应保持不变" rows={2} />
-    <LatestPromptEditButton sessionId={state.current} controller={promptEditor} t={t} disabled={state.current === 'bad'} />
   </section>
 }
 

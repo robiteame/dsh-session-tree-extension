@@ -2,11 +2,18 @@
 
 ### Added
 
-- Edit and resend the latest user prompt from the shared desktop/browser
-  composer. Editing stops the source run and owned subagents, parks queued
-  work, and preserves unsent composer drafts. Resending creates a corrected
+- Edit and resend the latest user prompt from its bubble in desktop and browser
+  apps, beside Copy. Editing stops the source run and owned subagents, parks
+  queued work, and preserves unsent composer drafts. Resending creates a corrected
   branch from the preceding history with the original attachments, retaining
   the source history. Stale edits and duplicate submissions are rejected.
+
+### Changed
+
+- Move the prompt-edit entry from the composer toolbar to the latest user
+  bubble, immediately after the native Copy control. Its label is “修改” in
+  Chinese and “Edit” in English, including narrow layouts. Native message
+  rendering and copy remain intact; message identity stays fixed during retry.
 
 ### Fixed
 
@@ -17,12 +24,13 @@
 ### Verified
 
 - `pnpm verify`: build, Host/Client type checks, four packed artifacts, and all
-  163 tests pass against Harness `0.2.1-rc.5`.
+  182 tests pass against Harness `0.2.1-rc.5`.
 - Official rc.5 Web profile loads the local plugin packages in an isolated
   environment; page and plugin JavaScript return HTTP 200. Browser interactions
   pass in light/dark themes and desktop/narrow layouts.
-- Local `0.7.5-local.2` is installed and enabled in desktop `0.2.2-rc.1`;
-  all three components run, and the latest prompt opens in the editor.
+- Local `0.7.5-local.3` is installed and enabled in desktop `0.2.2-rc.1`;
+  all three components run, and the bubble action opens the latest prompt.
+  A full Host restart refreshes the cached Typert manifest after this update.
   The official rc.5 Gateway also accepts the corrected RPC argument list.
   No live model request was sent during installation acceptance.
 

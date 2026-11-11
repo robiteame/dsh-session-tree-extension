@@ -26,8 +26,8 @@ function setup(overrides: Partial<LatestPromptEditActions> = {}) {
     ...overrides,
   }
   const controller = new LatestPromptEditController(actions)
-  const renderSession = (sessionId = sid('source')) => <>
-    <LatestPromptEditButton sessionId={sessionId} controller={controller} t={t} />
+  const renderSession = (sessionId = sid('source'), nodeId?: string) => <>
+    <LatestPromptEditButton sessionId={sessionId} nodeId={nodeId} controller={controller} t={t} />
     <LatestPromptEditor sessionId={sessionId} controller={controller} t={t} />
   </>
   return { actions, controller, renderSession }
@@ -42,7 +42,7 @@ describe('latest prompt editor', () => {
     const open = screen.getByRole('button', { name: en['edit.latest.open'] })
     fireEvent.click(open)
     fireEvent.click(open)
-    expect(bench.actions.begin).toHaveBeenCalledExactlyOnceWith(sid('source'))
+    expect(bench.actions.begin).toHaveBeenCalledExactlyOnceWith(sid('source'), undefined)
     expect(screen.getByRole('status').textContent).toBe(en['edit.latest.stopping'])
     expect(screen.queryByRole('textbox')).toBeNull()
     await act(async () => { stopped.resolve(draft) })
@@ -129,6 +129,60 @@ describe('latest prompt editor', () => {
     fireEvent.click(screen.getByRole('button', { name: en['edit.latest.send'] }))
     await waitFor(() => { expect(bench.actions.onComplete).toHaveBeenCalledOnce() })
     expect(submit).toHaveBeenCalledTimes(2)
+  })
+
+  it('opens the requested bubble and keeps that target on retry until cancellation', async () => {
+    const begin = vi.fn()
+      .mockRejectedValueOnce(new Error('First stop failed'))
+      .mockRejectedValueOnce(new Error('Second stop failed'))
+      .mockResolvedValue(draft)
+    const bench = setup({ begin })
+    const mounted = render(bench.renderSession(sid('source'), 'node-a'))
+    fireEvent.click(screen.getByRole('button', { name: en['edit.latest.open'] }))
+    await screen.findByRole('alert')
+    mounted.rerender(bench.renderSession(sid('source'), 'node-b'))
+    fireEvent.click(screen.getByRole('button', { name: en['edit.latest.retry'] }))
+    await waitFor(() => { expect(screen.getByRole('alert').textContent).toContain('Second stop failed') })
+    expect(begin.mock.calls).toEqual([[sid('source'), 'node-a'], [sid('source'), 'node-a']])
+    fireEvent.click(screen.getByRole('button', { name: en['edit.latest.cancel'] }))
+    fireEvent.click(screen.getByRole('button', { name: en['edit.latest.open'] }))
+    await screen.findByRole('textbox')
+    expect(begin).toHaveBeenLastCalledWith(sid('source'), 'node-b')
+  })
+
+  it.each(['resolve', 'reject'] as const)('ignores a cancelled target’s late %s without changing the replacement retry target', async outcome => {
+    const first = deferred<typeof draft>()
+    const replacement = deferred<typeof draft>()
+    const begin = vi.fn()
+      .mockImplementationOnce(() => first.promise)
+      .mockImplementationOnce(() => replacement.promise)
+      .mockResolvedValue(draft)
+    const bench = setup({ begin })
+    const mounted = render(bench.renderSession(sid('source'), 'node-a'))
+    fireEvent.click(screen.getByRole('button', { name: en['edit.latest.open'] }))
+    fireEvent.click(screen.getByRole('button', { name: en['edit.latest.cancel'] }))
+    mounted.rerender(bench.renderSession(sid('source'), 'node-b'))
+    fireEvent.click(screen.getByRole('button', { name: en['edit.latest.open'] }))
+    await act(async () => {
+      if (outcome === 'resolve') first.resolve(draft)
+      else first.reject(new Error('Stale failure'))
+    })
+    expect(screen.queryByRole('textbox')).toBeNull()
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(bench.controller.getSnapshot(sid('source')).phase).toBe('loading')
+    await act(async () => { replacement.reject(new Error('Replacement failed')) })
+    mounted.rerender(bench.renderSession(sid('source'), 'node-c'))
+    fireEvent.click(screen.getByRole('button', { name: en['edit.latest.retry'] }))
+    await screen.findByRole('textbox')
+    expect(begin.mock.calls).toEqual([[sid('source'), 'node-a'], [sid('source'), 'node-b'], [sid('source'), 'node-b']])
+  })
+
+  it('merges message action styling with the editor button styling', () => {
+    const bench = setup()
+    render(<LatestPromptEditButton sessionId={sid('source')} controller={bench.controller} t={t} className="message-action" />)
+    const button = screen.getByRole('button')
+    expect(button.classList.contains('message-action')).toBe(true)
+    expect(button.classList.length).toBe(2)
   })
 
   it('prevents disabled actions and suppresses updates after disposal', async () => {
