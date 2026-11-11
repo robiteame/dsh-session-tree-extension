@@ -1,6 +1,7 @@
 /* Test-rig chrome. Plugin panels only rely on the --dsw-alias-* tokens below,
    which stand in for the Harness design system in light and dark themes. */
 * { box-sizing: border-box; }
+:root { --dsw-alias-border-l2: var(--dsw-alias-border-l); --dsw-alias-bg-hover: var(--dsw-alias-interactive-bg-hover); }
 html, body { margin: 0; height: 100%; }
 body {
   font: 13px/1.5 -apple-system, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
@@ -53,7 +54,7 @@ body {
 .brand-sub { font-size: 12px; color: var(--dsw-alias-label-tertiary); }
 .rig-card {
   display: flex; flex-direction: column; align-items: stretch; gap: 10px;
-  width: 320px; padding: 14px; border: 1px solid var(--dsw-alias-border-l);
+  width: min(560px, 100%); padding: 14px; border: 1px solid var(--dsw-alias-border-l);
   border-radius: 8px; background: var(--dsw-alias-bg-base);
 }
 .rig-card .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
@@ -101,3 +102,11 @@ body {
 #calllog-list li { padding: 1px 0; color: var(--dsw-alias-label-primary-dimmed); word-break: break-all; }
 #calllog-list li:first-child { color: var(--dsw-alias-state-business-primary); font-weight: 600; }
 #calllog-list .t { color: var(--dsw-alias-label-tertiary); margin-right: 4px; }
+.edit-demo { display: grid; gap: 10px; min-width: 0; }
+.edit-demo p { margin: 0; overflow-wrap: anywhere; }
+.edit-demo > textarea { width: 100%; padding: 8px; font: inherit; background: transparent; color: inherit; border: 1px solid var(--dsw-alias-border-l); border-radius: 6px; }
+@media (max-width: 760px) {
+  #layout { grid-template-columns: 1fr; }
+  #sessions-pane, #right-pane, .brand-sub { display: none; }
+  #chat-pane { align-items: flex-start; }
+}

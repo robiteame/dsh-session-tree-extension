@@ -162,6 +162,24 @@ export interface SessionTreeForkView {
   readonly previousUserPrompt?: string
 }
 
+/** A stopped latest-prompt edit. The opaque id is bound to one unchanged Session. */
+export interface SessionTreeEditView {
+  readonly editId: string
+  readonly nodeId: string
+  readonly prompt: string
+  /** Original non-text blocks are carried forward without exposing attachment bytes. */
+  readonly attachmentCount: number
+}
+
+/** The independent corrected continuation accepted by the Agent. */
+export interface SessionTreeEditSubmitView {
+  readonly sessionId: SessionId
+  /** Source prompt replaced in the corrected continuation. */
+  readonly nodeId: string
+  readonly prompt: string
+  readonly previousUserPrompt?: string
+}
+
 /** Stable error codes for every failure path. */
 export type TreeErrorCode =
   | 'INVALID_ARGUMENT'

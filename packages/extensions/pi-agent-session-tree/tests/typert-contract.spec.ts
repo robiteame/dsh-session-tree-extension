@@ -53,11 +53,13 @@ describe('Typert 0.2.1 artifact contract', () => {
     }
     expect(remote.package).toBe('@robiteame/dsh-pi-agent-session-tree')
     expect(Object.keys(remote.methods).sort()).toStrictEqual([
+      'sessionTree/beginEdit',
       'sessionTree/fork',
       'sessionTree/forkSession',
       'sessionTree/jump',
       'sessionTree/list',
       'sessionTree/session',
+      'sessionTree/submitEdit',
     ])
     for (const method of Object.values(remote.methods)) {
       for (const parameter of method.parameters ?? []) expectReleaseCodec(parameter.codec)
@@ -79,5 +81,22 @@ describe('Typert 0.2.1 artifact contract', () => {
     expect(forkSession.safeParse(args).success).toBe(true)
     expect(forkSession.safeParse({ ...args, fromStart: true }).success).toBe(true)
     expect(forkSession.safeParse({ ...args, fromStart: 'true' }).success).toBe(false)
+    const beginEdit = remote.methods['sessionTree/beginEdit']!.input({ strict: true }).create()
+    expect(beginEdit.safeParse({ agentId: 'session-1' }).success).toBe(true)
+    expect(beginEdit.safeParse({ agentId: 'session-1', nodeId: 'n1' }).success).toBe(true)
+    expect(beginEdit.safeParse({ agentId: 'session-1', nodeId: 1 }).success).toBe(false)
+    const submitEdit = remote.methods['sessionTree/submitEdit']!.input({ strict: true }).create()
+    expect(submitEdit.safeParse({ agentId: 'session-1', editId: 'edit-1', prompt: 'corrected' }).success).toBe(true)
+    expect(submitEdit.safeParse({ agentId: 'session-1', editId: 'edit-1', prompt: [] }).success).toBe(false)
+    expect(submitEdit.safeParse({ agentId: 'session-1', prompt: 'missing edit id' }).success).toBe(false)
+  })
+
+  it('scopes both prompt editing endpoints to the addressed Agent for gateway access checks', () => {
+    const invocations = (TYPERT as { invocations: Array<Invocation & { scope?: unknown }> }).invocations
+    for (const method of ['beginEdit', 'submitEdit']) {
+      const invocation = invocations.find(candidate => candidate.method === method)
+      expect(invocation?.scope).toEqual({ context: 'agent', wire: 'agentId' })
+      expect(invocation?.parameters?.[0]?.wire).toBe('agentId')
+    }
   })
 })

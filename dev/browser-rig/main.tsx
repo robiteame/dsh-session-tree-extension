@@ -22,6 +22,7 @@ import { SessionBranchList } from '../../packages/client/ui-session-tree/src/cli
 import { SessionForkLineage } from '../../packages/client/ui-session-tree/src/client/fork-lineage.ts'
 import { SessionTreeDock } from '../../packages/client/ui-session-tree/src/client/SessionTreePanel.tsx'
 import { zh } from '../../packages/client/ui-session-tree/src/client/locales.ts'
+import { LatestPromptEditButton, LatestPromptEditor, LatestPromptEditController } from '../../packages/client/ui-session-tree/src/client/LatestPromptEditor.tsx'
 
 /* ------------------------------------------------------------------ fixtures */
 
@@ -286,6 +287,49 @@ function isAncestorOf(nodes: readonly TreeNode[], candidate: TreeNode, nodeId: s
 
 const t = (key: string): string => (zh as unknown as Record<string, string>)[key] ?? key
 
+const editFixtures = new Map<string, { sourceId: string; node: TreeNode; prefix: TreeNode[] }>()
+let editCounter = 0
+const promptEditor = new LatestPromptEditController({
+  begin: async sessionId => {
+    const source = views.get(sessionId)
+    const selected = source?.nodes.filter(node => node.message?.role === 'user' && node.metadata?.injected !== true).at(-1)
+    if (source === undefined || selected === undefined) throw new Error('没有可编辑的用户消息')
+    log(`beginEdit(${sessionId}) → 停止当前生成，保持队列暂停（模拟 Host）`)
+    const sourceRow = listState.byId[sessionId]!
+    setListState({ ...listState, byId: { ...listState.byId, [sessionId]: { ...sourceRow, running: false } } })
+    const editId = `edit-${++editCounter}`
+    editFixtures.set(editId, { sourceId: sessionId, node: selected, prefix: source.nodes.slice(0, source.nodes.indexOf(selected)) })
+    return { editId, nodeId: selected.nodeId, prompt: selected.message!.content, attachmentCount: 0 }
+  },
+  submit: async (sessionId, editId, prompt) => {
+    const fixture = editFixtures.get(editId)
+    if (fixture === undefined || fixture.sourceId !== sessionId) throw new Error('编辑已失效')
+    editFixtures.delete(editId)
+    const childId = `edit-child-${editCounter}`
+    const corrected = msg(`${childId}-prompt`, fixture.prefix.at(-1)?.nodeId ?? null, 20, 'main', prompt.slice(0, 30), 'user', prompt)
+    views.set(childId, view(childId, corrected.nodeId, [...fixture.prefix, corrected], { main: corrected.nodeId }))
+    setListState({ ...listState, ids: [...listState.ids, childId], byId: { ...listState.byId, [childId]: { id: childId, displayTitle: `修订 · ${prompt.slice(0, 16)}`, parentId: sessionId, running: true, blank: false, updatedAt: Date.now() } } })
+    log(`submitEdit(${sessionId}) → ${childId}，旧提示词不进入新分支上下文（模拟 Host）`)
+    return { sessionId: childId, nodeId: fixture.node.nodeId, prompt }
+  },
+  onComplete: (sourceId, result) => {
+    lineage.record({ childId: result.sessionId, parentId: sourceId })
+    openSession(result.sessionId)
+  },
+})
+
+function PromptEditDemo() {
+  const state = useStore()
+  const row = state.byId[state.current]
+  return <section aria-label="最新提示词编辑测试" className="edit-demo">
+    <p>当前会话：{row?.displayTitle} · {row?.running ? '生成中' : '已停止'}</p>
+    <LatestPromptEditor sessionId={state.current} controller={promptEditor} t={t} />
+    <label htmlFor="ordinary-draft">原输入框草稿（测试保留）</label>
+    <textarea id="ordinary-draft" defaultValue="这份未发送的草稿应保持不变" rows={2} />
+    <LatestPromptEditButton sessionId={state.current} controller={promptEditor} t={t} disabled={state.current === 'bad'} />
+  </section>
+}
+
 document.getElementById('btn-cmd-tree')!.addEventListener('click', () => {
   log('命令 /tree → sidebarRight.openTab("session-tree")')
   const dock = document.getElementById('dock')!
@@ -349,4 +393,5 @@ function Rig(): JSX.Element {
 }
 
 createRoot(document.getElementById('dock')!).render(<Rig />)
+createRoot(document.getElementById('latest-prompt-demo')!).render(<PromptEditDemo />)
 log('测试台就绪：已挂载 SessionTreeDock + SessionBranchList（真实插件组件）')

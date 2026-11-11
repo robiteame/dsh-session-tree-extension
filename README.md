@@ -55,6 +55,22 @@ Requires DeepSeek-Harness 0.2.x and Node.js 22+, with no install scripts.
 Full steps, the mainland mirror that only serves `0.7.0`, verification, and
 uninstall: [INSTALL.md](./INSTALL.md).
 
+## Edit the latest prompt
+
+In the browser or desktop app, choose **Edit latest prompt** beside the
+composer. The host cancels the current run and its running subagents before
+opening the editor, and parks queued input. Edit the text and choose
+**Resend** (or press Ctrl/Cmd+Enter). The corrected turn starts in a child
+session with the preceding history and original attachments. The original
+prompt and its replies remain available in the session tree; the corrected
+turn does not include them in its model context.
+
+Canceling the editor leaves the source stopped. Other sessions and the
+ordinary composer draft are unaffected. If another client advances the
+source while the editor is open, reopen the editor before resending.
+For a newer prompt that is still queued, use the native queue's edit action;
+the plugin reports that case instead of changing an earlier prompt.
+
 ## Commands
 
 ### `/tree` — open the tree panel

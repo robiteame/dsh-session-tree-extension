@@ -18,20 +18,23 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
+import { randomUUID } from 'node:crypto'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId as toSessionId, SessionSeq } from '@deepseek-ai/dsh-session'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import type { Session } from '@deepseek-ai/dsh-session'
+import type { Session, UserMessage } from '@deepseek-ai/dsh-session'
 import { isSurfaceEvent } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionEventMap } from '@deepseek-ai/dsh-session/types'
 import { TypertRemoteService, Remote } from '@deepseek-ai/dsh-typert-protocol'
 import { SessionTree, sessionTreeStore } from './session-tree.ts'
-import { attachToolResult, isInjectedUserNode, sessionEventsToTreeNodes, toolResultOf } from './session-event-adapter.ts'
+import { attachToolResult, isInjectedUserNode, isInjectedUserSource, sessionEventsToTreeNodes, toolResultOf } from './session-event-adapter.ts'
 import { getSessionTreeSidecar, persistSessionTree } from './session-tree-sidecar.ts'
 import { isSessionTreeRestoreEvent } from './session-tree-marker.ts'
 import type {
   JumpView,
   SessionTreeForkView,
+  SessionTreeEditView,
+  SessionTreeEditSubmitView,
   SessionTreeSessionInfo,
   SessionTreeView,
   TreeNode,
@@ -254,6 +257,39 @@ function promptTextOf(node: TreeNode): string {
   return text === '' ? node.message?.content ?? node.summary : text
 }
 
+interface LatestPromptEdit {
+  readonly value: SessionTreeEditView
+  readonly latestSeq: number
+  readonly cursor: string | null
+  readonly branch: string
+  readonly path: readonly TreeNode[]
+  readonly message: SessionEventMap['user/message']
+  submitting: boolean
+}
+
+/** Keep the exact text, including intentional leading/trailing whitespace. */
+function editablePrompt(message: SessionEventMap['user/message']): string {
+  const content: unknown = message.content
+  if (typeof content === 'string') return content
+  return message.content.filter(part => part.type === 'text').map(part => part.text).join('\n')
+}
+
+/** Replace textual blocks while retaining image and other native attachment blocks. */
+function correctedMessage(message: SessionEventMap['user/message'], prompt: string): UserMessage {
+  const content: unknown = message.content
+  const blocks = Array.isArray(content) ? message.content : []
+  const next: UserMessage['content'][number][] = []
+  let inserted = false
+  for (const block of blocks) {
+    if (block.type === 'text') {
+      if (!inserted) next.push({ type: 'text', text: prompt })
+      inserted = true
+    } else next.push(block)
+  }
+  if (!inserted) next.unshift({ type: 'text', text: prompt })
+  return { id: randomUUID() as UserMessage['id'], role: 'user', source: { kind: 'user' }, content: next }
+}
+
 /** Optional side-effect controls for callers that only need to inspect history. */
 export interface SyncSessionTreeOptions {
   /** Apply the tree cursor to the model-visible Session surface (default true). */
@@ -392,6 +428,9 @@ export class SessionTreeService extends TypertRemoteService {
    */
   static inject = ['agents']
 
+  private readonly promptEdits = new WeakMap<Agent, LatestPromptEdit>()
+  private readonly beginningEdits = new WeakMap<Agent, Promise<SessionTreeEditView>>()
+
   /**
    * Register the service under `sessionTree`.
    * @param ctx - owning Cordis Context.
@@ -435,6 +474,168 @@ export class SessionTreeService extends TypertRemoteService {
   /** Read the projected tree without mutating the source Session surface. */
   private readOnlyTree(agent: Agent): SessionTree {
     return syncSessionTree(agent, { applySurface: false, persist: false })
+  }
+
+  /** Stop this Agent before exposing the latest human prompt for editing. */
+  @Remote('beginEdit')
+  beginEdit(agent: Agent, nodeId?: string): Promise<SessionTreeEditView> {
+    if (this.promptEdits.get(agent)?.submitting === true) {
+      return Promise.reject(new Error('INVALID_ARGUMENT: the corrected prompt is being submitted'))
+    }
+    const beginning = this.beginningEdits.get(agent)
+    if (beginning !== undefined) return beginning
+    // Invoke cancellation before the first await: the provider/tool signal is
+    // aborted as soon as the edit request reaches the Host. Pending work stays
+    // parked until the user explicitly wakes this Session again.
+    const stopped = this.stopEditingWork(agent)
+    const task = (async (): Promise<SessionTreeEditView> => {
+      await stopped
+      const queued = [...(agent.inbox.nextTurn ?? []), ...(agent.inbox.nextStep ?? [])]
+      if (queued.some(message => !isInjectedUserSource(message.source))) {
+        throw new Error('INVALID_ARGUMENT: a newer user prompt is pending; edit it in the message queue first')
+      }
+      const tree = this.readOnlyTree(agent)
+      const events = sessionEvents(agent.session)
+      const surface = supportsSelectedMessageSurface(agent.session)
+        ? agent.session.messageSurfaceNodes() : agent.session.surface.nodes
+      const bySeq = new Map<number, SessionEvent>(events.map(event => [event.seq, event]))
+      const event = [...surface].reverse().map(seq => bySeq.get(seq)).find(event => event?.type === 'user/message'
+        && !isInjectedUserSource(event.data.source))
+      const selected = event === undefined ? undefined : tree.list().find(node => node.metadata?.sessionEventSeq === event.seq)
+      if (selected === undefined) throw new Error('NOT_FOUND: no user prompt is available to edit')
+      if (nodeId !== undefined && selected.nodeId !== nodeId) {
+        throw new Error('INVALID_ARGUMENT: only the latest user prompt can be edited')
+      }
+      if (event?.type !== 'user/message') throw new Error('INVALID_ARGUMENT: expected a native user prompt')
+      // A projection-only cursor does not change the stock model surface.
+      // Build its seed from that actual surface, even after a historical jump.
+      const before = new Set<number>(surface.slice(0, surface.indexOf(event.seq)))
+      const path = supportsSelectedMessageSurface(agent.session)
+        ? tree.currentPath(selected.nodeId).slice(0, -1)
+        : tree.list().filter(node => sourceSeqsOf(node).some(seq => before.has(seq)))
+      const latestSeq = events.at(-1)?.seq ?? -1
+      const existing = this.promptEdits.get(agent)
+      if (existing !== undefined && !existing.submitting && existing.latestSeq === latestSeq
+        && existing.cursor === tree.cursor && existing.value.nodeId === selected.nodeId) return existing.value
+      const value: SessionTreeEditView = {
+        editId: randomUUID(),
+        nodeId: selected.nodeId,
+        prompt: editablePrompt(event.data),
+        attachmentCount: Array.isArray(event.data.content) ? event.data.content.filter(part => part.type !== 'text').length : 0,
+      }
+      this.promptEdits.set(agent, {
+        value,
+        latestSeq,
+        cursor: tree.cursor,
+        branch: tree.activeBranch,
+        path,
+        message: event.data,
+        submitting: false,
+      })
+      return value
+    })()
+    this.beginningEdits.set(agent, task)
+    void task.finally(() => {
+      if (this.beginningEdits.get(agent) === task) this.beginningEdits.delete(agent)
+    }).catch(() => {})
+    return task
+  }
+
+  /** Pause exact runtime descendants too; independent forks are not owned work. */
+  private async stopEditingWork(agent: Agent): Promise<void> {
+    const stopped = new Set<Agent>()
+    const ownedBy = (child: Agent, owner: Agent): boolean => typeof this.ctx.agents.isOwnedBy === 'function'
+      ? this.ctx.agents.isOwnedBy(child.id, owner)
+      : child.session.header.origin === 'subagent' && child.session.header.parentSession === owner.id
+    let pending = [agent]
+    while (pending.length > 0) {
+      // Capture descendants before cancellation can dispose a running parent.
+      for (let index = 0; index < pending.length; index++) {
+        const owner = pending[index]!
+        for (const child of this.ctx.agents.list()) {
+          if (!stopped.has(child) && !pending.includes(child) && ownedBy(child, owner)) pending.push(child)
+        }
+      }
+      for (const current of pending) {
+        stopped.add(current)
+        current.cancel({ kind: 'user' }, { keepInbox: true })
+      }
+      await Promise.all(pending.map(current => current.whenIdle()))
+      // Catch children whose factory was already in flight when abort arrived.
+      pending = this.ctx.agents.list().filter(child => !stopped.has(child)
+        && [...stopped].some(owner => ownedBy(child, owner)))
+    }
+  }
+
+  private assertPromptEditCurrent(agent: Agent, edit: LatestPromptEdit): void {
+    const tree = this.readOnlyTree(agent)
+    if ((sessionEvents(agent.session).at(-1)?.seq ?? -1) !== edit.latestSeq
+      || tree.cursor !== edit.cursor || tree.activeBranch !== edit.branch) {
+      throw new Error('INVALID_ARGUMENT: this edit is stale; reopen the latest prompt')
+    }
+  }
+
+  /**
+   * Resend a corrected prompt with only its preceding history. A real child
+   * Session makes this work on stock Harness as well as native tree hosts;
+   * merely moving the sidecar cursor would leave the old prompt model-visible.
+   */
+  @Remote('submitEdit')
+  async submitEdit(agent: Agent, editId: string, prompt: string): Promise<SessionTreeEditSubmitView> {
+    if (typeof prompt !== 'string' || prompt.trim() === '') throw new Error('INVALID_ARGUMENT: prompt must not be empty')
+    const edit = this.promptEdits.get(agent)
+    if (edit === undefined || edit.value.editId !== editId || edit.submitting) {
+      throw new Error('INVALID_ARGUMENT: edit is expired or has already been submitted')
+    }
+    this.assertPromptEditCurrent(agent, edit)
+    edit.submitting = true
+    const source = agent.session
+    const targetId = toSessionId(`${source.id}-edit-${randomUUID()}`)
+    let handle: Awaited<ReturnType<Context['agents']['create']>> | undefined
+    let attachedWorkspace: { detachSession?(id: SessionId): Promise<void> } | undefined
+    try {
+      const seed = sessionPathForkSeed(source, edit.path)
+      handle = await this.ctx.agents.create({
+        sessionId: targetId,
+        ...(seed.length === 0 ? {} : { seed }),
+        meta: {
+          parentSession: source.id,
+          cwd: source.header.cwd ?? process.cwd(),
+          ...(source.header.agentPreset === undefined ? {} : { agentPreset: source.header.agentPreset }),
+        },
+        agentOptions: agent.options,
+      })
+      this.assertPromptEditCurrent(agent, edit)
+      const registry = this.ctx.get('workspaceRegistry') as {
+        list(): readonly {
+          sessionIds: readonly SessionId[]
+          attachSession(id: SessionId): Promise<void>
+          detachSession?(id: SessionId): Promise<void>
+        }[]
+      } | undefined
+      const workspace = registry?.list().find(candidate => candidate.sessionIds.includes(source.id))
+      attachedWorkspace = workspace
+      await workspace?.attachSession(targetId)
+      this.assertPromptEditCurrent(agent, edit)
+      // Admission is synchronous and occurs exactly once, only after the
+      // independent Session and its workspace membership have been accepted.
+      handle.agent.send(correctedMessage(edit.message, prompt), 'next-turn', true)
+      this.promptEdits.delete(agent)
+      const previous = [...edit.path].reverse().find(node => node.message?.role === 'user' && !isInjectedUserNode(node))
+      return {
+        sessionId: targetId,
+        nodeId: edit.value.nodeId,
+        prompt,
+        ...(previous === undefined ? {} : { previousUserPrompt: promptTextOf(previous) }),
+      }
+    } catch (error) {
+      // Cleanup cannot replace the original admission error or permanently
+      // lock the draft if a runtime finalizer itself fails.
+      try { await attachedWorkspace?.detachSession?.(targetId) } catch {}
+      try { await handle?.dispose() } catch {}
+      edit.submitting = false
+      throw error
+    }
   }
 
   /**

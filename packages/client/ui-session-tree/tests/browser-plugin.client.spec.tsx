@@ -13,6 +13,8 @@ import {
   type SessionTreeRemoteActions,
 } from '../src/client/SessionTreeOverlay.tsx'
 import { SessionBranchList } from '../src/client/SessionBranchList.tsx'
+import type { LatestPromptEditController } from '../src/client/LatestPromptEditor.tsx'
+import { LatestPromptEditButtonSlot, LatestPromptEditorSlot } from '../src/client/LatestPromptEditSlots.tsx'
 import { buildBranchTreeModel, buildSessionGraphModel } from '../src/client/session-graph.ts'
 import { SessionForkLineage, FORK_LINEAGE_STORAGE_KEY } from '../src/client/fork-lineage.ts'
 import { apply, inject } from '../src/client/index.ts'
@@ -118,6 +120,14 @@ async function bench(tree = view(null, []), nativePanel = true, archiveSupported
   const refresh = vi.fn(async () => {})
   const archiveSession = vi.fn(async (_id: SessionId) => {})
   const sessionTree = {
+    beginEdit: vi.fn(async (...args: unknown[]) => {
+      calls.push({ method: 'beginEdit', args })
+      return { ok: true, value: { editId: 'edit-1', nodeId: 'latest', prompt: 'original prompt', attachmentCount: 0 } }
+    }),
+    submitEdit: vi.fn(async (...args: unknown[]) => {
+      calls.push({ method: 'submitEdit', args })
+      return { ok: true, value: { sessionId: sid('s1-edit-child'), nodeId: 'latest', prompt: args[2] as string, previousUserPrompt: 'previous prompt' } }
+    }),
     list: (...args: unknown[]) => { calls.push({ method: 'list', args }); return Promise.resolve({ ok: true, value: tree }) },
     jump: (...args: unknown[]) => { calls.push({ method: 'jump', args }); return Promise.resolve({ ok: true, value: { cursor: args[1], messages: [] } }) },
     fork: (...args: unknown[]) => { calls.push({ method: 'fork', args }); return Promise.resolve({ ok: true, value: { cursor: args[1], branch: args[2], forkCount: 1 } }) },
@@ -148,6 +158,8 @@ async function bench(tree = view(null, []), nativePanel = true, archiveSupported
   const children = {
     'details': { kind: 'single', scope: 'session' },
     'shell.overlay': { kind: 'list', scope: 'root' },
+    'conversation.input.right': { kind: 'list', scope: 'session' },
+    'conversation.input.dock': { kind: 'list', scope: 'session' },
     ...(nativePanel ? { 'sidebar.right.pane.tab': { kind: 'keyed', scope: 'session' } } : {}),
   }
   slots.register({ name: 'root', children } as never, (() => null) as never)
@@ -181,7 +193,7 @@ async function bench(tree = view(null, []), nativePanel = true, archiveSupported
   } as never)
   const fiber = ctx.plugin({ inject: [...inject], apply })
   return {
-    ctx, calls, opened, openedSessions, drafts, editors, inputHub, inputFor, bindings, unopenedBindings, retain, released, nativeFork, open, refresh, archiveSession, fiber, toolDetails,
+    ctx, calls, opened, openedSessions, drafts, editors, inputHub, inputFor, bindings, unopenedBindings, retain, released, nativeFork, open, refresh, archiveSession, fiber, toolDetails, sessionTree,
     entry: () => ctx.slots.entries(nativePanel ? 'sidebar.right.pane.tab' : 'conversation.details.panel' as never)[0],
     overlayEntry: () => ctx.slots.entries('shell.overlay' as never)[0],
     branchEntry: () => ctx.slots.entries('shell.overlay' as never)[1],
@@ -247,7 +259,7 @@ describe('session tree browser plugin', () => {
     expect(b.entry()?.options).toMatchObject({ key: '@robiteame/dsh-client-ui-session-tree' })
     expect(b.overlayEntry()?.options).toMatchObject({ id: 'session-tree', order: 10 })
     expect(b.ctx.slots.entries('details' as never)[0]?.component).toBe(b.toolDetails)
-    expect(b.ctx.slots.entries('conversation.input.dock' as never)).toHaveLength(0)
+    expect(b.ctx.slots.entries('conversation.input.dock' as never)).toHaveLength(1)
     b.ctx.emit('command/executed', sid('s1'), 'tree', { kind: 'success' })
     expect(b.opened).toEqual(['session-tree'])
     b.ctx.emit('command/executed', sid('s1'), 'clone', {
@@ -257,6 +269,29 @@ describe('session tree browser plugin', () => {
     await waitFor(() => { expect(b.openedSessions).toEqual([sid('s1-native-fork')]) })
     expect(b.nativeFork).toHaveBeenCalledWith({ sessionId: sid('s1'), increaseTitle: true })
     expect(b.refresh).not.toHaveBeenCalled()
+  })
+
+  it.each([true, false])('edits through shared composer slots and opens the accepted child (native sidebar: %s)', async nativeSidebar => {
+    const b = await bench(undefined, nativeSidebar)
+    await b.fiber.await()
+    const buttonEntry = b.ctx.slots.entries('conversation.input.right' as never)[0] as unknown as TestSlotEntry
+    const dockEntry = b.ctx.slots.entries('conversation.input.dock' as never)[0] as unknown as TestSlotEntry
+    expect(buttonEntry.component).toBe(LatestPromptEditButtonSlot)
+    expect(dockEntry.component).toBe(LatestPromptEditorSlot)
+    const injected = buttonEntry.inject!() as { controller: LatestPromptEditController }
+    const dockInjected = dockEntry.inject!() as { controller: LatestPromptEditController }
+    expect(dockInjected.controller).toBe(injected.controller)
+    await injected.controller.begin(sid('s1'))
+    expect(b.sessionTree.beginEdit).toHaveBeenCalledWith(sid('s1'))
+    injected.controller.update(sid('s1'), 'corrected prompt')
+    await injected.controller.submit(sid('s1'))
+    expect(b.sessionTree.submitEdit).toHaveBeenCalledWith(sid('s1'), 'edit-1', 'corrected prompt')
+    await waitFor(() => { expect(b.openedSessions).toContain(sid('s1-edit-child')) })
+    expect(b.refresh).toHaveBeenCalledOnce()
+    expect(b.drafts).not.toHaveBeenCalled()
+    expect(b.inputFor).not.toHaveBeenCalled()
+    const branches = b.branchEntry() as unknown as { inject: () => { lineage: SessionForkLineage } }
+    expect(branches.inject().lineage.getSnapshot().get(sid('s1-edit-child'))).toMatchObject({ parentId: sid('s1') })
   })
 
   it('routes /fork into the native panel selector state', async () => {

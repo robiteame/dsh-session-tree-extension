@@ -2,6 +2,13 @@
 import { z } from 'zod'
 import { createTypertRemoteInfo } from '@deepseek-ai/dsh-typert-protocol/remote-info'
 
+const _sessionTree_beginEdit_nodeId$schema = z.string().optional()
+const _sessionTree_beginEdit_result$schema = z.object({
+  editId: z.string(), nodeId: z.string(), prompt: z.string(), attachmentCount: z.number(),
+})
+const _sessionTree_submitEdit_result$schema = z.object({
+  sessionId: z.string(), nodeId: z.string(), prompt: z.string(), previousUserPrompt: z.string().optional(),
+})
 const JsonValueRemoteCodec$schema = z.union([z.literal(null), z.string(), z.number(), z.literal(false), z.literal(true), z.array(z.lazy(() => JsonValueRemoteCodec$schema)), z.record(z.string(), z.lazy(() => JsonValueRemoteCodec$schema))])
 const _robiteame_dsh_pi_agent_session_tree_sessionTree_fork_parameter_0$schema = z.intersection(z.string(), z.unknown())
 const _robiteame_dsh_pi_agent_session_tree_sessionTree_fork_parameter_1$schema = z.string()
@@ -99,6 +106,42 @@ const _robiteame_dsh_pi_agent_session_tree_sessionTree_session_result$schema = z
 const __TYPERT_REMOTE_DESCRIPTORS = {
   package: '@robiteame/dsh-pi-agent-session-tree',
   descriptors: [
+    {
+      id: '@robiteame/dsh-pi-agent-session-tree#sessionTree/beginEdit',
+      service: 'sessionTree', namespace: 'sessionTree', method: 'beginEdit',
+      invocation: { kind: 'direct' }, scope: { context: 'agent', wire: 'agentId' },
+      parameters: [
+        {
+          name: 'agent', wire: 'agentId', source: 'lookup', lookup: 'agent',
+          codec: { mode: 'strict', typeSymbol: '@deepseek-ai/dsh-session/types#SessionId', schema: z.string() },
+        },
+        {
+          name: 'nodeId', wire: 'nodeId', source: 'json', acceptsUndefined: true,
+          codec: { mode: 'strict', typeSymbol: '@robiteame/dsh-pi-agent-session-tree#sessionTree/beginEdit:nodeId', schema: _sessionTree_beginEdit_nodeId$schema },
+        },
+      ],
+      result: { mode: 'strict', typeSymbol: '@robiteame/dsh-pi-agent-session-tree/client#SessionTreeEditView', schema: _sessionTree_beginEdit_result$schema },
+    },
+    {
+      id: '@robiteame/dsh-pi-agent-session-tree#sessionTree/submitEdit',
+      service: 'sessionTree', namespace: 'sessionTree', method: 'submitEdit',
+      invocation: { kind: 'direct' }, scope: { context: 'agent', wire: 'agentId' },
+      parameters: [
+        {
+          name: 'agent', wire: 'agentId', source: 'lookup', lookup: 'agent',
+          codec: { mode: 'strict', typeSymbol: '@deepseek-ai/dsh-session/types#SessionId', schema: z.string() },
+        },
+        {
+          name: 'editId', wire: 'editId', source: 'json',
+          codec: { mode: 'strict', typeSymbol: '@robiteame/dsh-pi-agent-session-tree#sessionTree/submitEdit:editId', schema: z.string() },
+        },
+        {
+          name: 'prompt', wire: 'prompt', source: 'json',
+          codec: { mode: 'strict', typeSymbol: '@robiteame/dsh-pi-agent-session-tree#sessionTree/submitEdit:prompt', schema: z.string() },
+        },
+      ],
+      result: { mode: 'strict', typeSymbol: '@robiteame/dsh-pi-agent-session-tree/client#SessionTreeEditSubmitView', schema: _sessionTree_submitEdit_result$schema },
+    },
     {
       id: '@robiteame/dsh-pi-agent-session-tree#sessionTree/fork',
       service: 'sessionTree',

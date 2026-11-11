@@ -1,3 +1,22 @@
+## Unreleased
+
+### Added
+
+- Edit and resend the latest user prompt from the shared desktop/browser
+  composer. Editing stops the source run and owned subagents, parks queued
+  work, and preserves unsent composer drafts. Resending creates a corrected
+  branch from the preceding history with the original attachments, retaining
+  the source history. Stale edits and duplicate submissions are rejected.
+
+### Verified
+
+- `pnpm verify`: build, Host/Client type checks, four packed artifacts, and all
+  163 tests pass against Harness `0.2.1-rc.5`.
+- Official rc.5 Web profile loads the local plugin packages in an isolated
+  environment; page and plugin JavaScript return HTTP 200. Browser interactions
+  pass in light/dark themes and desktop/narrow layouts. The installed desktop
+  `0.2.2-rc.1` exposes the required slots; desktop installation acceptance is pending.
+
 ## 0.7.4 — 2026-11-11
 
 ### Fixed

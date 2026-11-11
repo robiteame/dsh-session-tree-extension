@@ -6,9 +6,18 @@ Browser half of the session-tree plugin. In a patched source checkout it
 occupies the native `conversation.details.panel` seat in DeepSeek Harness'
 right details sidebar; in an official unmodified Web profile it uses the
 additive `shell.overlay` seat so the shipped Tool-details surface remains
-available. It never renders above the composer and creates no standalone page.
+available. The tree stays in the sidebar; the latest-prompt editor uses the
+native composer extension slots and creates no standalone page.
 
 - `/tree` opens or refreshes the right sidebar.
+- **Edit latest prompt** beside the composer stops the current run before
+  opening an editor above the composer. **Resend** starts a corrected child
+  branch with the prior history and original attachments. Cancel leaves the
+  source stopped. Ctrl/Cmd+Enter resends; normal Enter inserts a newline.
+  Both desktop and browser use the same additive `conversation.input.right`
+  and `conversation.input.dock` slots, preserving the ordinary composer draft.
+  A newer prompt still waiting in the queue is edited through the native
+  queue controls; the plugin reports this case instead of editing an older turn.
 - `/fork` shows only user-prompt nodes and, once one is chosen, opens an
   independent session copy under the current project. Its inline branch title
   is the user message immediately before the selected node; `/clone` duplicates

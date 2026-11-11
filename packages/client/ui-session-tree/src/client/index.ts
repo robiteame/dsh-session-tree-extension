@@ -26,6 +26,8 @@ import type { SessionTreePanelActions } from './slots.ts'
 import { SessionTreeDock } from './SessionTreePanel.tsx'
 import { SessionTreeSidebarTab } from './SessionTreeSidebarTab.tsx'
 import { SessionBranchList } from './SessionBranchList.tsx'
+import { LatestPromptEditController } from './LatestPromptEditor.tsx'
+import { LatestPromptEditButtonSlot, LatestPromptEditorSlot } from './LatestPromptEditSlots.tsx'
 import {
   SessionTreeOverlay,
   SessionTreeOverlayController,
@@ -37,6 +39,7 @@ export { SessionTreePanel, SessionTreeDock } from './SessionTreePanel.tsx'
 export { SessionTreeOverlay, SessionTreeOverlayController } from './SessionTreeOverlay.tsx'
 export type { SessionTreeOverlayProps, SessionTreeOverlayState } from './SessionTreeOverlay.tsx'
 export { SessionBranchList } from './SessionBranchList.tsx'
+export { LatestPromptEditButton, LatestPromptEditor, LatestPromptEditController } from './LatestPromptEditor.tsx'
 export { buildBranchTreeModel, buildSessionGraphModel, visibleBranchRows } from './session-graph.ts'
 export type {
   BranchTreeBadge,
@@ -152,6 +155,49 @@ function registerSessionTreeUi(ctx: ClientContext): void {
   // /fork-vs-/clone distinction and the branch title live here.
   const forkLineage = new SessionForkLineage(browserForkLineageStorage())
   ctx.effect(() => () => { forkLineage.dispose() }, 'ui-session-tree: fork lineage')
+
+  // Both the desktop WebView and browser use the same additive composer slots.
+  // The Host stops the source before exposing a draft; resending starts a child
+  // from the history before that prompt, preserving the original conversation.
+  const latestPromptEdit = new LatestPromptEditController({
+    begin: async sessionId => {
+      const answered = await ctx.remote.sessionTree.beginEdit(sessionId)
+      if (!answered.ok) throw new Error(`${answered.error.code}: ${answered.error.message}`)
+      return answered.value
+    },
+    submit: async (sessionId, editId, prompt) => {
+      const answered = await ctx.remote.sessionTree.submitEdit(sessionId, editId, prompt)
+      if (!answered.ok) throw new Error(`${answered.error.code}: ${answered.error.message}`)
+      return answered.value
+    },
+    onComplete: (sourceSessionId, result) => {
+      forkLineage.record({
+        childId: result.sessionId,
+        parentId: sourceSessionId,
+        ...(result.previousUserPrompt === undefined
+          ? {}
+          : { summary: summarizeForkPrompt(result.previousUserPrompt) }),
+      })
+      // Acceptance is final even if navigation fails. Never offer another send
+      // for a prompt the Host has already accepted.
+      void ctx.sessions.refresh().then(() => {
+        revealSession(ctx, result.sessionId)
+      }).catch(() => {
+        // The live Session catalogue may already contain the accepted child.
+        try { revealSession(ctx, result.sessionId) } catch { /* native list remains available */ }
+      })
+      for (const refresh of refreshers.get(sourceSessionId) ?? []) refresh()
+    },
+  })
+  ctx.effect(() => () => { latestPromptEdit.dispose() }, 'ui-session-tree: latest prompt edit')
+  ctx.slots.inject('conversation.input.right', () => ctx.slots.register({
+    name: 'conversation.input.right', id: 'session-tree-edit-latest', order: 10, locale: NS,
+    inject: () => ({ controller: latestPromptEdit }),
+  }, LatestPromptEditButtonSlot))
+  ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({
+    name: 'conversation.input.dock', id: 'session-tree-edit-latest', order: 10, locale: NS,
+    inject: () => ({ controller: latestPromptEdit }),
+  }, LatestPromptEditorSlot))
 
   /** Initialize a retained child's draft, with an editor fallback for older hosts. */
   const writeNativePrompt = (sessionId: SessionId, text: string): void => {
