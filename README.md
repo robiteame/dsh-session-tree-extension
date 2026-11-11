@@ -80,6 +80,10 @@ installation provides those peers. The current development and verification
 baseline is the published `0.2.1-rc.5` release. No install
 scripts run — the tarballs ship prebuilt `lib/` artifacts.
 
+If an older install reports a missing dependency version or a
+`sidebarRightTabs` injection error, follow the
+[upgrade and registry troubleshooting steps](./INSTALL.md#troubleshooting-older-installs).
+
 ## The three commands
 
 ### `/tree` — open the tree panel
