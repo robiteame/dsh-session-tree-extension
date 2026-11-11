@@ -1,7 +1,7 @@
 {
   "name": "@robiteame/dsh-tool-session-tree",
   "description": "session_tree tool, /tree command family, and system-prompt section over the shared append-only session-tree store",
-  "version": "0.7.2",
+  "version": "0.7.3",
   "publishConfig": {
     "access": "public"
   },
@@ -39,7 +39,7 @@
     "@deepseek-ai/dsh-session": "^0.2.1-rc.2",
     "@deepseek-ai/dsh-system-prompt": "^0.2.1-rc.2",
     "@deepseek-ai/dsh-tools": "^0.2.1-rc.2",
-    "@robiteame/dsh-pi-agent-session-tree": "^0.7.2"
+    "@robiteame/dsh-pi-agent-session-tree": "^0.7.3"
   },
   "engines": {
     "node": ">=22"

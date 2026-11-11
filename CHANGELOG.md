@@ -1,4 +1,4 @@
-## Unreleased
+## 0.7.3 — 2026-11-11
 
 ### Added
 
@@ -16,6 +16,13 @@
 - Tree navigation on official Harness no longer writes synthetic system messages
   that fail format v4 persistence. The tree remembers its cursor separately,
   and `/fork` continues from the selected user prompt in a new session.
+
+### Verified
+
+- `pnpm verify` passes against Harness `0.2.1-rc.5`: build, Host and Client
+  type checks, all four packed artifacts, and all 133 tests.
+- Coverage: 84.90% statements, 76.72% branches, 89.22% functions, and 90.97%
+  lines. All four `0.7.3` npm tarballs are included in the GitHub release.
 
 ## 0.7.2 — 2026-11-03
 

@@ -14,11 +14,11 @@ package mounts all three implementation packages through its
 ## Install
 
 Desktop: **Settings → Plugins → Add plugin**, choose the official npm
-registry, install `@robiteame/dsh-session-tree@0.7.2`, then restart. CLI with
+registry, install `@robiteame/dsh-session-tree@0.7.3`, then restart. CLI with
 the `0.2.1-rc.3` plugin manager or newer:
 
 ```sh
-dsh plugin --profile <profile> add @robiteame/dsh-session-tree@0.7.2
+dsh plugin --profile <profile> add @robiteame/dsh-session-tree@0.7.3
 ```
 
 This package carries no code of its own: `dependencies` pulls the three
