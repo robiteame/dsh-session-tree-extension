@@ -1,3 +1,22 @@
+## 0.7.4 — 2026-11-11
+
+### Fixed
+
+- Retain newly forked sessions while preparing their unsent prompt, then
+  transfer ownership to the main view. Save fork annotations before draft
+  initialization so a failed editor setup cannot turn a fork into an
+  ungrouped duplicate in the sidebar.
+- Match sidebar rows by native session keys when available, including when
+  titles repeat or sessions are reordered. Keep child rows accessible until
+  their source row and inline branch menu are mounted.
+
+### Verified
+
+- Build, Host and Client type checks, all four packed artifacts, and all 139
+  tests pass against Harness `0.2.1-rc.5`.
+- The user confirmed the fix in the desktop app with the `0.7.3-local.2`
+  build: `/fork` restores the editable prompt and the left-sidebar branch menu.
+
 ## 0.7.3 — 2026-11-11
 
 ### Added

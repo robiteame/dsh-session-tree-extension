@@ -99,6 +99,20 @@ async function bench(tree = view(null, []), nativePanel = true, archiveSupported
   const drafts = vi.fn()
   const editors = new Map<unknown, TestEditor>()
   const bindings = new Map<SessionId, unknown>()
+  const unopenedBindings = new Map<SessionId, unknown>()
+  const released = vi.fn()
+  const retain = vi.fn((id: SessionId) => {
+    const binding = bindings.get(id) ?? unopenedBindings.get(id)
+    if (binding === undefined) throw new Error(`session '${id}' is not available`)
+    bindings.set(id, binding)
+    return {
+      binding,
+      release: () => {
+        released(id)
+        if (!openedSessions.includes(id)) bindings.delete(id)
+      },
+    }
+  })
   const nativeFork = vi.fn(async (opts: { sessionId: SessionId }) => sid(`${opts.sessionId}-native-fork`))
   const open = vi.fn((id: SessionId) => { openedSessions.push(id) })
   const refresh = vi.fn(async () => {})
@@ -142,6 +156,7 @@ async function bench(tree = view(null, []), nativePanel = true, archiveSupported
   ctx.provide('locale', { register: () => () => {} } as never)
   ctx.provide('sessions', {
     binding: (id: SessionId) => bindings.get(id),
+    retain,
     fork: nativeFork,
     refresh,
   } as never)
@@ -160,14 +175,13 @@ async function bench(tree = view(null, []), nativePanel = true, archiveSupported
     ctx.effect(() => () => { tabRegistrations.length = 0 }, 'test sidebar registrations')
   }
   const inputFor = vi.fn((actx: unknown) => ({ editor: editors.get(actx), setDraft: drafts }))
+  const inputHub = { for: inputFor }
   ctx.provide('conversation', {
-    input: {
-      for: inputFor,
-    },
+    input: inputHub,
   } as never)
   const fiber = ctx.plugin({ inject: [...inject], apply })
   return {
-    ctx, calls, opened, openedSessions, drafts, editors, inputFor, bindings, nativeFork, open, refresh, archiveSession, fiber, toolDetails,
+    ctx, calls, opened, openedSessions, drafts, editors, inputHub, inputFor, bindings, unopenedBindings, retain, released, nativeFork, open, refresh, archiveSession, fiber, toolDetails,
     entry: () => ctx.slots.entries(nativePanel ? 'sidebar.right.pane.tab' : 'conversation.details.panel' as never)[0],
     overlayEntry: () => ctx.slots.entries('shell.overlay' as never)[0],
     branchEntry: () => ctx.slots.entries('shell.overlay' as never)[1],
@@ -318,7 +332,7 @@ describe('session tree browser plugin', () => {
       },
       ctx: sourceCtx,
     })
-    b.bindings.set(childId, { ctx: childCtx })
+    b.unopenedBindings.set(childId, { ctx: childCtx })
     b.nativeFork.mockResolvedValueOnce(childId)
     await b.fiber.await()
 
@@ -331,6 +345,10 @@ describe('session tree browser plugin', () => {
     expect(b.calls).toEqual([])
     expect(b.inputFor).toHaveBeenCalledWith(childCtx)
     expect(b.inputFor).not.toHaveBeenCalledWith(sourceCtx)
+    expect(b.retain).toHaveBeenCalledWith(childId, { source: 'controllerOperation' })
+    expect(b.released).toHaveBeenCalledWith(childId)
+    expect(b.open.mock.invocationCallOrder[0]).toBeLessThan(b.released.mock.invocationCallOrder[0]!)
+    expect(b.bindings.has(childId)).toBe(true)
     expect(b.drafts).not.toHaveBeenCalled()
     expect(sourceEditor.parseEditorState).not.toHaveBeenCalled()
     expect(sourceEditor.setEditorState).not.toHaveBeenCalled()
@@ -357,13 +375,15 @@ describe('session tree browser plugin', () => {
     }
     const b = await bench()
     b.editors.set(childCtx, childEditor)
-    b.bindings.set(childId, { ctx: childCtx })
+    b.unopenedBindings.set(childId, { ctx: childCtx })
     await b.fiber.await()
 
     const actions = ((b.entry() as unknown as { inject: (id: SessionId) => SessionTreePanelActions }).inject)(sid('s1'))
     await actions.fork('n1', 'alt')
 
     expect(b.inputFor).toHaveBeenCalledWith(childCtx)
+    expect(b.retain).toHaveBeenCalledWith(childId, { source: 'controllerOperation' })
+    expect(b.open.mock.invocationCallOrder[0]).toBeLessThan(b.released.mock.invocationCallOrder[0]!)
     expect(b.drafts).not.toHaveBeenCalled()
     expect(vi.mocked(childEditor.setEditorState).mock.invocationCallOrder[0]).toBeLessThan(
       b.open.mock.invocationCallOrder[0]!,
@@ -411,6 +431,73 @@ describe('session tree browser plugin', () => {
     expect(actions.modeController?.getSnapshot().selectorOpen).toBe(false)
     const lineage = ((b.branchEntry()?.inject) as unknown as () => { lineage: SessionForkLineage })().lineage
     expect(lineage.getSnapshot().get(childId)?.parentId).toBe(sid('s1'))
+  })
+
+  it('initializes an unopened child through the public draft API before handing it to the main view', async () => {
+    const b = await bench()
+    const childId = sid('s1-fork-test')
+    const binding = { ctx: {} }
+    b.unopenedBindings.set(childId, binding)
+    const initialize = vi.fn(() => {
+      expect(b.bindings.get(childId)).toBe(binding)
+      expect(b.openedSessions).toEqual([])
+      return 'applied'
+    })
+    Object.assign(b.inputHub, { requestDraftInitialization: initialize })
+    await b.fiber.await()
+    const actions = ((b.entry() as unknown as { inject: (id: SessionId) => SessionTreePanelActions }).inject)(sid('s1'))
+
+    await actions.fork('n1', 'alt')
+
+    expect(initialize).toHaveBeenCalledWith(binding, { prompt: 'test', whenDraftExists: 'replace' })
+    expect(b.inputFor).not.toHaveBeenCalled()
+    expect(b.openedSessions).toEqual([childId])
+    expect(b.open.mock.invocationCallOrder[0]).toBeLessThan(b.released.mock.invocationCallOrder[0]!)
+  })
+
+  it('keeps fork lineage and releases the temporary child reference when draft initialization fails', async () => {
+    const b = await bench()
+    const childId = sid('native-child')
+    const selected = { ...node('prompt', null, 'selected prompt'), metadata: { sessionEventSeq: 3 } }
+    b.bindings.set(sid('s1'), {
+      ctx: {},
+      session: { loadThrough: vi.fn(async () => {}) },
+      eventSource: { getSnapshot: () => ({
+        hasMore: false,
+        entries: [{ type: 'event', event: { type: 'turn/end', seq: 2 } }],
+      }) },
+    })
+    b.unopenedBindings.set(childId, { ctx: {} })
+    b.nativeFork.mockResolvedValueOnce(childId)
+    Object.assign(b.inputHub, { requestDraftInitialization: vi.fn(() => 'blocked') })
+    await b.fiber.await()
+    const actions = ((b.entry() as unknown as { inject: (id: SessionId) => SessionTreePanelActions }).inject)(sid('s1'))
+
+    await expect(actions.forkUserPrompt?.(selected)).rejects.toThrow('draft initialization is blocked')
+
+    const lineage = ((b.branchEntry()?.inject) as unknown as () => { lineage: SessionForkLineage })().lineage
+    expect(lineage.getSnapshot().get(childId)?.parentId).toBe(sid('s1'))
+    expect(b.released).toHaveBeenCalledWith(childId)
+    expect(b.bindings.has(childId)).toBe(false)
+    expect(b.openedSessions).toEqual([])
+  })
+
+  it('supports older Controllers that already retain the fork child', async () => {
+    const b = await bench()
+    const childId = sid('s1-fork-test')
+    const childCtx = {}
+    const editor = { parseEditorState: vi.fn((state: unknown) => state), setEditorState: vi.fn() }
+    b.bindings.set(childId, { ctx: childCtx })
+    b.editors.set(childCtx, editor)
+    Object.assign(b.ctx.sessions, { retain: undefined })
+    await b.fiber.await()
+    const actions = ((b.entry() as unknown as { inject: (id: SessionId) => SessionTreePanelActions }).inject)(sid('s1'))
+
+    await actions.fork('n1', 'alt')
+
+    expect(textFromEditorState(editor.setEditorState.mock.calls[0]?.[0])).toBe('test')
+    expect(b.retain).not.toHaveBeenCalled()
+    expect(b.openedSessions).toEqual([childId])
   })
 
   it('does not create an empty fork when older history fails to load', async () => {

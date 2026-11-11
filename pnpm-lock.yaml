@@ -123,13 +123,13 @@ importers:
   packages/bundle/session-tree:
     dependencies:
       '@robiteame/dsh-client-ui-session-tree':
-        specifier: ^0.7.3
+        specifier: ^0.7.4
         version: link:../../client/ui-session-tree
       '@robiteame/dsh-pi-agent-session-tree':
-        specifier: ^0.7.3
+        specifier: ^0.7.4
         version: link:../../extensions/pi-agent-session-tree
       '@robiteame/dsh-tool-session-tree':
-        specifier: ^0.7.3
+        specifier: ^0.7.4
         version: link:../../extensions/tool-session-tree
 
   packages/client/ui-session-tree: {}

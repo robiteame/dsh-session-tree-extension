@@ -6,7 +6,7 @@
 2. Under **Registry**, choose the official npm registry
    (`https://registry.npmjs.org/`). On Windows and mainland-China networks the
    dialog may preselect the mainland mirror, which has not synced `0.7.2`.
-3. Install `@robiteame/dsh-session-tree@0.7.3`, restart the app, then run
+3. Install `@robiteame/dsh-session-tree@0.7.4`, restart the app, then run
    `/tree`.
 
 The plugin manager activates the carrier bundle and composes the
@@ -19,13 +19,13 @@ is refused; use the in-app dialog.
 A Harness CLI with the `0.2.1-rc.3` plugin manager or newer:
 
 ```sh
-dsh plugin --profile <profile> add @robiteame/dsh-session-tree@0.7.3
+dsh plugin --profile <profile> add @robiteame/dsh-session-tree@0.7.4
 ```
 
 Offline install from the prebuilt tarball (no build step):
 
 ```sh
-dsh plugin --profile <profile> add robiteame-dsh-session-tree-0.7.3.tgz
+dsh plugin --profile <profile> add robiteame-dsh-session-tree-0.7.4.tgz
 ```
 
 Restart the profile and confirm the composition:
@@ -65,7 +65,7 @@ the scope for CLI installs:
 
 ```sh
 npm config set @robiteame:registry https://registry.npmjs.org
-dsh plugin --profile <profile> add @robiteame/dsh-session-tree@0.7.3
+dsh plugin --profile <profile> add @robiteame/dsh-session-tree@0.7.4
 ```
 
 Confirm the version is visible from the registry that answered:

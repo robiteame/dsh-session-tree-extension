@@ -1,6 +1,6 @@
 {
   "name": "dsh-session-tree-extension",
-  "version": "0.7.3",
+  "version": "0.7.4",
   "private": true,
   "description": "Development workspace for the dsh-session-tree plugin packages (not published)",
   "type": "module",

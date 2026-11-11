@@ -44,11 +44,11 @@ Published as four npm packages under the `@robiteame` scope:
 ## Install (users)
 
 Desktop: **Settings → Plugins → Add plugin**, choose the official npm
-registry, install `@robiteame/dsh-session-tree@0.7.3`, then restart. CLI
+registry, install `@robiteame/dsh-session-tree@0.7.4`, then restart. CLI
 (`0.2.1-rc.3` or newer):
 
 ```sh
-dsh plugin --profile <profile> add @robiteame/dsh-session-tree@0.7.3
+dsh plugin --profile <profile> add @robiteame/dsh-session-tree@0.7.4
 ```
 
 Requires DeepSeek-Harness 0.2.x and Node.js 22+, with no install scripts.

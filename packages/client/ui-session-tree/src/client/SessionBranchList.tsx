@@ -158,17 +158,22 @@ function titleScore(rowText: string, displayTitle: string): number {
   return 0
 }
 
-/** Return the native session rows, excluding search-result buttons. */
+/** Return current keyed session rows, or the older unkeyed row surface. */
 function nativeSessionRows(): HTMLElement[] {
   if (typeof document === 'undefined') return []
-  return [...document.querySelectorAll<HTMLElement>(
+  const rows = [...document.querySelectorAll<HTMLElement>(
     'div[role="tree"] div[role="treeitem"][aria-selected]',
   )].filter(row => row.closest(BRANCH_HOST) === null)
+  // Current Harness exposes stable keys and renders search results as divs
+  // too. Once keyed rows are present, unkeyed search results must not be
+  // mistaken for native rows by title or rendered order.
+  const keyedRows = rows.filter(row => row.dataset.rowKey?.startsWith('session:'))
+  return keyedRows.length > 0 ? keyedRows : rows
 }
 
 /**
- * Match native rows to Session ids. Previous DOM identity wins, followed by
- * the selected row, title scoring, and finally rendered-order pairing.
+ * Match native rows to Session ids. Native keys win; older hosts fall back to
+ * previous DOM identity, selection, title scoring, and rendered-order pairing.
  */
 function matchNativeRows(
   rows: readonly HTMLElement[],
@@ -182,6 +187,18 @@ function matchNativeRows(
   const matched = new Map<HTMLElement, SessionId>()
 
   for (const row of rows) {
+    const key = row.dataset.rowKey
+    if (!key?.startsWith('session:')) continue
+    const id = key.slice('session:'.length) as SessionId
+    if (!remaining.has(id)) continue
+    matched.set(row, id)
+    remaining.delete(id)
+  }
+
+  // A keyed row whose Session is not in this snapshot is never a fallback
+  // candidate for another Session (for example while a refresh is pending).
+  const legacyRows = rows.filter(row => row.dataset.rowKey === undefined)
+  for (const row of legacyRows) {
     const id = previous.get(row)
     if (id === undefined || !remaining.has(id)) continue
     matched.set(row, id)
@@ -190,7 +207,7 @@ function matchNativeRows(
 
   const current = currentSessionId(state)
   if (current !== undefined && remaining.has(current)) {
-    const currentRow = rows.find(row =>
+    const currentRow = legacyRows.find(row =>
       !matched.has(row) && row.getAttribute('aria-selected') === 'true')
     if (currentRow !== undefined) {
       matched.set(currentRow, current)
@@ -199,7 +216,7 @@ function matchNativeRows(
   }
 
   const candidates: Array<{ row: HTMLElement; id: SessionId; score: number }> = []
-  for (const row of rows) {
+  for (const row of legacyRows) {
     if (matched.has(row)) continue
     const rowText = normalizedText(row.textContent)
     for (const id of remaining) {
@@ -214,7 +231,7 @@ function matchNativeRows(
     remaining.delete(candidate.id)
   }
 
-  const freeRows = rows.filter(row => !matched.has(row))
+  const freeRows = legacyRows.filter(row => !matched.has(row))
   const freeIds = ids.filter(id => remaining.has(id))
   const pairCount = Math.min(freeRows.length, freeIds.length)
   for (let index = 0; index < pairCount; index++) {
@@ -526,6 +543,9 @@ export function SessionBranchList({
 
       const represented = new Set<SessionId>()
       for (const group of groups) {
+        // A source row can be outside the host's visible page. Keep its
+        // native children accessible until their replacement is mounted.
+        if (!nextHosts.has(group.sourceId)) continue
         for (const row of group.rows) represented.add(row.sessionId)
       }
       for (const id of represented) {

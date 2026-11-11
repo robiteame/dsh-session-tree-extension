@@ -153,11 +153,17 @@ function registerSessionTreeUi(ctx: ClientContext): void {
   const forkLineage = new SessionForkLineage(browserForkLineageStorage())
   ctx.effect(() => () => { forkLineage.dispose() }, 'ui-session-tree: fork lineage')
 
-  /** Write a fork prompt through the child Session's native editor instance. */
+  /** Initialize a retained child's draft, with an editor fallback for older hosts. */
   const writeNativePrompt = (sessionId: SessionId, text: string): void => {
     const binding = ctx.sessions.binding(sessionId)
     if (binding === undefined) throw new Error('fork child is not addressable')
-    const input = ctx.conversation.input.for(binding.ctx) as unknown as NativeSessionInput
+    const inputHub = ctx.conversation.input
+    if (typeof inputHub.requestDraftInitialization === 'function') {
+      const result = inputHub.requestDraftInitialization(binding, { prompt: text, whenDraftExists: 'replace' })
+      if (result === 'blocked') throw new Error('fork child draft initialization is blocked')
+      return
+    }
+    const input = inputHub.for(binding.ctx) as unknown as NativeSessionInput
     const editor = input.editor
     if (editor === undefined) throw new Error('fork child native input editor is unavailable')
     editor.setEditorState(editor.parseEditorState(editorStateForText(text)))
@@ -166,8 +172,18 @@ function registerSessionTreeUi(ctx: ClientContext): void {
   /** Seed the new fork's native composer before revealing it. */
   const completeFork = (result: SessionTreeForkView): void => {
     if (result.sessionId === undefined) return
-    if (result.prompt !== undefined) writeNativePrompt(result.sessionId, result.prompt)
-    revealSession(ctx, result.sessionId)
+    // Current Controllers catalogue a new child without opening its scope.
+    // Own it while initializing the draft, then hand it to Workspace's main
+    // view before releasing. Older Controllers already retain new children.
+    const reference = typeof ctx.sessions.retain === 'function'
+      ? ctx.sessions.retain(result.sessionId, { source: 'controllerOperation' })
+      : undefined
+    try {
+      if (result.prompt !== undefined) writeNativePrompt(result.sessionId, result.prompt)
+      revealSession(ctx, result.sessionId)
+    } finally {
+      reference?.release()
+    }
   }
 
   /** Fork through the same native session service used by the sidebar menu. */
@@ -259,13 +275,12 @@ function registerSessionTreeUi(ctx: ClientContext): void {
       childId = await forkNative(sessionId, previousTurnEnd)
     }
 
-    writeNativePrompt(childId, nodeFullText(node))
     forkLineage.record({
       childId,
       parentId: sessionId,
       ...(previousUserPrompt === undefined ? {} : { summary: summarizeForkPrompt(previousUserPrompt) }),
     })
-    revealSession(ctx, childId)
+    completeFork({ cursor: node.nodeId, branch: 'fork', forkCount: 1, sessionId: childId, prompt: nodeFullText(node) })
     overlay.closeSelector()
   }
 
