@@ -161,7 +161,8 @@ function registerSessionTreeUi(ctx: ClientContext): void {
   // from the history before that prompt, preserving the original conversation.
   const latestPromptEdit = new LatestPromptEditController({
     begin: async sessionId => {
-      const answered = await ctx.remote.sessionTree.beginEdit(sessionId)
+      // Typert checks positional arity even for optional wire parameters.
+      const answered = await ctx.remote.sessionTree.beginEdit(sessionId, undefined)
       if (!answered.ok) throw new Error(`${answered.error.code}: ${answered.error.message}`)
       return answered.value
     },

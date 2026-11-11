@@ -282,7 +282,7 @@ describe('session tree browser plugin', () => {
     const dockInjected = dockEntry.inject!() as { controller: LatestPromptEditController }
     expect(dockInjected.controller).toBe(injected.controller)
     await injected.controller.begin(sid('s1'))
-    expect(b.sessionTree.beginEdit).toHaveBeenCalledWith(sid('s1'))
+    expect(b.sessionTree.beginEdit).toHaveBeenCalledWith(sid('s1'), undefined)
     injected.controller.update(sid('s1'), 'corrected prompt')
     await injected.controller.submit(sid('s1'))
     expect(b.sessionTree.submitEdit).toHaveBeenCalledWith(sid('s1'), 'edit-1', 'corrected prompt')

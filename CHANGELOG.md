@@ -8,14 +8,23 @@
   branch from the preceding history with the original attachments, retaining
   the source history. Stale edits and duplicate submissions are rejected.
 
+### Fixed
+
+- Pass the optional node argument explicitly when opening the prompt editor:
+  Typert validates positional arity before sending the RPC, so omitting it
+  prevented the editor from opening in the installed desktop app.
+
 ### Verified
 
 - `pnpm verify`: build, Host/Client type checks, four packed artifacts, and all
   163 tests pass against Harness `0.2.1-rc.5`.
 - Official rc.5 Web profile loads the local plugin packages in an isolated
   environment; page and plugin JavaScript return HTTP 200. Browser interactions
-  pass in light/dark themes and desktop/narrow layouts. The installed desktop
-  `0.2.2-rc.1` exposes the required slots; desktop installation acceptance is pending.
+  pass in light/dark themes and desktop/narrow layouts.
+- Local `0.7.5-local.2` is installed and enabled in desktop `0.2.2-rc.1`;
+  all three components run, and the latest prompt opens in the editor.
+  The official rc.5 Gateway also accepts the corrected RPC argument list.
+  No live model request was sent during installation acceptance.
 
 ## 0.7.4 — 2026-11-11
 
