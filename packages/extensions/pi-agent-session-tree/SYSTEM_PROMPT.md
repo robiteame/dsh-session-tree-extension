@@ -15,10 +15,9 @@ and branch name (or `branch.summary` to record a summary); old nodes are never
 modified or deleted. Use `branches` and `tree` to inspect topology, and
 `snapshot.save` / `snapshot.load` for explicit export or full-tree restore.
 
-Depending on the Harness build, jump/fork switch the model-visible history
-either through the native selected-surface API or through an official
-replace-surface emulation; when neither is available the tree is
-projection-only. The `surface` field reported by `context` and `session`
-states the active mode: native, stock, or projection.
+The `surface` field reported by `context` and `session` is `native` when the
+host can switch model history in place, or `projection` when navigation only
+moves the tree cursor. On official Harness builds, use `/fork` to continue from
+an earlier user prompt in a separate session.
 
 All operations report failures as `{ok:false,error:{code,message}}`.

@@ -52,7 +52,7 @@
 
 - 存储为进程级共享，工具、命令与 Remote 服务共用，因此模型追加的内容立即可见于面板。
 - Harness `Session` 事件是持久化真源；树是增量同步的投影。显式 `snapshot.save`/`snapshot.load` 事件仍可用于整树导出与恢复。
-- 补丁集成把树标记持久化为 `session-tree/*` 事件。官方 Bundle 在光标移动时追加一条空内容官方 `assistant/message`，携带 `replace` surface 操作，并把分支元数据保存到 `$DSH_HOME/storages/session-tree/<sessionId>.json`。较早的事件不会被改写或删除。
+- 补丁集成把树标记持久化为 `session-tree/*` 事件。官方 Harness 中，导航只更新树的光标和分支状态，保存在 `$DSH_HOME/storages/session-tree/<sessionId>.json`，不改写会话日志。如需从较早的用户消息继续，请用 `/fork` 创建独立会话。
 - 模型可见 ⇔ 已记录：原生 Harness 消息事件始终同步为树节点；树不会合成从未记录过的历史。
 
 ## 模型体验

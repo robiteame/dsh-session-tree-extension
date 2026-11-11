@@ -8,6 +8,15 @@
   nesting, and failed removals can be retried. Hosts without native archiving
   keep the existing menu without the button.
 
+### Fixed
+
+- `/fork` can branch from the first user prompt. It opens an empty child with
+  the prompt ready to edit, and pages older history when locating later fork
+  points.
+- Tree navigation on official Harness no longer writes synthetic system messages
+  that fail format v4 persistence. The tree remembers its cursor separately,
+  and `/fork` continues from the selected user prompt in a new session.
+
 ## 0.7.2 — 2026-11-03
 
 ### Changed

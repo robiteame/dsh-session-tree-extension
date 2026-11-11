@@ -118,7 +118,7 @@ lanes, so depth never widens a row.
 
 Harness Session events are the durable source of truth; the SessionTree store is an incrementally synchronized projection.
 
-In a source checkout using `harness.patch`, cursor/branch/selection markers are persisted as `session-tree/*` events and the native selected-message-surface API points the next model request at the active path. In the standalone official Bundle, the same navigation is implemented without those private APIs: a jump appends an official empty-content `assistant/message` with a `replace` surface operation, and branch/cursor/selection metadata is stored in the plugin sidecar at `$DSH_HOME/storages/session-tree/<sessionId>.json`. The sidecar is restored before the next agent pre-step, so trees survive a stock profile restart.
+In a source checkout with the optional engine patch, cursor, branch, and selection markers are persisted as `session-tree/*` events and the selected-message-surface API points the next model request at the active path. On official Harness, tree navigation stores that state in `$DSH_HOME/storages/session-tree/<sessionId>.json` and leaves the Session log intact. Use `/fork` to continue an earlier user prompt in a separate session.
 
 `snapshot.save` produces and `snapshot.load` restores the versioned snapshot below. Unknown versions are rejected as `INVALID_SNAPSHOT`.
 

@@ -6,17 +6,19 @@
 [![Harness](https://img.shields.io/badge/DeepSeek--Harness-0.2.1--rc.5-orange)](https://github.com/deepseek-ai/deepseek-harness)
 
 Append-only, multi-branch conversation trees for
-[DeepSeek-Harness](https://github.com/deepseek-ai/deepseek-harness) — fork any
-historical node, clone a branch into a new session, and browse the whole
-lineage as one merged WebUI graph. Old history is never edited or deleted.
+[DeepSeek-Harness](https://github.com/deepseek-ai/deepseek-harness) — branch
+from any earlier prompt, clone a branch into a new session, and browse the
+whole lineage as one merged WebUI graph. Old history is never edited or
+deleted.
 
-Three commands:
+Four commands:
 
 | Command | What it does |
 |---|---|
-| `/tree` | Open the merged lineage graph: every non-subagent session and node, clickable and bindable |
-| `/fork` | Branch from any historical node — the fork appears in the graph and as an inline menu under its source session |
+| `/tree` | Open the merged lineage graph: every non-subagent session and node; selecting a node moves the tree cursor |
+| `/fork` | Branch from an earlier user prompt — the fork appears in the graph and as an inline menu under its source session |
 | `/clone` | Duplicate the current conversation into an independent new session under the same project |
+| `/session` | Print the current session's tree status and surface mode |
 
 ## Screenshots
 
@@ -36,55 +38,24 @@ Published as four npm packages under the `@robiteame` scope:
 |---|---|
 | [`@robiteame/dsh-session-tree`](./packages/bundle/session-tree) | Carrier Bundle: one install mounts everything below through its composition layer |
 | [`@robiteame/dsh-pi-agent-session-tree`](./packages/extensions/pi-agent-session-tree) | Host domain service: the `SessionTree`/`SessionTreeStore` domain model and the `sessionTree` Remote |
-| [`@robiteame/dsh-tool-session-tree`](./packages/extensions/tool-session-tree) | Command surface: the `/tree` `/fork` `/clone` commands |
-| [`@robiteame/dsh-client-ui-session-tree`](./packages/client/ui-session-tree) | WebUI tree panel: a native tab in the Harness 0.2 right Sidebar, with an additive overlay fallback for older stock builds |
+| [`@robiteame/dsh-tool-session-tree`](./packages/extensions/tool-session-tree) | Agent surface: the `session_tree` tool and the `/tree` `/fork` `/clone` `/session` commands |
+| [`@robiteame/dsh-client-ui-session-tree`](./packages/client/ui-session-tree) | WebUI tree panel: a native tab in the Harness 0.2 right Sidebar, with an additive overlay fallback for older official builds |
 
 ## Install (users)
 
-### DeepSeek Harness Desktop
-
-Open **Settings → Plugins → Market**, search for
-`@robiteame/dsh-session-tree`, install it, and restart the desktop app. The
-desktop plugin manager activates the carrier bundle, so the next boot composes
-the three rows (`pi-agent-session-tree`, `tool-session-tree`,
-`ui-session-tree`) that load the Host service, the commands, and the browser
-panel.
-
-On older desktop builds bundling the `0.2.1-rc.2` CLI, the `dsh plugin`
-command only forwards to pnpm and does not activate a newly installed bundle.
-Use the in-app market there; after the restart, `/tree` opens the panel.
-
-### CLI (`0.2.1-rc.3` and newer)
-
-On a CLI that ships the `0.2.1-rc.3` plugin manager, one command installs and
-activates the bundle:
+Desktop: **Settings → Plugins → Add plugin**, choose the official npm
+registry, install `@robiteame/dsh-session-tree@0.7.2`, then restart. CLI
+(`0.2.1-rc.3` or newer):
 
 ```sh
-dsh plugin --profile <profile> add @robiteame/dsh-session-tree
+dsh plugin --profile <profile> add @robiteame/dsh-session-tree@0.7.2
 ```
 
-Prebuilt tarballs install the same way and need no build scripts:
+Requires DeepSeek-Harness 0.2.x and Node.js 22+, with no install scripts.
+Full steps, the mainland mirror that only serves `0.7.0`, verification, and
+uninstall: [INSTALL.md](./INSTALL.md).
 
-```sh
-dsh plugin --profile <profile> add robiteame-dsh-session-tree-0.7.2.tgz
-```
-
-After installing, restart the profile. Verify the composed layer:
-
-```sh
-dsh --profile <profile> --dump-config   # should list the three session-tree rows
-```
-
-Requires DeepSeek-Harness `^0.2.1-rc.2` and Cordis `~4.0.5`; the target
-installation provides those peers. The current development and verification
-baseline is the published `0.2.1-rc.5` release. No install
-scripts run — the tarballs ship prebuilt `lib/` artifacts.
-
-If an older install reports a missing dependency version or a
-`sidebarRightTabs` injection error, follow the
-[upgrade and registry troubleshooting steps](./INSTALL.md#troubleshooting-older-installs).
-
-## The three commands
+## Commands
 
 ### `/tree` — open the tree panel
 
@@ -92,17 +63,18 @@ If an older install reports a missing dependency version or a
 session's lineage: ancestors, forks, and clones appear in a single git-style
 view, with user messages, assistant replies, tool calls, and model switches
 shown as connected nodes. Shared copied prefixes are deduplicated, fork points
-carry session badges, and the current session's path stays highlighted. Click
-a node to bind it; clicking a node owned by another session opens that session
-first. Collapse individual subtrees or whole session branches to focus the
-graph.
+carry session badges, and the current session's path stays highlighted.
+Selecting a node moves the tree cursor; selecting a node owned by another
+session opens that session first. Collapse individual subtrees or whole
+session branches to focus the graph.
 
-### `/fork` — branch from any historical node
+### `/fork` — branch from a user prompt
 
 `/fork` picks an earlier user prompt and grows a new branch from there: the
 conversation continues along the new path while the original one stays intact.
-The fork is created through the official native fork API, so it appears in the
-session list with real parent linkage. The plugin adds the new branch to the
+The new session opens with that prompt ready to edit and keeps the completed
+turns before it. Selecting the first prompt starts with an empty history.
+The child keeps its parent session link. The plugin adds the new branch to the
 merged graph and also renders it as an inline collapsible menu directly beneath
 its source session's row. Both views follow the official reactive session list,
 so new branches appear without a refresh.
@@ -122,6 +94,12 @@ an error and can be retried. Hosts without native archiving omit the button.
 independent Session under the same project. The source history stays
 read-only; the clone is yours to continue separately.
 
+### `/session` — inspect the current tree
+
+`/session` prints the current session's tree status: node, message, and branch
+counts, the cursor and active branch, token usage, and the `surface` mode
+(`native` or `projection`).
+
 ## Branch switching and graceful degradation
 
 The plugin never modifies Harness core files. It capability-detects the
@@ -129,19 +107,15 @@ optional branch-selection engine API at runtime:
 
 - **Native mode** — on a checkout carrying
   [`dev/session-branch-surface.patch`](./dev/session-branch-surface.patch)
-  (`Session.selectMessageSurface()`), jump/fork switch the model-visible
-  history directly: the next turn genuinely starts from the new branch.
-- **Stock mode** — on an unmodified official Harness, the plugin emulates the
-  switch through official append APIs (an empty `replace` surface event) plus a
-  plugin-owned sidecar under `$DSH_HOME/storages/session-tree/` for durable
-  branch state. The log stays resume-valid.
-- **Projection mode** — if even the emulation is unavailable, navigation moves
-  the tree projection and panel only, and the next turn keeps the canonical
-  history.
+  (`Session.selectMessageSurface()`), jumping switches the model-visible
+  history directly: the next turn starts from the selected node.
+- **Projection mode** — on official Harness builds, clicking a node moves the
+  tree cursor and leaves the conversation history intact. Use `/fork` to
+  continue from an earlier user prompt in a new session. The tree cursor and
+  branches are saved under `$DSH_HOME/storages/session-tree/`.
 
-Every mode is honest about itself: the Host log prints a one-time notice when
-a session runs in a non-native mode. Move the raw `session.jsonl.zstd` between
-machines together with the matching sidecar file.
+Move the raw `session.jsonl.zstd` between machines together with the matching
+sidecar file to retain the tree state.
 
 ## How it works
 
@@ -153,8 +127,8 @@ machines together with the matching sidecar file.
   children — that is the fork.
 - **Cursor navigation** — jumping moves the active leaf to a historical node;
   the next append grows a new branch from there. Sibling branches stay intact.
-- **LLM context** — the model always receives the standard `messages` array
-  for the root→cursor path only.
+- **LLM context** — the selected path becomes model history in native mode or
+  in a new session created by `/fork`.
 
 ## Development (contributors)
 
@@ -167,12 +141,11 @@ pnpm verify      # build + typecheck (host & client) + pack dry-run + vitest
 pnpm pack:all    # produce the four tarballs
 ```
 
-Tests run against the published Harness packages (`0.2.1-rc.5`) — the
-stock-mode paths — with `vitest` from the repository root. Earlier releases
-were also verified against `0.2.1-rc.2` and `0.2.1-rc.3`. The
-browser spec in `packages/client/ui-session-tree` exercises both the 0.2 native
-right-Sidebar registration and the older overlay fallback in the standalone
-suite.
+Tests use `vitest` from the repository root against the published Harness
+packages (`0.2.1-rc.5`). Earlier releases were also verified against
+`0.2.1-rc.2` and `0.2.1-rc.3`. The browser spec in
+`packages/client/ui-session-tree` exercises both the 0.2 native right-Sidebar
+registration and the older overlay fallback.
 
 ### Source integration against a Harness checkout
 

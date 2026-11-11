@@ -2,7 +2,7 @@
  * Companion-package behavior tests: the /tree command family (every
  * subcommand), /fork, /clone, /session, tool argument validation, the Remote
  * service surface, store-level Pi clone semantics, and all three
- * model-surface modes (native, stock, projection) including durable-event
+ * model-surface modes (native and projection) including durable-event
  * resume.
  */
 
@@ -13,13 +13,14 @@ import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
-import { ToolCallId } from '@deepseek-ai/dsh-llm'
+import { MessageId, ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
-import { Session, SessionId } from '@deepseek-ai/dsh-session'
+import { Session, SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import { releasedV4SessionFormatCodec, restoreReleasedV4Artifact } from '@deepseek-ai/dsh-session-format-v3-to-v4'
 import SessionTreeService, {
   getSessionTreeSidecar,
   setSessionTreeSidecar,
@@ -317,9 +318,18 @@ describe('/clone command', () => {
     const agent = stubAgent('cmd-clone-seed', '/workspace/clone-target')
     seedTurns(agent)
     const root = service.list(agent).nodes[0]!
-    // A stock-mode jump writes a synthetic cursor event into the source log.
+    // Simulate an old plugin's synthetic cursor event in the source log.
     service.jump(agent, root.nodeId)
-    expect(agent.session.snapshotEvents().some(event => event.type === 'system/message' && (event.data as { treeRestore?: unknown }).treeRestore !== undefined)).toBe(true)
+    const marker = {
+      turn: 0,
+      step: 0,
+      message: { id: MessageId('legacy-cursor'), role: 'system', content: [], source: { kind: 'system-prompt' } },
+      treeRestore: { kind: 'cursor', nodeId: root.nodeId },
+    } as const
+    agent.session.append('system/message', marker, {
+      surfaceOp: { op: 'replace', startSeq: SessionSeq(0), endSeq: SessionSeq(1) },
+      sourceEventSeqs: [SessionSeq(0), SessionSeq(1)],
+    })
     // A durable snapshot event whose embedded sessionId must be rewritten.
     const snapshot = treeOf('cmd-clone-seed').snapshot()
     agent.session.append('session-tree/snapshot', { snapshot } as never)
@@ -430,7 +440,7 @@ describe('/tree command family', () => {
     expect(treeOf('cmd-tree-jump').selectedNode).toBe(root.nodeId)
     expect(agent.session.deriveMessages().map(message =>
       (message.content as Array<{ type?: string; text?: string }>).map(block => block.text ?? '').join(''),
-    )).toEqual(['root'])
+    )).toEqual(['root', 'answer'])
 
     // No argument falls back to the current selection.
     const bySelection = await command(ctx, agent, '/tree jump')
@@ -652,7 +662,12 @@ describe('sessionTree Remote service', () => {
     })
 
     const agent = stubAgent('remote-fork-seed', '/workspace/session-tree')
-    agent.session.append('turn/start', { turn: 0 })
+    agent.session.append('turn/start', { turn: 1 })
+    agent.session.append('step/start', { turn: 1, step: 1 })
+    agent.session.append('system/message', {
+      turn: 1, step: 1,
+      message: { id: MessageId('m-system'), role: 'system', content: [{ type: 'text', text: 'system prompt' }], source: { kind: 'system-prompt' } },
+    }, { surfaceOp: 'append' })
     agent.session.append('user/message', {
       id: 'm-root',
       role: 'user',
@@ -660,8 +675,8 @@ describe('sessionTree Remote service', () => {
       source: { kind: 'user' },
     } as never, { surfaceOp: 'append' })
     agent.session.append('assistant/message', {
-      turn: 0,
-      step: 0,
+      turn: 1,
+      step: 1,
       stream: [],
       message: {
         id: 'm-answer',
@@ -670,7 +685,8 @@ describe('sessionTree Remote service', () => {
         source: { kind: 'model', provider: 'p', model: 'm' },
       },
     } as never, { surfaceOp: 'append' })
-    agent.session.append('turn/end', { turn: 0, reason: { kind: 'completed' } })
+    agent.session.append('step/end', { turn: 1, step: 1 })
+    agent.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     const root = service.list(agent).nodes.find(node => node.message?.role === 'user')
     if (root === undefined) throw new Error('expected user root')
     const sourceEvents = structuredClone(agent.session.snapshotEvents())
@@ -679,11 +695,18 @@ describe('sessionTree Remote service', () => {
     expect(created).toHaveLength(1)
     expect(created[0]?.sessionId).toBe(String(forked.sessionId))
     expect(created[0]?.seed.some(event => event.type === 'assistant/message')).toBe(false)
-    expect(created[0]?.seed.map(event => event.type)).toEqual(['turn/start', 'user/message', 'turn/end'])
+    expect(created[0]?.seed.map(event => event.type)).toEqual([
+      'turn/start', 'step/start', 'system/message', 'user/message', 'step/end', 'turn/end',
+    ])
     expect(created[0]?.meta).toMatchObject({ cwd: '/workspace/session-tree', parentSession: agent.session.id })
 
     const target = Session.create(SessionId('remote-fork-seed-replay'), created[0]?.seed)
-    expect(target.deriveMessages().map(message => message.role)).toEqual(['user'])
+    expect(target.deriveMessages().map(message => message.role)).toEqual(['system', 'user'])
+    const seed = created[0]!.seed
+    expect(() => seed.map(event => releasedV4SessionFormatCodec.encodeEvent(event))).not.toThrow()
+    expect(() => restoreReleasedV4Artifact({
+      header: { ...agent.session.header, delegationDepth: 0 }, inheritedEventCount: 0, events: seed,
+    }, new Set(seed.map(event => event.type)))).not.toThrow()
     expect(agent.session.snapshotEvents()).toEqual(sourceEvents)
   })
 
@@ -864,12 +887,12 @@ describe('native surface mode (patched Harness)', () => {
   })
 })
 
-describe('projection surface mode (unwritable live surface)', () => {
-  it('degrades navigation to projection-only without throwing', async () => {
+describe('projection surface mode (stock Harness)', () => {
+  it('navigates the tree without modifying the live message surface', async () => {
     const { ctx } = await harness()
     const session = frozenSurfaceSession('projection-fallback')
     const agent = withSession(stubAgent('projection-fallback'), session)
-    expect(sessionTreeSurfaceMode(session)).toBe('stock')
+    expect(sessionTreeSurfaceMode(session)).toBe('projection')
 
     const service = ctx.sessionTree
     const view = service.list(agent)

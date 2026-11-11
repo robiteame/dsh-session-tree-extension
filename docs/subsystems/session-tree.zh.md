@@ -99,7 +99,7 @@ interface JumpView {
 
 Harness Session 事件是持久化真源，树存储是增量同步的投影。
 
-使用 `harness.patch` 的源码集成会把 cursor/branch/selection 标记持久化为 `session-tree/*` 事件，并通过原生 selected-message-surface API 把下一次模型请求指向活动路径。独立官方 Bundle 使用不同的实现：跳转会追加一条官方空内容 `assistant/message`，携带 `replace` surface 操作；branch/cursor/selection 元数据保存到插件 sidecar（`$DSH_HOME/storages/session-tree/<sessionId>.json`），并在下一次 agent pre-step 前恢复，因此官方 profile 重启后树仍然完整。
+使用可选引擎补丁的源码集成会将光标、分支和选中节点记录为 `session-tree/*` 事件，并通过原生 API 将下一次模型请求指向选中的路径。官方 Harness 则将树状态保存在 `$DSH_HOME/storages/session-tree/<sessionId>.json`，会话日志不受导航影响。如需从较早的用户消息继续，请用 `/fork` 创建独立会话。
 
 `snapshot.save` 产出、`snapshot.load` 恢复下面的版本化快照。每次 Remote 读取与 agent pre-step 都会把 Harness 原生 `Session.events` 中的消息、工具和模型路由事件增量投影为树节点，再由树光标继续追加；适配器保留原生事件 seq。未知版本被拒绝为 `INVALID_SNAPSHOT`。
 

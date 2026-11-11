@@ -259,7 +259,7 @@ describe('session tree browser plugin', () => {
     expect(b.opened).toEqual(['session-tree'])
   })
 
-  it('forks before the selected user prompt through the native session service', async () => {
+  it.each([false, true])('forks before the selected user prompt through the native session service (paged: %s)', async paged => {
     const prompt = '  selected line one\nselected line two  \n'
     const sourceCtx = { role: 'source' }
     const childCtx = { role: 'child' }
@@ -306,13 +306,15 @@ describe('session tree browser plugin', () => {
       { type: 'event', event: { type: 'turn/end', seq: 9 } },
     ]
     const sourceEvents = structuredClone(entries)
+    let history = paged ? { entries: entries.slice(-2), hasMore: true } : { entries, hasMore: false }
+    const loadOlder = vi.fn(async () => { history = { entries, hasMore: false } })
     const b = await bench(view('prompt', [selected], 'prompt'))
     b.editors.set(sourceCtx, sourceEditor)
     b.editors.set(childCtx, childEditor)
     b.bindings.set(sid('s1'), {
-      session: { loadThrough },
+      session: { loadThrough, loadOlder },
       eventSource: {
-        getSnapshot: () => ({ entries }),
+        getSnapshot: () => history,
       },
       ctx: sourceCtx,
     })
@@ -324,7 +326,9 @@ describe('session tree browser plugin', () => {
     await actions.forkUserPrompt?.(selected)
 
     expect(loadThrough).toHaveBeenCalledWith(8)
+    expect(loadOlder).toHaveBeenCalledTimes(paged ? 1 : 0)
     expect(b.nativeFork).toHaveBeenCalledWith({ sessionId: sid('s1'), atSeq: 5, increaseTitle: true })
+    expect(b.calls).toEqual([])
     expect(b.inputFor).toHaveBeenCalledWith(childCtx)
     expect(b.inputFor).not.toHaveBeenCalledWith(sourceCtx)
     expect(b.drafts).not.toHaveBeenCalled()
@@ -369,16 +373,22 @@ describe('session tree browser plugin', () => {
     expect(b.refresh).not.toHaveBeenCalled()
   })
 
-  it('reports the native fork limitation for the first user prompt', async () => {
+  it('opens a start-of-session fork with the first user prompt as an unsent draft', async () => {
     const selected: TreeNode = {
       ...node('prompt', null, 'first prompt'),
       metadata: { sessionEventSeq: 1 },
     }
     const b = await bench(view('prompt', [selected], 'prompt'))
+    const childId = sid('s1-fork-test')
+    const childCtx = {}
+    const childEditor = { parseEditorState: vi.fn((state: unknown) => state), setEditorState: vi.fn() }
+    b.editors.set(childCtx, childEditor)
+    b.refresh.mockImplementationOnce(async () => { b.bindings.set(childId, { ctx: childCtx }) })
     b.bindings.set(sid('s1'), {
       session: { loadThrough: vi.fn(async () => {}) },
       eventSource: {
         getSnapshot: () => ({
+          hasMore: false,
           entries: [
             { type: 'event', event: { type: 'user/message', seq: 1 } },
             { type: 'event', event: { type: 'turn/end', seq: 2 } },
@@ -390,12 +400,37 @@ describe('session tree browser plugin', () => {
     await b.fiber.await()
 
     const actions = ((b.entry() as unknown as { inject: (id: SessionId) => SessionTreePanelActions }).inject)(sid('s1'))
-    await expect(actions.forkUserPrompt?.(selected)).rejects.toThrow(
-      'The native fork API cannot fork before the first completed turn',
-    )
+    actions.modeController?.openSelector()
+    await actions.forkUserPrompt?.(selected)
+
+    expect(b.calls).toEqual([{ method: 'fork', args: ['s1', 'prompt', 'fork', true] }])
     expect(b.nativeFork).not.toHaveBeenCalled()
-    expect(b.drafts).not.toHaveBeenCalled()
-    expect(b.refresh).not.toHaveBeenCalled()
+    expect(b.refresh).toHaveBeenCalledTimes(1)
+    expect(textFromEditorState(childEditor.setEditorState.mock.calls[0]?.[0])).toBe('first prompt')
+    expect(b.openedSessions).toEqual([childId])
+    expect(actions.modeController?.getSnapshot().selectorOpen).toBe(false)
+    const lineage = ((b.branchEntry()?.inject) as unknown as () => { lineage: SessionForkLineage })().lineage
+    expect(lineage.getSnapshot().get(childId)?.parentId).toBe(sid('s1'))
+  })
+
+  it('does not create an empty fork when older history fails to load', async () => {
+    const selected = { ...node('prompt', null, 'later prompt'), metadata: { sessionEventSeq: 30 } }
+    const b = await bench(view('prompt', [selected]))
+    const loadOlder = vi.fn(async () => {})
+    b.bindings.set(sid('s1'), {
+      session: { loadThrough: vi.fn(async () => {}), loadOlder },
+      eventSource: { getSnapshot: () => ({
+        hasMore: true,
+        entries: [{ type: 'event', event: { type: 'user/message', seq: 30 } }],
+      }) },
+      ctx: {},
+    })
+    await b.fiber.await()
+    const actions = ((b.entry() as unknown as { inject: (id: SessionId) => SessionTreePanelActions }).inject)(sid('s1'))
+    await expect(actions.forkUserPrompt?.(selected)).rejects.toThrow('Could not load the history')
+    expect(loadOlder).toHaveBeenCalledTimes(1)
+    expect(b.calls).toEqual([])
+    expect(b.nativeFork).not.toHaveBeenCalled()
   })
 
   it('falls back to the additive official shell overlay and opens it on /tree', async () => {
@@ -562,6 +597,22 @@ describe('session tree browser plugin', () => {
     await waitFor(() => {
       expect(forkUserPrompt).toHaveBeenCalledWith(sid('s1'), expect.objectContaining(selected))
     })
+  })
+
+  it('labels selector failures as fork errors', async () => {
+    const controller = new SessionTreeOverlayController()
+    controller.openSelector()
+    const Panel = SessionTreeDock as unknown as ComponentType<Record<string, unknown>>
+    render(<Panel
+      sessionId={sid('s1')} panel="session-tree" t={t}
+      modeController={controller}
+      load={async () => view('prompt', [node('prompt', null, 'editable prompt')])}
+      jump={vi.fn()} fork={vi.fn()}
+      forkUserPrompt={async () => { throw new Error('offline') }}
+    />)
+    fireEvent.click(await screen.findByLabelText(`${zh['fork.selector.select']} — editable prompt`))
+    expect(await screen.findByText(`${zh['fork.selector.failed']}: offline`)).toBeTruthy()
+    expect(screen.queryByText(`${zh['panel.error']}: offline`)).toBeNull()
   })
 
   it('reloads the tree when the reactive session-list revision changes', async () => {

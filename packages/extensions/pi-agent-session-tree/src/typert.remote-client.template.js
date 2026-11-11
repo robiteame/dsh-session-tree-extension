@@ -9,6 +9,7 @@ const _robiteame_dsh_pi_agent_session_tree_sessionTree_fork_parameter_2$schema =
 const _robiteame_dsh_pi_agent_session_tree_sessionTree_forkSession_parameter_0$schema = z.intersection(z.string(), z.unknown())
 const _robiteame_dsh_pi_agent_session_tree_sessionTree_forkSession_parameter_1$schema = z.string()
 const _robiteame_dsh_pi_agent_session_tree_sessionTree_forkSession_parameter_2$schema = z.string()
+const _robiteame_dsh_pi_agent_session_tree_sessionTree_forkSession_parameter_3$schema = z.boolean().optional()
 const _robiteame_dsh_pi_agent_session_tree_sessionTree_fork_result$schema = z.object({
   'cursor': z.string(),
   'branch': z.string(),
@@ -188,6 +189,17 @@ const __TYPERT_REMOTE_DESCRIPTORS = {
             mode: 'strict',
             typeSymbol: '@robiteame/dsh-pi-agent-session-tree#sessionTree/forkSession:branch',
             schema: _robiteame_dsh_pi_agent_session_tree_sessionTree_forkSession_parameter_2$schema,
+          },
+        },
+        {
+          name: 'fromStart',
+          wire: 'fromStart',
+          source: 'json',
+          acceptsUndefined: true,
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@robiteame/dsh-pi-agent-session-tree#sessionTree/forkSession:fromStart',
+            schema: _robiteame_dsh_pi_agent_session_tree_sessionTree_forkSession_parameter_3$schema,
           },
         },
       ],

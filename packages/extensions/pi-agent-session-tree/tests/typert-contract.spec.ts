@@ -74,5 +74,10 @@ describe('Typert 0.2.1 artifact contract', () => {
     expect(parsed.success).toBe(true)
     const rejected = fork.input().create().safeParse({ agentId: 'session-1', nodeId: 42, branch: 'main' })
     expect(rejected.success).toBe(false)
+    const forkSession = remote.methods['sessionTree/forkSession']!.input({ strict: true }).create()
+    const args = { agentId: 'session-1', nodeId: 'node-1', branch: 'fork' }
+    expect(forkSession.safeParse(args).success).toBe(true)
+    expect(forkSession.safeParse({ ...args, fromStart: true }).success).toBe(true)
+    expect(forkSession.safeParse({ ...args, fromStart: 'true' }).success).toBe(false)
   })
 })

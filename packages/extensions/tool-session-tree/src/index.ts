@@ -31,7 +31,7 @@ export const name = 'tool-session-tree'
 export const inject = ['tools', 'systemPrompt', 'commands', 'agents']
 
 /** System-prompt fragment steering the agent to the tree as its only history. */
-export const SESSION_TREE_PROMPT = 'SessionTree is the append-only projection of this agent\'s durable Harness Session log. Native user, assistant, tool, and model-context events are synchronized automatically: never duplicate ordinary turns with operation \'append\'. Before answering after navigation, call session_tree with operation \'context\' and treat its root-to-cursor messages as the active branch context. Use \'append\' only for an explicit custom tree entry not already recorded by Harness. To explore an alternative, call \'fork\' or \'branch\' with a historical nodeId and branch name (or \'branch.summary\' to record a summary); old nodes are never modified or deleted. Use \'branches\' and \'tree\' to inspect topology, and \'snapshot.save\'/\'snapshot.load\' for explicit export or full-tree restore. All operations report failures as {ok:false,error:{code,message}}. Depending on the Harness build, jump/fork switch the model-visible history either through the native selected-surface API or through an official replace-surface emulation; when neither is available the tree is projection-only. The surface field reported by \'context\' and \'session\' states the active mode: native, stock, or projection.'
+export const SESSION_TREE_PROMPT = 'SessionTree is the append-only projection of this agent\'s durable Harness Session log. Native user, assistant, tool, and model-context events are synchronized automatically: never duplicate ordinary turns with operation \'append\'. Before answering after navigation, call session_tree with operation \'context\' and treat its root-to-cursor messages as the active branch context. Use \'append\' only for an explicit custom tree entry not already recorded by Harness. To explore an alternative, call \'fork\' or \'branch\' with a historical nodeId and branch name (or \'branch.summary\' to record a summary); old nodes are never modified or deleted. Use \'branches\' and \'tree\' to inspect topology, and \'snapshot.save\'/\'snapshot.load\' for explicit export or full-tree restore. All operations report failures as {ok:false,error:{code,message}}. The surface field reported by \'context\' and \'session\' is \'native\' when the host can switch model history in place, or \'projection\' when navigation only moves the tree cursor. On official Harness builds, use /fork to continue from an earlier user prompt in a separate session.'
 
 /** Register the tool, the command family, and the prompt section. */
 export function apply(ctx: Context): void {
@@ -319,10 +319,8 @@ async function cloneActiveSession(ctx: Context, agent: NonNullable<ToolRunContex
   // tree. Snapshot events are rewritten so their embedded sessionId matches the
   // target (otherwise a resumed clone would reject the seed as foreign).
   const seed: SessionEvent[] = [...agent.session.snapshotEvents()]
-    // Synthetic stock-mode cursor events exist only to invalidate the SOURCE
-    // session's deriveMessages cache; replayed inside a clone they would empty
-    // its rebuilt surface. The clone's tree projection comes from the store
-    // seed below, and its live surface is re-selected on the first pre-step.
+    // Exclude legacy cursor events: they were not conversation content and
+    // may fail format v4 validation if copied into the clone.
     .filter(event => !isSessionTreeRestoreEvent(event))
     .map((event, index) => {
       const record = JSON.parse(JSON.stringify(event)) as unknown as SessionEvent

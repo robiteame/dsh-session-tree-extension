@@ -148,7 +148,7 @@ function registerSessionTreeUi(ctx: ClientContext): void {
   const overlay = new SessionTreeOverlayController()
   ctx.effect(() => () => { overlay.dispose() }, 'ui-session-tree: overlay state')
   // /fork presentation annotations for the inline session-list menus. The
-  // fork data and parent linkage stay owned by ctx.sessions.fork; only the
+  // fork data and parent linkage stay owned by the host; only the
   // /fork-vs-/clone distinction and the branch title live here.
   const forkLineage = new SessionForkLineage(browserForkLineageStorage())
   ctx.effect(() => () => { forkLineage.dispose() }, 'ui-session-tree: fork lineage')
@@ -199,17 +199,34 @@ function registerSessionTreeUi(ctx: ClientContext): void {
     const source = ctx.sessions.binding(sessionId)
     if (source === undefined) throw new Error('source session is not addressable')
 
-    // Ensure the source event window covers the selected node before looking
-    // for the previous completed-turn boundary.
+    // A page can start at the selected turn. Keep paging until the previous
+    // turn is visible or we know we are at the beginning of the session.
     await source.session.loadThrough(SessionSeq(selectedSeq))
-    const entries = source.eventSource.getSnapshot().entries
-    let previousUserPrompt: string | undefined
+    let window = source.eventSource.getSnapshot()
     let previousTurnEnd: number | undefined
-    for (let index = entries.length - 1; index >= 0; index--) {
-      const entry = entries[index]
+    for (;;) {
+      for (let index = window.entries.length - 1; index >= 0; index--) {
+        const entry = window.entries[index]
+        if (entry?.type === 'event' && entry.event.type === 'turn/end' && entry.event.seq < selectedSeq) {
+          previousTurnEnd = entry.event.seq
+          break
+        }
+      }
+      if (previousTurnEnd !== undefined || !window.hasMore) break
+      const oldest = window.entries.find(entry => entry.type === 'event')?.event.seq
+      await source.session.loadOlder()
+      window = source.eventSource.getSnapshot()
+      const nextOldest = window.entries.find(entry => entry.type === 'event')?.event.seq
+      if (window.hasMore && (nextOldest === undefined || (oldest !== undefined && nextOldest >= oldest))) {
+        throw new Error('Could not load the history before the selected prompt')
+      }
+    }
+
+    let previousUserPrompt: string | undefined
+    for (let index = window.entries.length - 1; index >= 0; index--) {
+      const entry = window.entries[index]
       if (
-        previousUserPrompt === undefined
-        && entry?.type === 'event'
+        entry?.type === 'event'
         && entry.event.type === 'user/message'
         && entry.event.seq < selectedSeq
         // The inline fork-menu title names the previous TYPED prompt; skip
@@ -221,31 +238,33 @@ function registerSessionTreeUi(ctx: ClientContext): void {
           .map(part => part.text)
           .join('\n')
           .trim()
-        if (text !== '') previousUserPrompt = text
+        if (text !== '') {
+          previousUserPrompt = text
+          break
+        }
       }
-      if (
-        entry?.type === 'event'
-        && entry.event.type === 'turn/end'
-        && entry.event.seq < selectedSeq
-      ) {
-        previousTurnEnd = entry.event.seq
-      }
-      if (previousUserPrompt !== undefined && previousTurnEnd !== undefined) break
     }
 
+    let childId: SessionId
     if (previousTurnEnd === undefined) {
-      throw new Error('The native fork API cannot fork before the first completed turn')
+      // The native API cannot represent an empty prefix. The host verifies
+      // the boundary and creates a child with the same project and parent.
+      const answered = await ctx.remote.sessionTree.forkSession(sessionId, node.nodeId, 'fork', true)
+      if (!answered.ok) throw new Error(`${answered.error.code}: ${answered.error.message}`)
+      if (answered.value.sessionId === undefined) throw new Error('fork did not return a child session')
+      childId = answered.value.sessionId
+      if (ctx.sessions.binding(childId) === undefined) await ctx.sessions.refresh()
+    } else {
+      // A native anchor resolves to the first turn/end at or after it.
+      childId = await forkNative(sessionId, previousTurnEnd)
     }
 
-    // `atSeq` is the first turn/end at or after the anchor. Passing the prior
-    // completed turn therefore restores context strictly before the selection.
-    const childId = await forkNative(sessionId, previousTurnEnd)
+    writeNativePrompt(childId, nodeFullText(node))
     forkLineage.record({
       childId,
       parentId: sessionId,
       ...(previousUserPrompt === undefined ? {} : { summary: summarizeForkPrompt(previousUserPrompt) }),
     })
-    writeNativePrompt(childId, nodeFullText(node))
     revealSession(ctx, childId)
     overlay.closeSelector()
   }

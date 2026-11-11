@@ -37,7 +37,7 @@ harness_patch_is_applied() {
 
 # Optional branch-surface engine patch: adds Session.selectMessageSurface()
 # and the durable session-tree/* event vocabulary. Without it the plugin runs
-# in stock-surface emulation mode (capability-detected at runtime). Skip with
+# in projection mode (capability-detected at runtime). Skip with
 # ST_NO_SURFACE=1.
 if [ "${ST_NO_SURFACE:-0}" != "1" ] && (cd "$TARGET" && git rev-parse --is-inside-work-tree >/dev/null 2>&1); then
   if surface_patch_is_applied; then

@@ -60,10 +60,8 @@ interface SelectedMessageSurfaceSession {
  * this repository's `dev/session-branch-surface.patch`. A stock DeepSeek-Harness
  * install (the target of `dsh plugin add`) has no such API: `deriveMessages()`
  * always walks the canonical surface, and unknown `session-tree/*` events
- * cannot be marked `ignorable` through the public append API, so a profile
- * cannot persist them. The tree remains fully browsable and branchable inside
- * the process store in that mode; only the in-place model-surface switch is
- * unavailable.
+ * cannot be marked `ignorable` through the public append API. The tree remains
+ * browsable and branchable through its sidecar in that mode.
  */
 export function supportsSelectedMessageSurface(
   session: Session,
@@ -74,60 +72,11 @@ export function supportsSelectedMessageSurface(
 }
 
 /** How cursor movements reach the model-visible Session surface on this build. */
-export type SessionTreeSurfaceMode = 'native' | 'stock' | 'projection'
+export type SessionTreeSurfaceMode = 'native' | 'projection'
 
-/**
- * Sessions whose live surface could not be rewritten even through the official
- * replace event. They fall back to projection-only navigation: the tree and
- * panel cursor move, but the next model turn keeps the canonical history.
- */
-const projectionFallbackSessions = new WeakSet<object>()
-/** Sessions already announced in the Host log, so each notice fires once. */
-const surfaceNoticesSent = new WeakMap<object, Set<SessionTreeSurfaceMode>>()
-
-/**
- * The active surface mode for one session:
- * - `native` — `dev/session-branch-surface.patch` (or an upstream merge)
- *   provides `Session.selectMessageSurface()`; jump/fork switch the model
- *   history directly.
- * - `stock` — official Harness: the plugin emulates the switch with an official
- *   empty `replace` surface event plus the durable sidecar.
- * - `projection` — the live surface is not writable in this revision;
- *   navigation updates the tree projection and panel only.
- */
+/** Stock Harness uses the sidecar for tree navigation and keeps its model surface canonical. */
 export function sessionTreeSurfaceMode(session: Session): SessionTreeSurfaceMode {
-  if (supportsSelectedMessageSurface(session)) return 'native'
-  return projectionFallbackSessions.has(session) ? 'projection' : 'stock'
-}
-
-/** Announce a non-native mode once per session in the Host log. */
-function noticeSurfaceMode(
-  session: Session,
-  mode: Exclude<SessionTreeSurfaceMode, 'native'>,
-  detail: string,
-): void {
-  let sent = surfaceNoticesSent.get(session)
-  if (sent === undefined) {
-    sent = new Set()
-    surfaceNoticesSent.set(session, sent)
-  }
-  if (sent.has(mode)) return
-  sent.add(mode)
-  console.warn(`[session-tree] ${String(session.id)}: ${detail}`)
-}
-
-/** Mark a session as projection-only after its stock surface rewrite failed. */
-function markProjectionFallback(session: Session, cause: unknown): void {
-  if (projectionFallbackSessions.has(session)) return
-  projectionFallbackSessions.add(session)
-  const reason = cause instanceof Error ? cause.message : String(cause)
-  noticeSurfaceMode(
-    session,
-    'projection',
-    'projection mode: the live message surface is not writable here '
-      + `(${reason}); jump/fork move the tree cursor and panel only, and the next model turn keeps the canonical history. `
-      + 'Apply dev/session-branch-surface.patch (or upgrade Harness) for native branch switching.',
-  )
+  return supportsSelectedMessageSurface(session) ? 'native' : 'projection'
 }
 
 /**
@@ -227,6 +176,10 @@ export function sessionPathForkSeed(
   // Keep the enclosing turn boundary (if any) so a user-only path remains a
   // balanced, durable Session seed; filtering removes its assistant content.
   const events = sessionEvents(source)
+  // The first native system prompt is the protected surface head. Copy it so
+  // the fork's first new step can update it instead of appending after a user.
+  const systemHead = events.find(event => isSurfaceEvent(event))
+  if (systemHead?.type === 'system/message' && !isSessionTreeRestoreEvent(systemHead)) wanted.add(systemHead.seq)
   const boundary = events.find(event => event.seq >= anchorSeq && event.type === 'turn/end')?.seq ?? anchorSeq
   const kept: SessionEvent[] = []
   for (const event of events) {
@@ -384,7 +337,9 @@ export function syncSessionTree(agent: Agent, options: SyncSessionTreeOptions = 
   const newestSeq = freshEvents[freshEvents.length - 1]?.seq
   if (newestSeq !== undefined) tree.markSessionEventSeq(newestSeq)
   sessionTreeStore.replace(sessionId, tree)
-  if (options.applySurface !== false) applyTreeCursorToSession(agent, tree)
+  if (options.applySurface !== false && supportsSelectedMessageSurface(agent.session)) {
+    applyTreeCursorToSession(agent, tree)
+  }
   if (options.persist !== false) persistSessionTree(tree)
   return tree
 }
@@ -392,11 +347,12 @@ export function syncSessionTree(agent: Agent, options: SyncSessionTreeOptions = 
 /** Surface event seqs making up the tree's current root-to-cursor path. */
 function selectedSurfaceSeqs(tree: SessionTree, session: Session): number[] {
   const seqs: number[] = []
+  const events = sessionEvents(session)
   // The tree projection intentionally omits system messages, but the active
   // system prompt remains the protected head of the model surface.
   for (const rawSeq of session.surface.nodes) {
     const seq = rawSeq as number
-    const event = sessionEvents(session)[seq]
+    const event = events[seq]
     if (event?.type === 'system/message' && !isSessionTreeRestoreEvent(event)) seqs.push(seq)
   }
   for (const node of tree.currentPath()) {
@@ -409,155 +365,22 @@ function selectedSurfaceSeqs(tree: SessionTree, session: Session): number[] {
     const resultSeq = node.metadata?.toolResultEventSeq
     if (typeof resultSeq === 'number') nativeSeqs.push(resultSeq)
     for (const seq of nativeSeqs) {
-      const event = sessionEvents(session)[seq]
+      const event = events[seq]
       if (event !== undefined && isSurfaceEvent(event)) seqs.push(seq)
     }
   }
   return seqs
 }
 
-/** Append the official replacement event that invalidates the stock deriveMessages cache. */
-function appendStockCursorEvent(
-  session: Session,
-  tree: SessionTree,
-  logSurfaceNodes: readonly SessionSeq[],
-): SessionEvent<'system/message'> | undefined {
-  if (logSurfaceNodes.length === 0) return undefined
-  const marker = { kind: 'cursor' as const, nodeId: tree.cursor }
-  const data = {
-    turn: 0,
-    step: 0,
-    message: {
-      role: 'system' as const,
-      content: [],
-      id: `session-tree-cursor-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-      source: { kind: 'system-prompt' as const },
-    },
-    treeRestore: marker,
-  } as unknown as SessionEventMap['system/message']
-  // The replace range must be expressed against the surface a fresh replay of
-  // the log would build: the live node list was rewritten in place by earlier
-  // navigations, so ranges taken from it reference seqs the replayed surface
-  // no longer contains and make the stored session fail resume validation.
-  // A system head is protected by Harness and may only be replaced on its own;
-  // all later surface nodes can be replaced together by this empty marker.
-  const firstEvent = sessionEvents(session)[logSurfaceNodes[0] as number]
-  const startIndex = firstEvent?.type === 'system/message' && logSurfaceNodes.length > 1 ? 1 : 0
-  const startSeq = logSurfaceNodes[startIndex]!
-  const endSeq = logSurfaceNodes[logSurfaceNodes.length - 1]!
-  return session.append('system/message', data, {
-    surfaceOp: { op: 'replace', startSeq, endSeq },
-    sourceEventSeqs: logSurfaceNodes.slice(startIndex),
-  })
-}
-
-/**
- * The surface node list a fresh replay of the Session log would produce. The
- * in-memory list is spliced by {@link setStockSurfaceNodes} and therefore
- * diverges from the log after the first navigation; this walk reconstructs the
- * replayed truth so every emitted replace event stays resume-valid.
- */
-function canonicalSurfaceNodes(session: Session): SessionSeq[] {
-  const nodes: SessionSeq[] = []
-  for (const event of sessionEvents(session)) {
-    if (!isSurfaceEvent(event)) continue
-    if (event.surfaceOp === 'append') {
-      nodes.push(event.seq)
-      continue
-    }
-    if (event.surfaceOp !== undefined && event.surfaceOp.op === 'replace') {
-      const start = nodes.indexOf(event.surfaceOp.startSeq)
-      const end = nodes.indexOf(event.surfaceOp.endSeq)
-      if (start < 0 || end < start) continue
-      nodes.splice(start, end - start + 1, event.seq)
-    }
-  }
-  return nodes
-}
-
-/** Announce the stock emulation once per session in the Host log. */
-function noticeStockMode(session: Session): void {
-  noticeSurfaceMode(
-    session,
-    'stock',
-    'stock-surface mode: this Harness lacks Session.selectMessageSurface(); '
-      + 'branch switches use the official replace-surface emulation and the session-tree sidecar for durability',
-  )
-}
-
-/** Whether the live stock surface node list can be rewritten in place. */
-function stockSurfaceIsWritable(session: Session): boolean {
-  const nodes: unknown = session.surface.nodes
-  return Array.isArray(nodes) && !Object.isFrozen(nodes)
-}
-
-/** Rewrite the live stock surface nodes after the replacement generation bump. */
-function setStockSurfaceNodes(session: Session, seqs: readonly number[]): void {
-  const nodes = session.surface.nodes as unknown as number[]
-  if (!Array.isArray(nodes) || Object.isFrozen(nodes)) {
-    throw new Error('stock Harness message surface is not writable in this revision')
-  }
-  nodes.splice(0, nodes.length, ...seqs)
-}
-
-/** True when the two ordered seq lists are identical. */
-function sameSurfaceNodes(left: readonly number[], right: readonly number[]): boolean {
-  return left.length === right.length && left.every((seq, index) => seq === right[index])
-}
-
-/** Defensively flatten any nested seq payloads produced by older Harness surfaces. */
-function normalizeSurfaceNodeSeqs(values: readonly unknown[]): number[] {
-  const seqs: number[] = []
-  for (const value of values) {
-    if (Array.isArray(value)) {
-      for (const child of value) {
-        if (Number.isSafeInteger(child)) seqs.push(child as number)
-      }
-    } else if (Number.isSafeInteger(value)) {
-      seqs.push(value as number)
-    }
-  }
-  return seqs
-}
-
-/** Apply the selected tree path to Harness' actual model-visible Session surface. */
+/** Apply the tree cursor to the model surface when the host supports branch selection. */
 export function applyTreeCursorToSession(agent: Agent, tree: SessionTree): void {
-  const session = agent.session
-  const seqs = selectedSurfaceSeqs(tree, session)
+  const { session } = agent
   if (supportsSelectedMessageSurface(session)) {
-    session.selectMessageSurface(seqs)
+    session.selectMessageSurface(selectedSurfaceSeqs(tree, session))
     return
   }
-  const stockSession = session as Session
-  const currentNodes = normalizeSurfaceNodeSeqs(stockSession.surface.nodes)
-  if (sameSurfaceNodes(currentNodes, seqs)) return
-  if (process.env.DSH_SESSION_TREE_DEBUG === '1') {
-    console.error('[session-tree] stock surface rewrite', { sessionId: stockSession.id, currentNodes, seqs, cursor: tree.cursor })
-  }
-  // An unwritable surface must be detected before appending: a replace event
-  // without the follow-up node rewrite would leave a truncated live path, so
-  // such builds degrade to projection-only navigation instead.
-  if (!stockSurfaceIsWritable(stockSession)) {
-    markProjectionFallback(stockSession, new Error('surface nodes are not a writable array'))
-    persistSessionTree(tree)
-    return
-  }
-  try {
-    noticeStockMode(stockSession)
-    const logSurfaceNodes = canonicalSurfaceNodes(stockSession)
-    // Restore the live surface to the log's replayed truth first: the live
-    // array was spliced by earlier navigations, and the append-time
-    // provenance check would otherwise accept a replace the resume replay
-    // rejects (and vice versa). With live == replayed, both agree forever.
-    if (!sameSurfaceNodes(currentNodes, logSurfaceNodes)) {
-      setStockSurfaceNodes(stockSession, logSurfaceNodes)
-    }
-    const event = appendStockCursorEvent(stockSession, tree, logSurfaceNodes)
-    if (event !== undefined) tree.markSessionEventSeq(event.seq)
-    setStockSurfaceNodes(stockSession, seqs)
-  } catch (error) {
-    markProjectionFallback(stockSession, error)
-  }
+  // v4 only allows system messages within an open turn and step. Leave the
+  // official host's surface and log untouched; the sidecar owns tree navigation.
   persistSessionTree(tree)
 }
 
@@ -575,7 +398,7 @@ export class SessionTreeService extends TypertRemoteService {
    */
   constructor(ctx: Context) {
     super(ctx, 'sessionTree')
-    // Rehydrate the durable cursor before every proposed step, including a
+    // Restore the sidecar cursor before every proposed step, including a
     // resumed Session whose browser has not opened the tree panel yet.
     ctx.on('agent/pre-step', ({ agent }, next) => {
       syncSessionTree(agent)
@@ -616,9 +439,8 @@ export class SessionTreeService extends TypertRemoteService {
 
   /**
    * Move the SessionTree cursor to an existing node and return its root-to-node
-   * path through the context operation. This also selects the same path on
-   * Harness' model-visible Session surface, so the next turn genuinely branches
-   * from this leaf instead of merely changing the browser projection.
+   * path through the context operation. On hosts with the native surface API,
+   * the next turn also uses that path as its model history.
    * @param agent - owning live agent.
    * @param nodeId - target node, or null to reset before the first node.
    * @returns the new cursor and reconstructed messages.
@@ -681,10 +503,11 @@ export class SessionTreeService extends TypertRemoteService {
    * @param agent - owning live source agent.
    * @param nodeId - selected user-message node.
    * @param branch - branch label installed on the independent copy.
+   * @param fromStart - create an empty child for a prompt before the first completed turn.
    * @returns the source fork point plus target session and editable prompt.
    */
   @Remote('forkSession')
-  async forkSession(agent: Agent, nodeId: string, branch: string): Promise<SessionTreeForkView> {
+  async forkSession(agent: Agent, nodeId: string, branch: string, fromStart?: boolean): Promise<SessionTreeForkView> {
     const branchName = branch === '' ? 'fork' : branch
     // Independent forks must not invoke jump/branch/surface methods on the
     // source: the source JSONL remains byte-for-byte unchanged.
@@ -700,8 +523,19 @@ export class SessionTreeService extends TypertRemoteService {
     }
     const source = agent.session
     const targetId = toSessionId(`${source.id}-fork-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`)
-    const seed = sessionPathForkSeed(source, path)
-    const targetTree = createForkTargetTree(targetId, path, branchName, seed.length)
+    if (fromStart === true) {
+      const selectedSeq = selectedNode.metadata?.sessionEventSeq
+      const events = sessionEvents(source)
+      if (typeof selectedSeq !== 'number' || isInjectedUserNode(selectedNode)
+        || !events.some(event => event.seq === selectedSeq && event.type === 'user/message')) {
+        throw new Error('INVALID_ARGUMENT: expected a native user prompt')
+      }
+      if (events.some(event => event.type === 'turn/end' && event.seq < selectedSeq)) {
+        throw new Error('INVALID_ARGUMENT: this prompt has earlier completed history')
+      }
+    }
+    const seed = fromStart === true ? [] : sessionPathForkSeed(source, path)
+    const targetTree = fromStart === true ? undefined : createForkTargetTree(targetId, path, branchName, seed.length)
     try {
       await this.ctx.agents.create({
         sessionId: targetId,
@@ -719,14 +553,23 @@ export class SessionTreeService extends TypertRemoteService {
     } catch (error) {
       // Standalone hosts may not mount the loop-owned Agent factory. Real
       // Harness creates the live Session above; any other failure is real.
-      if (!(error instanceof Error) || !error.message.includes('no agent factory registered')) throw error
+      if (fromStart === true || !(error instanceof Error) || !error.message.includes('no agent factory registered')) throw error
     }
     // Publish the projected tree only after the independent Session has been
     // accepted. A failed factory call therefore leaves no fork sidecar/store
     // entry behind, while the no-factory test/runtime fallback still exposes
     // the fully materialized target tree.
-    sessionTreeStore.replace(targetId, targetTree)
-    persistSessionTree(targetTree)
+    if (targetTree !== undefined) {
+      sessionTreeStore.replace(targetId, targetTree)
+      persistSessionTree(targetTree)
+    } else {
+      // Workspace membership is separate from cwd on newer Harness builds.
+      const registry = this.ctx.get('workspaceRegistry') as {
+        list(): readonly { sessionIds: readonly SessionId[]; attachSession(id: SessionId): Promise<void> }[]
+      } | undefined
+      const workspace = registry?.list().find(candidate => candidate.sessionIds.includes(source.id))
+      await workspace?.attachSession(targetId)
+    }
     // Unlike legacy fork(), the source tree is not branched or selected.
     const forkCount = tree.list().filter(node => node.parentId === nodeId).length
     // The fork-menu title names the previous TYPED prompt; harness injections

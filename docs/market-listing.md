@@ -28,7 +28,7 @@ description:
 | 仓库年龄 ≥ 1 天 | ✅ |
 | 仓库打了 `dsh-plugin` 主题标签 | ⬜ 提 PR 前记得在 GitHub 网页添加(见下) |
 | 一个 PR 只加一个条目 | ✅ 我们只加一个文件 |
-| 条目文件是纯 YAML(只含条目本身,无说明文字) | ✅ 8 行条目;曾因把整份文档粘进条目导致 gate 判 "checked nothing" 而失败 |
+| 条目文件是纯 YAML(只含条目本身,无说明文字) | ✅ 6 行条目;曾因把整份文档粘进条目导致 gate 判 "checked nothing" 而失败 |
 
 ## 给仓库打 `dsh-plugin` 主题标签(网页操作)
 
@@ -41,7 +41,7 @@ description:
 1. 打开 https://github.com/awesome-dsh-plugin/awesome-dsh-plugin → 右上角 **Fork**
 2. 在你的 fork 里进入 `data/plugins/` 目录 → **Add file → Create new file**
 3. 文件名粘贴:`robiteame__dsh-session-tree-extension.yml`
-4. **只粘贴上面代码块里的 YAML(共 8 行),不要把本文档其余的中文说明粘进去** ——
+4. **只粘贴上面代码块里的 YAML(共 6 行,不含两行 ```),不要把本文档其余的中文说明粘进去** ——
    条目文件必须是纯 YAML;混入任何说明文字会让 CI 解析出 0 个条目,
    gate 判 "The gate checked nothing",check 直接 exit 1 → **Commit changes**
 5. 页面会出现 "This branch is X commits ahead" → 点 **Contribute → Open pull request**

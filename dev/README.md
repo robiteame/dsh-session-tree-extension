@@ -27,11 +27,10 @@ from `Session.commit()` after the event enters the log.
 
 **This patch is development-only.** The published packages never require it:
 `@robiteame/dsh-pi-agent-session-tree` capability-detects the API at runtime
-(`typeof session.selectMessageSurface === 'function'`). Without the patch the
-plugin runs in stock-surface emulation mode on official builds (an official
-empty `replace` surface event plus the plugin-owned sidecar; `/tree` outputs
-report `surface: "stock"` and the Host log notes it once per session). With
-the patch applied, jump/fork switch the model-visible history directly.
+(`typeof session.selectMessageSurface === 'function'`). On official builds the
+plugin saves tree navigation in its sidecar and reports `surface: "projection"`.
+Use `/fork` to continue a branch in a separate session. With the patch applied,
+jump/fork can switch the model-visible history in place.
 
 An upstream PR to merge this capability into DeepSeek-Harness is planned;
 until it lands, apply the patch only in dev checkouts. *(upstream PR link:

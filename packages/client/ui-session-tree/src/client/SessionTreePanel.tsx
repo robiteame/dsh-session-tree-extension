@@ -739,7 +739,7 @@ function LegacySessionTreePanel({
   t,
 }: SessionTreeViewProps & PropsLocale<'session-tree'> & { selectorMode: boolean }) {
   const [view, setView] = useState<SessionTreeView | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<{ message: string; label: 'panel.error' | 'fork.selector.failed' } | null>(null)
   const [pending, setPending] = useState(false)
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set<string>())
   const [expandedMessages, setExpandedMessages] = useState<ReadonlySet<string>>(() => new Set<string>())
@@ -749,7 +749,7 @@ function LegacySessionTreePanel({
     try {
       setView(await load(sessionId))
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause))
+      setError({ label: 'panel.error', message: cause instanceof Error ? cause.message : String(cause) })
     }
   }, [load, sessionId])
 
@@ -821,7 +821,7 @@ function LegacySessionTreePanel({
         if (forkUserPrompt === undefined) throw new Error('native fork action is unavailable')
         await forkUserPrompt(node)
       } catch (cause) {
-        setError(cause instanceof Error ? cause.message : String(cause))
+        setError({ label: 'fork.selector.failed', message: cause instanceof Error ? cause.message : String(cause) })
       } finally {
         setPending(false)
       }
@@ -841,7 +841,7 @@ function LegacySessionTreePanel({
       await jump(node.nodeId)
       await refresh()
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause))
+      setError({ label: 'panel.error', message: cause instanceof Error ? cause.message : String(cause) })
     } finally {
       setPending(false)
     }
@@ -856,7 +856,7 @@ function LegacySessionTreePanel({
       onForkCompleted?.(result)
       await refresh()
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause))
+      setError({ label: 'fork.selector.failed', message: cause instanceof Error ? cause.message : String(cause) })
     } finally {
       setPending(false)
     }
@@ -884,7 +884,7 @@ function LegacySessionTreePanel({
       />
       <div className={css.legend}><span className={css.legendDot} />{t('panel.selectedHint')}</div>
       <div className={css.body} aria-busy={pending}>
-        {error === null ? null : <p className={css.error}>{t('panel.error')}: {error}</p>}
+        {error === null ? null : <p className={css.error}>{t(error.label)}: {error.message}</p>}
         {view !== null && (selectorMode ? displayedNodes.length === 0 : rows.length === 0)
           ? <p className={css.empty}>{selectorMode ? t('fork.selector.empty') : t('panel.empty')}</p>
           : null}

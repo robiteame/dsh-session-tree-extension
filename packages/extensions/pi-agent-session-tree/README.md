@@ -72,12 +72,10 @@ system-prompt fragment this plugin installs.
 - Harness `Session` events are the durable source of truth; the tree is an
   incrementally synchronized projection. Explicit `snapshot.save`/`snapshot.load`
   events remain available for export and full-tree restore.
-- A patched checkout persists tree markers as `session-tree/*` events. An
-  official Bundle appends an official empty-content `assistant/message` with a
-  `replace` surface operation when the cursor moves, and stores branch
-  metadata in the sidecar under
-  `$DSH_HOME/storages/session-tree/<sessionId>.json`. Earlier events are never
-  rewritten or deleted.
+- A patched checkout persists tree markers as `session-tree/*` events. On
+  official builds, tree navigation leaves the Session log intact and saves
+  branch and cursor state in `$DSH_HOME/storages/session-tree/<sessionId>.json`.
+  Use `/fork` to continue from an earlier user prompt in a separate session.
 - Model-visible ⇔ logged: native Harness message events always synchronize
   into tree nodes; the tree does not synthesize history that was never logged.
 

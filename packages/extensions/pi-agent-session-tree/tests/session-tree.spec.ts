@@ -12,13 +12,14 @@ import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
-import { ToolCallId } from '@deepseek-ai/dsh-llm'
+import { MessageId, ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
 import { Session, SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import { releasedV4SessionFormatCodec, restoreReleasedV4Artifact } from '@deepseek-ai/dsh-session-format-v3-to-v4'
 import SessionTreeService, {
   appendSessionTreeEvent,
   applyTreeCursorToSession,
@@ -113,19 +114,6 @@ function expectError(result: unknown, code: string): void {
   const record = result as { ok?: unknown; error?: { code?: unknown } }
   expect(record.ok).toBe(false)
   expect(record.error?.code).toBe(code)
-}
-
-/** Live stock surface seqs, flattened for assertions. */
-function normalizeSurfaceNodesForTest(session: { surface: { nodes: readonly unknown[] } }): number[] {
-  const out: number[] = []
-  const walk = (values: readonly unknown[]): void => {
-    for (const value of values) {
-      if (Array.isArray(value)) walk(value)
-      else if (Number.isSafeInteger(value)) out.push(value as number)
-    }
-  }
-  walk(session.surface.nodes)
-  return out
 }
 
 function nodeOf(nodes: readonly TreeNode[], summary: string): TreeNode {
@@ -417,6 +405,51 @@ describe('session_tree tool: append-only history', () => {
     expect(result.previousUserPrompt).toBe('first typed')
   })
 
+  it.each([false, true])('creates an empty linked session before the first completed turn (completed: %s)', async completed => {
+    const { ctx, service } = await harness()
+    const source = stubAgent('tree-fork-from-start', '/workspace/session-tree')
+    const createOptions: Array<Parameters<typeof ctx.agents.create>[0]> = []
+    const attached: string[] = []
+    ctx.provide('workspaceRegistry', {
+      list: () => [{ sessionIds: [source.id], attachSession: async (id: string) => { attached.push(id) } }],
+    } as never)
+    ctx.agents.setFactory({
+      createAgent: async (_ownerCtx, options) => {
+        createOptions.push(options)
+        return { agent: stubAgent(String(options.sessionId)), dispose: () => Promise.resolve() }
+      },
+      resume: async () => { throw new Error('resume is unused in this test') },
+    })
+    for (const [index, prompt] of (completed ? ['first question', 'later question'] : ['first question']).entries()) {
+      const turn = index + 1
+      source.session.append('turn/start', { turn })
+      source.session.append('user/message', {
+        id: MessageId(`m-${turn}`), role: 'user', content: [{ type: 'text', text: prompt }], source: { kind: 'user' },
+      }, { surfaceOp: 'append' })
+      if (completed) source.session.append('turn/end', { turn, reason: { kind: 'completed' } })
+    }
+    const originalEvents = structuredClone(source.session.snapshotEvents())
+    const nodes = service.list(source).nodes
+    const first = nodeOf(nodes, 'first question')
+
+    const result = await service.forkSession(source, first.nodeId, 'fork', true)
+    expect(result.prompt).toBe('first question')
+    expect(createOptions).toHaveLength(1)
+    expect(createOptions[0]).toMatchObject({
+      sessionId: result.sessionId,
+      meta: { cwd: '/workspace/session-tree', parentSession: source.id },
+    })
+    expect(createOptions[0]?.seed ?? []).toEqual([])
+    expect(attached).toEqual([result.sessionId])
+    expect(sessionTreeStore.get(result.sessionId!)).toBeUndefined()
+    if (completed) {
+      const later = nodeOf(nodes, 'later question')
+      await expect(service.forkSession(source, later.nodeId, 'fork', true)).rejects.toThrow('earlier completed history')
+    }
+    expect(createOptions).toHaveLength(1)
+    expect(source.session.snapshotEvents()).toEqual(originalEvents)
+  })
+
   it('ignores version-1 sidecar caches so unmarked injected nodes re-project', () => {
     const sessionId = SessionId('tree-sidecar-v1')
     const path = join(testSidecarRoot, `${sessionId.replaceAll(/[^A-Za-z0-9._-]/g, '_')}.json`)
@@ -629,7 +662,7 @@ describe('session_tree plugin surfaces', () => {
     expect(restored.nodes.some(node => node.nodeId === 'after-snapshot')).toBe(true)
   })
 
-  it('switches Harness actual model history and grows the new branch', async () => {
+  it('grows the projected branch while keeping stock Harness history canonical', async () => {
     const { service } = await harness()
     const agent = stubAgent('tree-model-surface')
     agent.session.append('user/message', { role: 'user', content: 'root', source: 'human' } as never, { surfaceOp: 'append' })
@@ -643,10 +676,10 @@ describe('session_tree plugin surfaces', () => {
     const initial = service.list(agent)
     expect(agent.session.deriveMessages()).toHaveLength(2)
     service.jump(agent, initial.nodes[0]!.nodeId)
-    expect(agent.session.deriveMessages().map(message => message.role)).toEqual(['user'])
+    expect(agent.session.deriveMessages().map(message => message.role)).toEqual(['user', 'assistant'])
 
     agent.session.append('user/message', { role: 'user', content: 'alternate prompt', source: 'human' } as never, { surfaceOp: 'append' })
-    expect(agent.session.deriveMessages().map(message => message.role)).toEqual(['user', 'user'])
+    expect(agent.session.deriveMessages().map(message => message.role)).toEqual(['user', 'assistant', 'user'])
     const branched = service.list(agent)
     const alternative = branched.nodes.find(node => node.summary === 'alternate prompt')
     expect(alternative?.parentId).toBe(initial.nodes[0]!.nodeId)
@@ -844,93 +877,68 @@ describe('stock Harness Session compatibility (no harness.patch)', () => {
     expect(service.list(agent).cursor).toBeNull()
   })
 
-  it('rewrites the stock message surface with an official replace event and persists a sidecar', () => {
-    const sessionId = SessionId('tree-stock-rewrite')
-    const events = [
-      { type: 'user/message', seq: 0, time: 1, data: { role: 'user', content: 'one', source: { kind: 'user' } }, surfaceOp: 'append' },
-      { type: 'user/message', seq: 1, time: 2, data: { role: 'user', content: 'two', source: { kind: 'user' } }, surfaceOp: 'append' },
-    ] as unknown as SessionEvent[]
-    // Older/merged surfaces can occasionally carry nested seq payloads;
-    // stock rewriting must flatten them before they become durable provenance.
-    const surfaceNodes = [0, [1]] as unknown as number[]
-    const stockSession = {
-      id: sessionId,
-      events,
-      surface: { nodes: surfaceNodes },
-      requestContext: () => ({ provider: 'mock', model: 'mock' }),
-      append: ((type: string, data: Record<string, unknown>, opts?: { surfaceOp?: unknown; sourceEventSeqs?: number[] }) => {
-        const event = {
-          type,
-          seq: events.length,
-          time: Date.now(),
-          data,
-          ...(opts?.surfaceOp === undefined ? {} : { surfaceOp: opts.surfaceOp }),
-          ...(opts?.sourceEventSeqs === undefined ? {} : { sourceEventSeqs: opts.sourceEventSeqs }),
-        } as SessionEvent
-        events.push(event)
-        return event
-      }) as Session['append'],
-    } as unknown as Session
-
-    const agent = stubAgent(sessionId)
-    ;(agent as { session: Session }).session = stockSession
-    const tree = new SessionTree(sessionId)
-    const root = expectOk(tree.append({ role: 'user', content: 'one' }, { metadata: { sessionEventSeq: 0 } })) as TreeNode
-    const second = expectOk(tree.append({ role: 'user', content: 'two' }, { metadata: { sessionEventSeq: 1 } })) as TreeNode
-    tree.jump(root.nodeId)
-
-    applyTreeCursorToSession(agent, tree)
-
-    expect(surfaceNodes).toEqual([0])
-    const cursorEvent = events[2]
-    expect(cursorEvent?.type).toBe('system/message')
-    expect((cursorEvent as unknown as { surfaceOp?: unknown } | undefined)?.surfaceOp).toEqual({ op: 'replace', startSeq: 0, endSeq: 1 })
-    expect((cursorEvent as unknown as { sourceEventSeqs?: number[] } | undefined)?.sourceEventSeqs).toEqual([0, 1])
-    expect((cursorEvent?.data as Record<string, unknown>).treeRestore).toEqual({ kind: 'cursor', nodeId: root.nodeId })
-
-    tree.jump(second.nodeId)
-    applyTreeCursorToSession(agent, tree)
-    expect(surfaceNodes).toEqual([0, 1])
-    expect(events).toHaveLength(4)
-
-    const restored = getSessionTreeSidecar().load(sessionId)
-    expect(restored?.cursor).toBe(second.nodeId)
-    expect(restored?.lastSessionEventSeq()).toBe(3)
-    expect(restored?.list().map(node => node.nodeId)).toEqual([root.nodeId, second.nodeId])
-  })
-
-  it('keeps the stock log resume-valid across repeated cursor rewrites', () => {
-    const sessionId = SessionId('tree-stock-replay')
-    const session = Session.create(sessionId)
-    session.append('user/message', { id: 'm-one', role: 'user', content: [{ type: 'text', text: 'one' }], source: { kind: 'user' } } as never, { surfaceOp: 'append' })
-    session.append('user/message', { id: 'm-two', role: 'user', content: [{ type: 'text', text: 'two' }], source: { kind: 'user' } } as never, { surfaceOp: 'append' })
-
-    const agent = stubAgent(sessionId)
-    ;(agent as { session: Session }).session = session
-    const tree = new SessionTree(sessionId)
-    const root = expectOk(tree.append({ role: 'user', content: 'one' }, { metadata: { sessionEventSeq: 0 } })) as TreeNode
-    const second = expectOk(tree.append({ role: 'user', content: 'two' }, { metadata: { sessionEventSeq: 1 } })) as TreeNode
-
-    for (const target of [root.nodeId, second.nodeId, root.nodeId]) {
-      tree.jump(target)
-      applyTreeCursorToSession(agent, tree)
+  it('encodes and restores v4 history after navigating and continuing on stock Harness', async () => {
+    const { service } = await harness()
+    const agent = stubAgent('tree-stock-v4', '/workspace/tree-stock-v4')
+    const { session } = agent
+    const appendTurn = (turn: number, prompt: string, replaceSystem?: SessionSeq): void => {
+      session.append('turn/start', { turn })
+      session.append('step/start', { turn, step: 1 })
+      session.append('system/message', {
+        turn,
+        step: 1,
+        message: {
+          id: MessageId(`system-${turn}`),
+          role: 'system',
+          content: [{ type: 'text', text: `system prompt ${turn}` }],
+          source: { kind: 'system-prompt' },
+        },
+      }, replaceSystem === undefined ? { surfaceOp: 'append' } : {
+        surfaceOp: { op: 'replace', startSeq: replaceSystem, endSeq: replaceSystem },
+        sourceEventSeqs: [replaceSystem],
+      })
+      session.append('user/message', {
+        id: MessageId(`user-${turn}`), role: 'user', content: [{ type: 'text', text: prompt }], source: { kind: 'user' },
+      }, { surfaceOp: 'append' })
+      session.append('step/end', { turn, step: 1 })
+      session.append('turn/end', { turn, reason: { kind: 'completed' } })
     }
+    appendTurn(1, 'one')
+    // A second native step replaces the protected system head.
+    appendTurn(2, 'two', SessionSeq(2))
 
-    // The durable log must still rebuild through a fresh Session: replace
-    // ranges are computed against the replayed surface, not the live spliced
-    // one, so repeated navigation cannot corrupt the stored history.
-    const seed = session.snapshotEvents().slice()
-    expect(() => Session.create(SessionId('tree-stock-replay-check'), seed)).not.toThrow()
-    const replayed = Session.create(SessionId('tree-stock-replay-check'), seed)
-    if (supportsSelectedMessageSurface(session)) {
-      // Native mode never appends markers: the replay keeps the linear history.
-      expect(replayed.deriveMessages()).toHaveLength(2)
-    } else {
-      // The replayed surface is marker-only until the next pre-step re-selects
-      // the sidecar cursor; the live session keeps the selected path.
-      expect(replayed.deriveMessages()).toHaveLength(0)
-      expect(normalizeSurfaceNodesForTest(session)).toEqual([0])
-    }
+    const view = service.list(agent)
+    const root = nodeOf(view.nodes, 'one')
+    const second = nodeOf(view.nodes, 'two')
+    const before = session.snapshotEvents()
+    for (const target of [root.nodeId, second.nodeId, null, root.nodeId]) service.jump(agent, target)
+    expect(session.snapshotEvents()).toEqual(before)
+    expect(session.deriveMessages().map(message => message.id)).toEqual(['system-2', 'user-1', 'user-2'])
+    // pre-step runs after turn/start, before step/start: it must not emit a
+    // system marker even when restoring a historical cursor.
+    session.append('turn/start', { turn: 3 })
+    expect(() => syncSessionTree(agent)).not.toThrow()
+    session.append('turn/end', { turn: 3, reason: { kind: 'completed' } })
+    appendTurn(4, 'three', SessionSeq(8))
+    const continued = service.list(agent)
+    expect(nodeOf(continued.nodes, 'three').parentId).toBe(root.nodeId)
+
+    // Session.create only checks event shape. The actual persistence codec
+    // checks positive coordinates, and the v4 reader checks open-step ownership.
+    const events = session.snapshotEvents()
+    const encode = () => events.map(event => releasedV4SessionFormatCodec.encodeEvent(event))
+    expect(encode).not.toThrow()
+    const restored = restoreReleasedV4Artifact(
+      { header: { delegationDepth: 0, ...session.header }, inheritedEventCount: 0, events },
+      new Set(events.map(event => event.type)),
+    )
+    const reopened = Session.create(session.id, restored.events as readonly SessionEvent[], session.header)
+    expect(reopened.deriveMessages().map(message => message.id)).toEqual([
+      'system-4', 'user-1', 'user-2', 'user-4',
+    ])
+    expect(events.slice(0, before.length)).toEqual(before)
+    expect(events.filter(event => event.type === 'system/message')).toHaveLength(3)
+    expect(getSessionTreeSidecar().load(session.id)?.selectedNode).toBe(root.nodeId)
   })
 
   it('keeps synthetic cursor events out of the tree projection', () => {

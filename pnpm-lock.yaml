@@ -68,6 +68,9 @@ importers:
       '@deepseek-ai/dsh-session':
         specifier: 0.2.1-rc.5
         version: 0.2.1-rc.5(@deepseek-ai/cordis@4.0.5)(@deepseek-ai/dsh-scope@0.2.1-rc.5(@deepseek-ai/cordis@4.0.5))
+      '@deepseek-ai/dsh-session-format-v3-to-v4':
+        specifier: 0.2.1-rc.5
+        version: 0.2.1-rc.5(@deepseek-ai/cordis@4.0.5)
       '@deepseek-ai/dsh-session-projection':
         specifier: 0.2.1-rc.5
         version: 0.2.1-rc.5(@deepseek-ai/cordis@4.0.5)(@deepseek-ai/dsh-session@0.2.1-rc.5(@deepseek-ai/cordis@4.0.5)(@deepseek-ai/dsh-scope@0.2.1-rc.5(@deepseek-ai/cordis@4.0.5)))
@@ -396,6 +399,31 @@ packages:
 
   '@deepseek-ai/dsh-scope@0.2.1-rc.5':
     resolution: {integrity: sha512-KrYnnJwPuHXPRayueGCWqn7Uy5CWph/5Kt2CcubBxMTFqC7bHaHiDNeTQW9HmECczmKLD2U5dFSCTe569s4YeQ==}
+    peerDependencies:
+      '@deepseek-ai/cordis': ~4.0.5
+
+  '@deepseek-ai/dsh-session-format-v0-to-v1@0.2.1-rc.5':
+    resolution: {integrity: sha512-69WozHF7Vyf9Kkw0Y+CIl2jwGq3S2pe+VlUoKYTijVtNAoHdhV6fFKnKugSAXadaxJm0C8vBIQiw8jaZgtlK3Q==}
+    peerDependencies:
+      '@deepseek-ai/cordis': ~4.0.5
+
+  '@deepseek-ai/dsh-session-format-v1-to-v2@0.2.1-rc.5':
+    resolution: {integrity: sha512-e6Zl1o/w/ZgUTYaAIBHTUbEW+43GfNMG9ZPZjY8enZ0gZzMAy77lOJ0p6vy5mJGLYFvx3PTHMoPEaEqARmCyug==}
+    peerDependencies:
+      '@deepseek-ai/cordis': ~4.0.5
+
+  '@deepseek-ai/dsh-session-format-v2-to-v3@0.2.1-rc.5':
+    resolution: {integrity: sha512-4u5qMCJoqQV1pzRyVnunPxC9fhhaW8sUYggcrFeotKCXsHuxC1FphmGWl2x26Zem4Q/UHmX4uyrsMOkhAZ7G3w==}
+    peerDependencies:
+      '@deepseek-ai/cordis': ~4.0.5
+
+  '@deepseek-ai/dsh-session-format-v3-to-v4@0.2.1-rc.5':
+    resolution: {integrity: sha512-BQl8d/80IM10r4HZcs0F+/vGQSc6CYoDYX7N2i9biy+nXObK/SNCVYVF0p3/oIinfKobnt/DfA/YnBZlyxkqiQ==}
+    peerDependencies:
+      '@deepseek-ai/cordis': ~4.0.5
+
+  '@deepseek-ai/dsh-session-format@0.2.1-rc.5':
+    resolution: {integrity: sha512-xHpwMrfRt/3gYBEMiJrhD1YEpTBrvBfh+QIq0gbMBZ8fHIu80MEcDzXEpCB6TNTesiNGZcNLQEwcjvfHekAimQ==}
     peerDependencies:
       '@deepseek-ai/cordis': ~4.0.5
 
@@ -1505,6 +1533,38 @@ snapshots:
   '@deepseek-ai/dsh-scope@0.2.1-rc.5(@deepseek-ai/cordis@4.0.5)':
     dependencies:
       '@deepseek-ai/cordis': 4.0.5
+
+  '@deepseek-ai/dsh-session-format-v0-to-v1@0.2.1-rc.5(@deepseek-ai/cordis@4.0.5)':
+    dependencies:
+      '@deepseek-ai/cordis': 4.0.5
+      '@deepseek-ai/dsh-session-format': 0.2.1-rc.5(@deepseek-ai/cordis@4.0.5)
+      '@deepseek-ai/dsh-util-values': 0.2.1-rc.5(@deepseek-ai/cordis@4.0.5)
+
+  '@deepseek-ai/dsh-session-format-v1-to-v2@0.2.1-rc.5(@deepseek-ai/cordis@4.0.5)':
+    dependencies:
+      '@deepseek-ai/cordis': 4.0.5
+      '@deepseek-ai/dsh-llm': 0.2.1-rc.5(@deepseek-ai/cordis@4.0.5)
+      '@deepseek-ai/dsh-session-format': 0.2.1-rc.5(@deepseek-ai/cordis@4.0.5)
+      '@deepseek-ai/dsh-session-format-v0-to-v1': 0.2.1-rc.5(@deepseek-ai/cordis@4.0.5)
+      '@deepseek-ai/dsh-util-values': 0.2.1-rc.5(@deepseek-ai/cordis@4.0.5)
+
+  '@deepseek-ai/dsh-session-format-v2-to-v3@0.2.1-rc.5(@deepseek-ai/cordis@4.0.5)':
+    dependencies:
+      '@deepseek-ai/cordis': 4.0.5
+      '@deepseek-ai/dsh-session-format': 0.2.1-rc.5(@deepseek-ai/cordis@4.0.5)
+      '@deepseek-ai/dsh-session-format-v0-to-v1': 0.2.1-rc.5(@deepseek-ai/cordis@4.0.5)
+      '@deepseek-ai/dsh-session-format-v1-to-v2': 0.2.1-rc.5(@deepseek-ai/cordis@4.0.5)
+
+  '@deepseek-ai/dsh-session-format-v3-to-v4@0.2.1-rc.5(@deepseek-ai/cordis@4.0.5)':
+    dependencies:
+      '@deepseek-ai/cordis': 4.0.5
+      '@deepseek-ai/dsh-session-format': 0.2.1-rc.5(@deepseek-ai/cordis@4.0.5)
+      '@deepseek-ai/dsh-session-format-v2-to-v3': 0.2.1-rc.5(@deepseek-ai/cordis@4.0.5)
+
+  '@deepseek-ai/dsh-session-format@0.2.1-rc.5(@deepseek-ai/cordis@4.0.5)':
+    dependencies:
+      '@deepseek-ai/cordis': 4.0.5
+      '@deepseek-ai/dsh-util-values': 0.2.1-rc.5(@deepseek-ai/cordis@4.0.5)
 
   '@deepseek-ai/dsh-session-projection@0.2.1-rc.5(@deepseek-ai/cordis@4.0.5)(@deepseek-ai/dsh-session@0.2.1-rc.5(@deepseek-ai/cordis@4.0.5)(@deepseek-ai/dsh-scope@0.2.1-rc.5(@deepseek-ai/cordis@4.0.5)))':
     dependencies:

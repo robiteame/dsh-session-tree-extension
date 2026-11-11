@@ -49,9 +49,12 @@ visible under the nearest unarchived ancestor; restoring the parent restores
 their nesting. Pending removals disable repeat clicks, and failed removals
 show an inline error and allow retry.
 
-Presentation-only by construction: the fork data and the parent linkage come
-from the official native fork API (`ctx.sessions.fork` writes each child with
-`parentId`), and the menu derives its cascade purely from that reactive list.
+Presentation-only by construction: the fork data and parent linkage come
+from the host, and the menu derives its cascade from the reactive Session list.
+Completed prefixes use `ctx.sessions.fork`; before the first completed turn,
+`sessionTree.forkSession(..., fromStart: true)` creates an empty child with
+the same project and parent. The selected prompt is placed in its composer
+without sending it.
 While a child is represented inline, its native list row is hidden and restored
 when the menu unmounts. A small UI-layer lineage registry (`fork-lineage.ts`,
 persisted to

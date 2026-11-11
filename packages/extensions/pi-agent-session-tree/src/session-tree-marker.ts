@@ -1,4 +1,4 @@
-/** Marker carried by official surface events written by stock-mode tree jumps. */
+/** Marker carried by synthetic surface events written by older plugin releases. */
 
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 
