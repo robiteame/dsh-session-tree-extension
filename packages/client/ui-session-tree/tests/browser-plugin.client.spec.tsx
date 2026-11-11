@@ -87,7 +87,7 @@ function installTestSlots(ctx: Context) {
   return slots
 }
 
-async function bench(tree = view(null, []), nativePanel = true) {
+async function bench(tree = view(null, []), nativePanel = true, archiveSupported = true) {
   const ctx = new Context()
   // Each bench mounts the real browser persistence; scrub the shared jsdom
   // localStorage so one test's /fork annotations never leak into the next.
@@ -102,6 +102,7 @@ async function bench(tree = view(null, []), nativePanel = true) {
   const nativeFork = vi.fn(async (opts: { sessionId: SessionId }) => sid(`${opts.sessionId}-native-fork`))
   const open = vi.fn((id: SessionId) => { openedSessions.push(id) })
   const refresh = vi.fn(async () => {})
+  const archiveSession = vi.fn(async (_id: SessionId) => {})
   const sessionTree = {
     list: (...args: unknown[]) => { calls.push({ method: 'list', args }); return Promise.resolve({ ok: true, value: tree }) },
     jump: (...args: unknown[]) => { calls.push({ method: 'jump', args }); return Promise.resolve({ ok: true, value: { cursor: args[1], messages: [] } }) },
@@ -144,7 +145,7 @@ async function bench(tree = view(null, []), nativePanel = true) {
     fork: nativeFork,
     refresh,
   } as never)
-  ctx.provide('uiWorkspace', { openSession: open } as never)
+  ctx.provide('uiWorkspace', { openSession: open, ...(archiveSupported ? { archiveSession } : {}) } as never)
   if (nativePanel) {
     const tabRegistrations: Array<Record<string, unknown>> = []
     ctx.provide('sidebarRightTabs', {
@@ -166,7 +167,7 @@ async function bench(tree = view(null, []), nativePanel = true) {
   } as never)
   const fiber = ctx.plugin({ inject: [...inject], apply })
   return {
-    ctx, calls, opened, openedSessions, drafts, editors, inputFor, bindings, nativeFork, open, refresh, fiber, toolDetails,
+    ctx, calls, opened, openedSessions, drafts, editors, inputFor, bindings, nativeFork, open, refresh, archiveSession, fiber, toolDetails,
     entry: () => ctx.slots.entries(nativePanel ? 'sidebar.right.pane.tab' : 'conversation.details.panel' as never)[0],
     overlayEntry: () => ctx.slots.entries('shell.overlay' as never)[0],
     branchEntry: () => ctx.slots.entries('shell.overlay' as never)[1],
@@ -841,6 +842,112 @@ describe('session tree browser plugin', () => {
     expect(childRow.style.display).toBe('')
     expect(childRow.hasAttribute('data-session-tree-branch-hidden')).toBe(false)
     expect(document.querySelector('[data-session-tree-branch-host]')).toBeNull()
+  })
+
+  it('removes fork sessions through native archiving and propagates failures', async () => {
+    const b = await bench()
+    await b.fiber.await()
+    const actions = (b.branchEntry()!.inject as unknown as () => {
+      deleteSession: (id: SessionId) => Promise<void>
+    })()
+    await actions.deleteSession(sid('child'))
+    expect(b.archiveSession).toHaveBeenCalledExactlyOnceWith(sid('child'))
+    expect(b.open).not.toHaveBeenCalled()
+    b.archiveSession.mockRejectedValueOnce(new Error('archive refused'))
+    await expect(actions.deleteSession(sid('child'))).rejects.toThrow('archive refused')
+  })
+
+  it('omits removal on older hosts without native archiving', async () => {
+    const b = await bench(view(null, []), true, false)
+    await b.fiber.await()
+    const actions = (b.branchEntry()!.inject as unknown as () => {
+      deleteSession?: (id: SessionId) => Promise<void>
+      openSession: (id: SessionId) => void
+    })()
+    expect(actions.deleteSession).toBeUndefined()
+    actions.openSession(sid('child'))
+    expect(b.open).toHaveBeenCalledExactlyOnceWith(sid('child'))
+  })
+
+  it('keeps child forks reachable after removal and restores nesting when unarchived', async () => {
+    const lineage = new SessionForkLineage()
+    lineage.record({ childId: sid('c1'), parentId: sid('s1'), summary: 'first fork', createdAt: 1 })
+    lineage.record({ childId: sid('g1'), parentId: sid('c1'), summary: 'nested fork', createdAt: 2 })
+    lineage.record({ childId: sid('c2'), parentId: sid('s1'), summary: 'sibling fork', createdAt: 3 })
+    const state = fakeListState(
+      [sid('s1'), sid('c1'), sid('g1'), sid('c2')],
+      Object.fromEntries([
+        fakeRow(sid('s1'), 'Source chat'), fakeRow(sid('c1'), 'c1', sid('s1')),
+        fakeRow(sid('g1'), 'g1', sid('c1')), fakeRow(sid('c2'), 'c2', sid('s1')),
+      ]),
+      sid('c1'),
+    )
+    renderNativeSessionRows([
+      { id: sid('s1'), title: 'Source chat' }, { id: sid('c1'), title: 'c1', selected: true },
+      { id: sid('g1'), title: 'g1' }, { id: sid('c2'), title: 'c2' },
+    ])
+    const useSessions = (<T,>(select: (value: typeof state) => T): T => select(state))
+    let archivedSessionIds: SessionId[] = []
+    const useWorkspaces = (<T,>(select: (value: { archivedSessionIds: SessionId[] }) => T): T => select({ archivedSessionIds }))
+    let finish!: () => void
+    const deleteSession = vi.fn((id: SessionId) => new Promise<void>(resolve => {
+      finish = () => { archivedSessionIds = [id]; resolve() }
+    }))
+    const openSession = vi.fn()
+    const Menu = SessionBranchList as unknown as ComponentType<Record<string, unknown>>
+    const props = { lineage, useSessions, useWorkspaces, deleteSession, openSession, t }
+    const rendered = render(<Menu {...props} />)
+    const button = await screen.findByLabelText(`${zh['branch.node.delete']} - first fork`)
+    fireEvent.click(button)
+    fireEvent.click(button)
+    expect(deleteSession).toHaveBeenCalledExactlyOnceWith(sid('c1'))
+    expect(button.hasAttribute('disabled')).toBe(true)
+    expect(button.getAttribute('aria-busy')).toBe('true')
+    expect(openSession).not.toHaveBeenCalled()
+    expect(screen.getByText('first fork')).not.toBeNull()
+    finish()
+    await waitFor(() => { expect(button.hasAttribute('disabled')).toBe(false) })
+    rendered.rerender(<Menu {...props} />)
+    expect(screen.queryByText('first fork')).toBeNull()
+    expect(document.querySelector('[data-branch-session-id="g1"]')?.getAttribute('data-branch-depth')).toBe('1')
+    expect(screen.getByText('sibling fork')).not.toBeNull()
+    expect(lineage.getSnapshot().size).toBe(3)
+
+    // Refreshing/remounting reads the Host archive set, not a local hidden flag.
+    rendered.unmount()
+    const restored = render(<Menu {...props} />)
+    expect(screen.queryByText('first fork')).toBeNull()
+    archivedSessionIds = []
+    restored.rerender(<Menu {...props} />)
+    expect(screen.getByText('first fork')).not.toBeNull()
+    expect(document.querySelector('[data-branch-session-id="g1"]')?.getAttribute('data-branch-depth')).toBe('2')
+    archivedSessionIds = [sid('c1'), sid('g1'), sid('c2')]
+    restored.rerender(<Menu {...props} />)
+    expect(document.querySelector('[data-session-tree-branch-host]')).toBeNull()
+  })
+
+  it('keeps a failed removal visible and supports retry', async () => {
+    const lineage = new SessionForkLineage()
+    lineage.record({ childId: sid('c1'), parentId: sid('s1'), summary: 'retry fork' })
+    const state = fakeListState([sid('s1'), sid('c1')], Object.fromEntries([
+      fakeRow(sid('s1'), 'Source chat'), fakeRow(sid('c1'), 'c1', sid('s1')),
+    ]), sid('s1'))
+    renderNativeSessionRows([{ id: sid('s1'), title: 'Source chat' }, { id: sid('c1'), title: 'c1' }])
+    const useSessions = (<T,>(select: (value: typeof state) => T): T => select(state))
+    const deleteSession = vi.fn<(id: SessionId) => Promise<void>>()
+      .mockRejectedValueOnce(new Error('permission denied'))
+      .mockResolvedValueOnce()
+    const openSession = vi.fn()
+    const Menu = SessionBranchList as unknown as ComponentType<Record<string, unknown>>
+    render(<Menu lineage={lineage} useSessions={useSessions} deleteSession={deleteSession} openSession={openSession} t={t} />)
+    fireEvent.click(await screen.findByLabelText(`${zh['branch.node.delete']} - retry fork`))
+    expect((await screen.findByRole('alert')).textContent).toContain('permission denied')
+    expect(screen.getByText('retry fork')).not.toBeNull()
+    fireEvent.click(screen.getByLabelText(`${zh['branch.node.delete']} - retry fork`))
+    await waitFor(() => { expect(deleteSession).toHaveBeenCalledTimes(2) })
+    await waitFor(() => { expect(screen.queryByRole('alert')).toBeNull() })
+    expect(openSession).not.toHaveBeenCalled()
+    expect(lineage.getSnapshot().has(sid('c1'))).toBe(true)
   })
 
   it('keeps /clone children in the native list and records previous-prompt fork titles', async () => {

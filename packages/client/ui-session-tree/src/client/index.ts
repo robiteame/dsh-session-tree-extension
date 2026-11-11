@@ -352,10 +352,16 @@ function registerSessionTreeUi(ctx: ClientContext): void {
   // so ordinary sessions and /clone children keep their native presentation.
   ctx.slots.inject('shell.overlay', () => ctx.slots.register({
     name: 'shell.overlay', id: 'session-tree-branches', order: 11, locale: NS,
-    inject: () => ({
-      lineage: forkLineage,
-      openSession: (sessionId: SessionId) => { revealSession(ctx, sessionId) },
-    }),
+    inject: () => {
+      const workspace = ctx.get('uiWorkspace')
+      return {
+        lineage: forkLineage,
+        openSession: (sessionId: SessionId) => { revealSession(ctx, sessionId) },
+        ...(typeof workspace?.archiveSession !== 'function' ? {} : {
+          deleteSession: (sessionId: SessionId) => workspace.archiveSession(sessionId),
+        }),
+      }
+    },
   }, SessionBranchList))
 
   // The legacy source patch owns this optional slot. Mirror its exact

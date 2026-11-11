@@ -107,6 +107,15 @@ merged graph and also renders it as an inline collapsible menu directly beneath
 its source session's row. Both views follow the official reactive session list,
 so new branches appear without a refresh.
 
+### Remove a fork from the session list
+
+Click the trash button on the right of an inline fork row to remove it from
+the session list. This uses Harness's native archiving: history is retained
+and the session can be restored through the host's archived-session controls.
+Child forks remain visible under the nearest unarchived ancestor, and
+restoring the parent restores their original nesting. Failed removals show
+an error and can be retried. Hosts without native archiving omit the button.
+
 ### `/clone` — duplicate into a new session
 
 `/clone` copies the current conversation — through its root path — into an

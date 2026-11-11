@@ -1,3 +1,13 @@
+## Unreleased
+
+### Added
+
+- Inline fork rows now have a delete button that removes the session from the
+  list through native archiving while retaining history for restoration.
+  Surviving child forks stay visible, restored parents regain their original
+  nesting, and failed removals can be retried. Hosts without native archiving
+  keep the existing menu without the button.
+
 ## 0.7.2 — 2026-11-03
 
 ### Changed

@@ -123,6 +123,11 @@ const useStore = (): ListState => useSyncExternalStore(
   () => listState,
 )
 const useSessions = <T,>(select: (state: ListState) => T): T => select(useStore())
+let archivedSessionIds: string[] = []
+const useWorkspaces = <T,>(select: (state: { archivedSessionIds: string[] }) => T): T => {
+  useStore()
+  return select({ archivedSessionIds })
+}
 
 /* ------------------------------------------------------------- call log (GUI-visible) */
 
@@ -142,7 +147,7 @@ const log = (text: string): void => {
 const nativeList = document.getElementById('native-session-list')!
 
 function renderNativeList(): void {
-  const rows = listState.ids.map((id) => {
+  const rows = listState.ids.filter(id => !archivedSessionIds.includes(id)).map((id) => {
     const row = listState.byId[id]
     const el = document.createElement('div')
     el.setAttribute('role', 'treeitem')
@@ -177,6 +182,12 @@ function setCursor(sessionId: string, nodeId: string): void {
 const openSession = (sessionId: string): void => {
   log(`openSession(${sessionId})`)
   setListState({ ...listState, current: sessionId })
+}
+
+const deleteSession = async (sessionId: string): Promise<void> => {
+  log(`archiveSession(${sessionId}) → 从列表移除，保留记录`)
+  archivedSessionIds = [...archivedSessionIds, sessionId]
+  setListState({ ...listState, current: listState.current === sessionId ? 's1' : listState.current })
 }
 
 const load = async (sessionId: string): Promise<SessionTreeView> => {
@@ -315,7 +326,7 @@ document.getElementById('btn-theme')!.addEventListener('click', () => {
 function Rig(): JSX.Element {
   return (
     <>
-      <SessionBranchList lineage={lineage} openSession={openSession} useSessions={useSessions} t={t} />
+      <SessionBranchList lineage={lineage} openSession={openSession} deleteSession={deleteSession} useSessions={useSessions} useWorkspaces={useWorkspaces} t={t} />
       <SessionTreeDock
         sessionId="s1"
         panel="session-tree"

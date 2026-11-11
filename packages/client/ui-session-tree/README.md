@@ -42,6 +42,13 @@ expand/collapse controls. The child title is the user message immediately
 preceding the selected node. The menu opens when a fork lands and follows the
 reactive Session list, so new branches appear without a browser refresh.
 
+Each fork row has a delete button on hosts with `uiWorkspace.archiveSession`.
+It removes the session from the list using native archiving, preserving its
+history and fork annotations for restoration. Surviving child forks remain
+visible under the nearest unarchived ancestor; restoring the parent restores
+their nesting. Pending removals disable repeat clicks, and failed removals
+show an inline error and allow retry.
+
 Presentation-only by construction: the fork data and the parent linkage come
 from the official native fork API (`ctx.sessions.fork` writes each child with
 `parentId`), and the menu derives its cascade purely from that reactive list.

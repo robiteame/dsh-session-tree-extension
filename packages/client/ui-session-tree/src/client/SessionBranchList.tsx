@@ -28,6 +28,7 @@ import { currentSessionId } from './session-list.ts'
 const BRANCH_HOST = '[data-session-tree-branch-host]'
 const HIDDEN_ATTRIBUTE = 'data-session-tree-branch-hidden'
 const PREVIOUS_DISPLAY_ATTRIBUTE = 'data-session-tree-branch-previous-display'
+const NO_ARCHIVED_SESSIONS: readonly SessionId[] = []
 
 /** One rendered /fork descendant inside an inline branch menu. */
 interface BranchRow {
@@ -63,14 +64,27 @@ interface HiddenRow {
 function branchGroups(
   state: SessionListState,
   entries: ReadonlyMap<SessionId, ForkLineageEntry>,
+  archivedIds: readonly SessionId[],
 ): BranchBuild {
   const byId = state.byId ?? {} as Record<SessionId, SessionSummary>
+  const archived = new Set(archivedIds)
   const branches = [...entries.values()]
-    .filter(entry => Object.prototype.hasOwnProperty.call(byId, entry.childId))
+    .filter(entry => !archived.has(entry.childId) && Object.prototype.hasOwnProperty.call(byId, entry.childId))
     .sort((a, b) => a.createdAt - b.createdAt)
 
-  const parentOf = (entry: ForkLineageEntry): SessionId =>
-    byId[entry.childId]?.parentId ?? entry.parentId
+  // Keep surviving children reachable when an intermediate fork is archived.
+  // The durable lineage stays intact so restoring it restores the nesting.
+  const parentOf = (entry: ForkLineageEntry): SessionId => {
+    let parentId = byId[entry.childId]?.parentId ?? entry.parentId
+    const visited = new Set<SessionId>([entry.childId])
+    while (archived.has(parentId) && !visited.has(parentId)) {
+      visited.add(parentId)
+      const next = byId[parentId]?.parentId ?? entries.get(parentId)?.parentId
+      if (next === undefined) break
+      parentId = next
+    }
+    return parentId
+  }
 
   const childrenByParent = new Map<SessionId, ForkLineageEntry[]>()
   for (const entry of branches) {
@@ -85,7 +99,7 @@ function branchGroups(
   const groups: BranchGroup[] = []
 
   for (const sourceId of ids) {
-    if (branchIds.has(sourceId)) continue
+    if (archived.has(sourceId) || branchIds.has(sourceId)) continue
     const children = childrenByParent.get(sourceId)
     if (children === undefined || children.length === 0) continue
 
@@ -245,16 +259,36 @@ function BranchRowView({
   expanded,
   onToggle,
   onOpen,
+  onDelete,
   t,
 }: {
   row: BranchRow
   expanded: boolean
   onToggle: (sessionId: SessionId) => void
   onOpen: (sessionId: SessionId) => void
+  onDelete: ((sessionId: SessionId) => Promise<void>) | undefined
   t: (key: SessionTreeKey) => string
 }) {
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const deletingRef = useRef(false)
   const classes = [css.row, row.current ? css.rowCurrent : undefined].filter(Boolean).join(' ')
   const toggleLabel = expanded ? t('node.collapse') : t('node.expand')
+  const deleteLabel = deleting ? t('branch.node.deleting') : t('branch.node.delete')
+  const deleteBranch = async (): Promise<void> => {
+    if (onDelete === undefined || deletingRef.current) return
+    deletingRef.current = true
+    setDeleting(true)
+    setDeleteError(null)
+    try {
+      await onDelete(row.sessionId)
+    } catch (error) {
+      setDeleteError(`${t('branch.node.deleteFailed')}: ${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      deletingRef.current = false
+      setDeleting(false)
+    }
+  }
   return (
     <li
       className={classes}
@@ -304,6 +338,7 @@ function BranchRowView({
         className={css.select}
         aria-label={`${t('branch.node.open')} - ${row.title}`}
         aria-current={row.current ? 'true' : undefined}
+        disabled={deleting}
         title={row.title}
         onClick={() => { onOpen(row.sessionId) }}
       >
@@ -316,6 +351,22 @@ function BranchRowView({
         </span>
         <span className={css.summary}>{row.title}</span>
       </button>
+      {onDelete === undefined ? null : (
+        <button
+          type="button"
+          className={css.deleteButton}
+          aria-label={`${deleteLabel} - ${row.title}`}
+          aria-busy={deleting}
+          title={deleting ? deleteLabel : t('branch.node.deleteHint')}
+          disabled={deleting}
+          onClick={() => { void deleteBranch() }}
+        >
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M2.5 4.5h11M6 4.5V2.5h4v2M4 4.5l.6 9h6.8l.6-9M6.5 7v4M9.5 7v4" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+      )}
+      {deleteError === null ? null : <span className={css.deleteError} role="alert">{deleteError}</span>}
     </li>
   )
 }
@@ -326,6 +377,7 @@ function BranchMenu({
   collapsed,
   onToggle,
   onOpen,
+  onDelete,
   t,
 }: {
   group: BranchGroup
@@ -333,6 +385,7 @@ function BranchMenu({
   collapsed: ReadonlySet<SessionId>
   onToggle: (sessionId: SessionId) => void
   onOpen: (sessionId: SessionId) => void
+  onDelete: ((sessionId: SessionId) => Promise<void>) | undefined
   t: (key: SessionTreeKey) => string
 }) {
   const toggleLabel = expanded ? t('branch.menu.collapse') : t('branch.menu.expand')
@@ -371,6 +424,7 @@ function BranchMenu({
           expanded={!collapsed.has(row.sessionId)}
           onToggle={onToggle}
           onOpen={onOpen}
+          onDelete={onDelete}
           t={t}
         />
       ))}
@@ -386,6 +440,8 @@ export type SessionBranchListProps =
     lineage: SessionForkLineage
     /** Open one Session through the official Session Controller. */
     openSession: (sessionId: SessionId) => void
+    /** Remove a fork from the list through native archiving, retaining its log. */
+    deleteSession?: (sessionId: SessionId) => Promise<void>
   }
 
 /**
@@ -396,11 +452,14 @@ export type SessionBranchListProps =
 export function SessionBranchList({
   lineage,
   openSession,
+  deleteSession,
   useSessions,
+  useWorkspaces,
   t,
 }: SessionBranchListProps) {
   const entries = useSyncExternalStore(lineage.subscribe, lineage.getSnapshot, lineage.getSnapshot)
   const state = useSessions(listState => listState)
+  const archivedIds = useWorkspaces?.(workspace => workspace.archivedSessionIds) ?? NO_ARCHIVED_SESSIONS
   const [collapsed, setCollapsed] = useState<ReadonlySet<SessionId>>(() => new Set())
   const [hosts, setHosts] = useState<ReadonlyMap<SessionId, HTMLElement>>(() => new Map())
   const hostsRef = useRef<ReadonlyMap<SessionId, HTMLElement>>(hosts)
@@ -409,8 +468,8 @@ export function SessionBranchList({
   const rebuildRef = useRef<() => void>(() => {})
 
   const { groups, liveBranches } = useMemo(
-    () => branchGroups(state, entries),
-    [state, entries],
+    () => branchGroups(state, entries, archivedIds),
+    [state, entries, archivedIds],
   )
 
   const previousSize = useRef(entries.size)
@@ -530,6 +589,7 @@ export function SessionBranchList({
             collapsed={collapsed}
             onToggle={toggle}
             onOpen={openSession}
+            onDelete={deleteSession}
             t={t}
           />,
           host,

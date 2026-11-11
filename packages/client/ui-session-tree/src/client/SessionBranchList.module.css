@@ -56,6 +56,7 @@
    indentation, so indentation never exists without its connector line. */
 .row {
   display: flex;
+  flex-wrap: wrap;
   align-items: stretch;
   width: 100%;
   min-width: 0;
@@ -159,6 +160,37 @@
 }
 .select:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary); outline-offset: -2px; }
 .select:disabled { cursor: wait; opacity: .6; }
+
+.deleteButton {
+  display: grid;
+  place-items: center;
+  align-self: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  margin-right: 2px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+.deleteButton svg { width: 16px; height: 16px; }
+.deleteButton:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-state-error-primary);
+}
+.deleteButton:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary); outline-offset: -2px; }
+.deleteButton:disabled { cursor: wait; opacity: .6; }
+.deleteError {
+  flex-basis: 100%;
+  padding: 2px 4px 6px;
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 12px;
+  line-height: 17px;
+  overflow-wrap: anywhere;
+}
 
 .topline {
   display: flex;

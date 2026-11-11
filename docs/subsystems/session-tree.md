@@ -191,6 +191,21 @@ type TreeResult<T> =
   comes from the native fork API's reactive `parentId` linkage; a UI-layer
   lineage registry only distinguishes `/fork` from `/clone`.
 
+## Removing fork sessions from the list
+
+The inline fork menu exposes a delete button when the host provides
+`uiWorkspace.archiveSession`. It calls that native action and reads
+`useWorkspaces(state => state.archivedSessionIds)` to exclude archived forks
+from the menu, including after a refresh. This preserves session logs and
+local fork annotations; the host's archived-session controls can restore the
+session. The right-hand history graph remains a view of the retained lineage.
+
+When an intermediate fork is archived, its surviving children appear beneath
+the nearest unarchived ancestor. Restoring that fork restores the original
+nesting without rewriting durable parent links. Removal disables repeat
+clicks while pending; errors stay inline and allow retry. Older hosts without
+the archive action keep the existing menu without a delete button.
+
 ## Cordis API
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->

@@ -151,6 +151,18 @@ type TreeResult<T> =
 - `sessionTree` Remote 服务（`@robiteame/dsh-pi-agent-session-tree`）：`list(agent)`、`jump(agent, nodeId)`、`fork(agent, nodeId, branch)`、`forkSession(agent, nodeId, branch)` 与 `session(agent)` 驱动浏览器面板；`forkSession` 是用户面的独立副本操作。
 - `@robiteame/dsh-client-ui-session-tree`：在打补丁的源码集成中占用原生右侧详情栏的 `conversation.details.panel`；在官方 Web profile 中使用叠加式 `shell.overlay`。`/tree` 打开或刷新视图，节点点击绑定命令上下文。面板把当前谱系中所有非 subagent 会话合并为一张图，高亮当前打开会话的路径，并把图形栏固定为 44px。第二个 `shell.overlay` 条目（`session-tree-branches`）则独立把可折叠分叉菜单挂载到原父会话的原生列表项之后；拓扑来自原生分叉 API 写入的响应式 `parentId`，UI 层标注注册表区分 `/fork` 与 `/clone`。
 
+## 从列表移除分叉会话
+
+宿主提供 `uiWorkspace.archiveSession` 时，内联分叉菜单显示删除按钮。
+按钮调用该原生操作，并通过
+`useWorkspaces(state => state.archivedSessionIds)` 排除已归档的分叉，
+刷新后也保持移除状态。会话日志和本地分叉标注均保留，可通过宿主的已归档
+会话控件恢复；右侧历史图仍展示保留的会话谱系。
+
+归档中间层分叉后，其保留的子分叉显示在最近的未归档祖先下。恢复父分叉时
+还原原有层级，不改写持久化父子关系。移除期间禁止重复点击，失败时在行内
+显示错误并允许重试。未提供归档操作的旧版宿主继续展示原菜单，不显示删除按钮。
+
 ## Cordis API
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
